@@ -1,0 +1,209 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Source identifiers are plain strings ("simplify", "intern-list", …) so a new
+// adapter never requires a migration.
+
+enum AppStatus {
+  NOT_APPLIED
+  APPLIED
+  OA
+  PHONE_SCREEN
+  INTERVIEW
+  OFFER
+  REJECTED
+  CLOSED
+  SKIPPED
+}
+
+enum AlertKind {
+  DAILY_DIGEST
+  HIGH_SCORE
+  CLOSING_SOON
+}
+
+enum AlertChannel {
+  DISCORD
+  EMAIL
+}
+
+model Company {
+  id             String    @id @default(cuid())
+  name           String
+  normalizedName String    @unique
+  faangPlus      Boolean   @default(false) // from Simplify README 🔥 set
+  tierOverride   Int? // manual tier (1–4); beats faangPlus
+  listings       Listing[]
+}
+
+/// One canonical row per deduped listing. Rows are never deleted; a listing
+/// gone from all sources gets likelyClosed = true.
+model Listing {
+  id              String    @id @default(cuid())
+  companyId       String
+  company         Company   @relation(fields: [companyId], references: [id])
+  title           String
+  normalizedTitle String
+  /// norm(company)|norm(title)|locationBucket — candidate-lookup key for dedup.
+  /// NOT unique: distinct requisitions can legitimately share it.
+  dedupKey        String
+  locations       String[]
+  countries       String[] // derived; feeds work-auth disqualifier
+  remote          Boolean   @default(false)
+  url             String // canonical apply URL
+  requisitionId   String? // parsed from URL when present; also a merge guard
+  postingText     String? // best available description text
+  postingTextHash String? // keys the LLM cache
+  category        String?
+  terms           String[]
+  sponsorship     String? // Simplify's field, verbatim
+  salary          String? // display string as the source gives it, e.g. "$58-$70/hr"
+  degrees         String[] // feeds advanced-degree disqualifier
+  postedAt        DateTime?
+  deadline        DateTime?
+  firstSeen       DateTime
+  lastSeen        DateTime
+  likelyClosed    Boolean   @default(false)
+
+  // user flags
+  saved     Boolean @default(false) // watching; drives closing-soon alerts
+  dismissed Boolean @default(false) // cleared from the table, stays cleared
+
+  // merge audit: [{source, sourceUid, url, reason, mergedAt}]
+  mergedFrom Json[]
+
+  // stage-3 posting-detail fetch
+  atsKind           String? // greenhouse | lever | ashby | workday | generic
+  detailFetchedAt   DateTime?
+  detailFetchStatus String? // ok | http_<code> | parse_failed | robots_denied | skipped_threshold | …
+
+  // scoring snapshot (recomputed when config hash changes)
+  ruleScore         Int?
+  llmAdjustment     Int? // clamped ±15
+  finalScore        Int?
+  scoreBreakdown    Json?
+  disqualified      Boolean   @default(false)
+  disqualifyReasons String[]
+  scoredAt          DateTime?
+  scoringConfigHash String?
+
+  sources     ListingSource[]
+  application Application?
+  assessments LlmAssessment[]
+
+  @@index([dedupKey])
+  @@index([companyId])
+  @@index([finalScore])
+  @@index([likelyClosed, dismissed])
+}
+
+/// Per-source presence; powers dedup and likely-closed detection.
+model ListingSource {
+  id        String   @id @default(cuid())
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  source    String
+  sourceUid String // Simplify's UUID; URL hash for intern-list
+  url       String
+  active    Boolean
+  firstSeen DateTime
+  lastSeen  DateTime
+  raw       Json // latest raw record from this source
+
+  @@unique([source, sourceUid])
+  @@index([listingId])
+}
+
+/// One row per adapter per ingestion run.
+model IngestRun {
+  id           String    @id @default(cuid())
+  source       String
+  startedAt    DateTime
+  finishedAt   DateTime?
+  ok           Boolean   @default(false)
+  itemsSeen    Int?
+  itemsNew     Int?
+  itemsUpdated Int?
+  error        String?
+  rawGz        Bytes? // gzipped payload, pruned after RAW_RETENTION_DAYS
+  rawSha256    String? // skip storing identical consecutive payloads
+
+  @@index([source, startedAt])
+}
+
+/// Stage-2 LLM cache — never re-runs on unchanged posting text.
+model LlmAssessment {
+  id         String   @id @default(cuid())
+  listingId  String
+  listing    Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  textHash   String
+  adjustment Int // −15..+15
+  rationale  String // one sentence
+  model      String
+  createdAt  DateTime @default(now())
+
+  @@unique([listingId, textHash])
+}
+
+/// Absence of a row = "Not Applied". listingId is optional: manual entries
+/// (roles found outside the sources) are first-class and can be linked to a
+/// listing later while keeping their own fields.
+model Application {
+  id            String        @id @default(cuid())
+  listingId     String?       @unique
+  listing       Listing?      @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  companyName   String? // manual-entry fields; retained after linking
+  roleTitle     String?
+  location      String?
+  status        AppStatus
+  appliedAt     DateTime?
+  requisitionId String?
+  applyUrl      String? // direct URL if it differs from the listing URL
+  notes         String?
+  events        StatusEvent[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model StatusEvent {
+  id            String      @id @default(cuid())
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  fromStatus    AppStatus?
+  toStatus      AppStatus
+  occurredAt    DateTime    @default(now())
+  note          String?
+
+  @@index([applicationId])
+}
+
+model Resume {
+  id         String   @id @default(cuid())
+  filename   String
+  uploadedAt DateTime @default(now())
+  text       String // extracted once at upload
+  active     Boolean  @default(true) // latest upload wins
+}
+
+/// UI-editable config: alert thresholds, toggles. Scoring weights live in
+/// config/scoring.json, NOT here.
+model Setting {
+  key   String @id
+  value Json
+}
+
+/// Prevents duplicate alerts.
+model AlertLog {
+  id        String       @id @default(cuid())
+  kind      AlertKind
+  channel   AlertChannel
+  listingId String?
+  dedupeKey String       @unique // e.g. "HIGH_SCORE:<listingId>"
+  sentAt    DateTime     @default(now())
+}
