@@ -55,6 +55,12 @@ export interface RescoreOptions {
   batchSize?: number;
   /** Hard cap on API calls per run — cost guard. */
   maxLlmCalls?: number;
+  /**
+   * Recompute global ranks at the end (default true). The provisional pass of
+   * a cycle sets this false: ranking half-scored listings would report movement
+   * that the final pass immediately undoes.
+   */
+  updateRanks?: boolean;
 }
 
 export interface RescoreSummary {
@@ -63,6 +69,8 @@ export interface RescoreSummary {
   disqualified: number;
   /** Rows whose scoring threw; skipped so one bad listing can't abort a run. */
   failed: number;
+  /** Listings whose global rank changed in this run. */
+  ranked: number;
   llmCacheHits: number;
   llmCalls: number;
   llmFailures: number;
@@ -380,11 +388,84 @@ export async function rescoreListings(opts: RescoreOptions = {}): Promise<Rescor
     stageTwo = await runStageTwo(settings, now, client, maxCalls, maxCandidates, log);
   }
 
+  // Ranks are assigned last, once scores have settled. The provisional pass in
+  // a cycle passes updateRanks:false so half-scored listings never publish a
+  // rank — otherwise every cycle would report spurious movement.
+  let ranked = 0;
+  if (opts.updateRanks ?? true) {
+    ranked = await recomputeRanks(now);
+    log(`[scoring] ranks: ${ranked} listing(s) moved`);
+  }
+
   return {
     configHash: hash,
     scored: stageOne.scored,
     disqualified: stageOne.disqualified,
     failed: stageOne.failed,
+    ranked,
     ...stageTwo,
   };
+}
+
+/**
+ * Schema-qualified table name for raw SQL.
+ *
+ * Prisma's driver adapter applies the `?schema=` parameter to the queries IT
+ * generates, but raw SQL is sent verbatim and resolves through the connection's
+ * `search_path` — which `prisma dev`'s proxy leaks between connections. An
+ * unqualified `"Listing"` therefore silently hit the test schema. Never write
+ * an unqualified table name in raw SQL here.
+ */
+export function qualifiedListingTable(): string {
+  let schema = "public";
+  try {
+    schema = new URL(process.env.DATABASE_URL ?? "").searchParams.get("schema") ?? "public";
+  } catch {
+    /* falls back to public */
+  }
+  // The value reaches SQL as an identifier, which cannot be parameterized.
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(schema)) {
+    throw new Error(`refusing unsafe schema name in DATABASE_URL: ${schema}`);
+  }
+  return `"${schema}"."Listing"`;
+}
+
+/**
+ * Assigns each non-disqualified listing its global position by score, so every
+ * reader agrees on rank instead of deriving it from whatever order they loaded.
+ *
+ * Both statements only touch rows whose rank actually changes (`IS DISTINCT
+ * FROM`), which is what keeps `previousRank`/`rankChangedAt` meaningful: a
+ * listing that holds its position across runs keeps the history of its last
+ * real move. Returns how many listings moved.
+ */
+export async function recomputeRanks(now: Date): Promise<number> {
+  const table = qualifiedListingTable();
+
+  // Ordering mirrors the table's default sort so rank 1 is the top row.
+  const moved = await prisma.$executeRawUnsafe(
+    `WITH ranked AS (
+       SELECT id, row_number() OVER (
+         ORDER BY "finalScore" DESC NULLS LAST, "firstSeen" DESC, id ASC
+       ) AS rn
+       FROM ${table}
+       WHERE NOT disqualified
+     )
+     UPDATE ${table} l
+     SET "previousRank" = l."rank", "rank" = r.rn, "rankChangedAt" = $1
+     FROM ranked r
+     WHERE l.id = r.id AND l."rank" IS DISTINCT FROM r.rn`,
+    now,
+  );
+
+  // A disqualified listing has no meaningful position, but keeps where it was
+  // so the detail panel can say what it fell from.
+  const cleared = await prisma.$executeRawUnsafe(
+    `UPDATE ${table}
+     SET "previousRank" = "rank", "rank" = NULL, "rankChangedAt" = $1
+     WHERE disqualified AND "rank" IS NOT NULL`,
+    now,
+  );
+
+  return moved + cleared;
 }

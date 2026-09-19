@@ -16,6 +16,8 @@ const NASTY = '<img src=x onerror="window.__pwned=true"><b>bold</b>';
 function row(overrides: Partial<ListingRow> = {}): TableRow {
   const base: ListingRow = {
     id: "l1",
+    rank: 1,
+    previousRank: null,
     company: "Acme",
     faangPlus: false,
     title: "Software Engineer Intern",

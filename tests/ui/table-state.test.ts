@@ -44,6 +44,8 @@ function listing(overrides: Partial<ListingRow> = {}): ListingRow {
   seq += 1;
   return {
     id: `listing-${seq}`,
+    rank: seq,
+    previousRank: null,
     company: "Acme",
     faangPlus: false,
     title: "Software Engineer Intern",
@@ -83,9 +85,33 @@ const ids = (rows: TableRow[]) => rows.map((r) => r.id);
 // ---------------------------------------------------------------------------
 
 describe("prepareRows", () => {
-  it("numbers rows by the server's ranking, 1-based", () => {
-    const rows = prep({ score: 90 }, { score: 80 }, { score: 70 });
-    expect(rows.map((r) => r.rank)).toEqual([1, 2, 3]);
+  it("carries the persisted rank instead of renumbering by load order", () => {
+    // Rank is assigned by the scoring run and stored, so a client that loads a
+    // filtered or differently-ordered slice still reports the same positions.
+    const rows = prep(
+      { score: 90, rank: 7 },
+      { score: 80, rank: 12 },
+      { score: 70, rank: 3 },
+    );
+    expect(rows.map((r) => r.rank)).toEqual([7, 12, 3]);
+  });
+
+  it("leaves a disqualified listing unranked", () => {
+    const [row] = prep({ disqualified: true, rank: null, previousRank: 40 });
+    expect(row.rank).toBeNull();
+  });
+
+  it("computes movement from previousRank, positive when the listing rose", () => {
+    const [up, down, unmoved, fresh] = prep(
+      { rank: 10, previousRank: 25 },
+      { rank: 30, previousRank: 12 },
+      { rank: 5, previousRank: 5 },
+      { rank: 8, previousRank: null },
+    );
+    expect(up.rankDelta).toBe(15);
+    expect(down.rankDelta).toBe(-18);
+    expect(unmoved.rankDelta).toBe(0);
+    expect(fresh.rankDelta).toBeNull();
   });
 
   it("folds a missing Application row into NOT_APPLIED", () => {
@@ -191,9 +217,19 @@ describe("sorting", () => {
   });
 
   it("breaks ties by rank so the order never wobbles", () => {
-    const rows = prep({ score: 50 }, { score: 50 }, { score: 50 });
+    const rows = prep({ score: 50, rank: 3 }, { score: 50, rank: 1 }, { score: 50, rank: 2 });
     const sorted = sortRows(rows, { key: "score", dir: "desc" });
     expect(sorted.map((r) => r.rank)).toEqual([1, 2, 3]);
+  });
+
+  it("sorts unranked listings after every ranked one on a tie", () => {
+    const rows = prep(
+      { score: 50, rank: null },
+      { score: 50, rank: 2 },
+      { score: 50, rank: 1 },
+    );
+    const sorted = sortRows(rows, { key: "score", dir: "desc" });
+    expect(sorted.map((r) => r.rank)).toEqual([1, 2, null]);
   });
 
   it("does not mutate the input array", () => {

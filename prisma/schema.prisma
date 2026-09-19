@@ -96,6 +96,16 @@ model Listing {
   scoredAt          DateTime?
   scoringConfigHash String?
 
+  /// Global position by finalScore, assigned at the end of every scoring run so
+  /// every reader agrees on it. Null for disqualified listings, which have no
+  /// meaningful position. `previousRank` is the value from the run before, kept
+  /// so the UI can show movement; equal ranks mean the listing did not move.
+  rank         Int?
+  previousRank Int?
+  /// When rank last CHANGED (not when it was last recomputed), so "moved
+  /// yesterday" stays true through subsequent no-op runs.
+  rankChangedAt DateTime?
+
   sources     ListingSource[]
   application Application?
   assessments LlmAssessment[]
@@ -104,6 +114,7 @@ model Listing {
   @@index([companyId])
   @@index([finalScore])
   @@index([gateScore])
+  @@index([rank])
   @@index([likelyClosed, dismissed])
 }
 
