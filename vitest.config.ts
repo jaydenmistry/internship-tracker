@@ -3,7 +3,7 @@ import path from "node:path";
 
 export default defineConfig({
   test: {
-    include: ["tests/**/*.test.ts"],
+    include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
     environment: "node",
     // Integration tests run against a dedicated Postgres SCHEMA (not a separate
     // database — see tests/db-url.ts for why), created by global-setup.

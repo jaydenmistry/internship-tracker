@@ -1,26 +1,95 @@
 @import "tailwindcss";
 
+/* Tailwind v4 keeps its configuration here — there is no tailwind.config file.
+   Dark mode is class-strategy: `<html class="dark">` in app/layout.tsx. Dark is
+   this tool's default, but both themes are defined so removing the class works. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --canvas: oklch(99% 0 0);
+  --panel: oklch(97.2% 0.002 260);
+  --raised: oklch(94.5% 0.004 260);
+  --line: oklch(89% 0.005 260);
+  --line-soft: oklch(93% 0.004 260);
+  --ink: oklch(21% 0.01 260);
+  --dim: oklch(48% 0.012 260);
+  --faint: oklch(63% 0.012 260);
+  --accent: oklch(52% 0.17 255);
+  --accent-ink: oklch(99% 0 0);
+  --ok: oklch(52% 0.14 152);
+  --warn: oklch(58% 0.14 72);
+  --bad: oklch(55% 0.19 25);
+  --info: oklch(53% 0.13 230);
+}
+
+.dark {
+  --canvas: oklch(15.5% 0.006 260);
+  --panel: oklch(19% 0.007 260);
+  --raised: oklch(23.5% 0.008 260);
+  --line: oklch(31% 0.01 260);
+  --line-soft: oklch(25% 0.009 260);
+  --ink: oklch(94% 0.004 260);
+  --dim: oklch(72% 0.011 260);
+  --faint: oklch(58% 0.012 260);
+  --accent: oklch(72% 0.14 250);
+  --accent-ink: oklch(16% 0.02 260);
+  --ok: oklch(76% 0.15 155);
+  --warn: oklch(80% 0.14 78);
+  --bad: oklch(70% 0.17 25);
+  --info: oklch(74% 0.12 230);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-canvas: var(--canvas);
+  --color-panel: var(--panel);
+  --color-raised: var(--raised);
+  --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-ink: var(--ink);
+  --color-dim: var(--dim);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --color-info: var(--info);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  /* Dense tool, not a marketing page: small base type, tight rhythm. */
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* Native form controls should follow the theme rather than the OS default. */
+input,
+textarea,
+select,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--accent) 35%, transparent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
