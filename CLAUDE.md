@@ -27,6 +27,8 @@ Next.js 16 App Router + TypeScript + React 19 + Tailwind v4 (CSS-based config in
 
 Tests are Vitest, fixture-driven (`tests/fixtures/`), and never touch the network.
 
+`*.integration.test.ts` files use a real database and wipe tables in `beforeEach`, so they run against a dedicated Postgres **schema** (`itest`), created by `tests/global-setup.ts` and selected by `tests/setup-env.ts`. Two traps are already handled here — don't undo them: (1) `prisma dev`'s local proxy ignores the *database* name in a connection string and routes every name to one physical database, so separate-database isolation silently fails; (2) with Prisma 7 driver adapters, `?schema=` is passed to node-postgres, which ignores unknown parameters, so `lib/db.ts` must read that parameter and hand it to `PrismaPg` explicitly. Vitest also runs test files sequentially (`fileParallelism: false`) since they share the one test schema.
+
 ## Layout
 
 ```
@@ -44,6 +46,8 @@ lib/
     engine.ts           # stage 1: pure, deterministic, config-driven
     llm.ts              # stage 2: Claude adjustment (±15, cached by text hash)
     config.ts           # loads + hashes config/scoring.json
+    rescore.ts          # persistence/orchestration around the pure engine
+  cycle.ts              # one full refresh: ingest → score → detail → score+LLM
   alerts/               # discord webhook + SMTP, dedup via AlertLog
   resume/               # PDF text extraction + keyword matching
 worker/index.ts         # node-cron schedules + internal HTTP endpoint for "refresh now"
@@ -62,6 +66,7 @@ scripts/                # backup.sh etc.
 - **User flags on Listing**: `saved` (watching; drives closing-soon alerts) and `dismissed` (cleared from the main table and stays cleared across refreshes).
 - **Raw fetches persist** gzipped on `IngestRun` rows before parsing (diffable, debuggable), pruned after `RAW_RETENTION_DAYS`.
 - **Scoring is two-stage**: stage 1 pure/deterministic from `config/scoring.json` (read and hashed on every scoring run — editing weights needs no restart; the file is volume-mounted into both containers at `config/scoring.json`); stage 2 optional Claude pass for high scorers, clamped ±15, cached in `LlmAssessment` by posting-text hash, and **skipped entirely when `postingText` is null** — never pay for a call that only sees a title. Disqualifiers zero the score but keep the breakdown; hiding them is a UI concern.
+- **The full cycle is ordered** (`lib/cycle.ts`): ingest → provisional stage-1 score → posting-detail fetch for listings clearing `thresholds.detailFetchMin` → final stage-1 rescore → stage-2 LLM. The provisional pass exists because most sources ship no description text: a cheap score over title/category/company/location decides which posting pages are worth fetching, rather than fetching thousands. **Newly fetched posting text or a new deadline sets `scoringConfigHash = null`**, which is how a listing marks its own score stale — the final pass then picks up exactly those rows with no extra bookkeeping.
 - **Worker vs app**: worker (node-cron) owns scheduled ingestion, rescoring, alerts, backups. "Refresh now" = app calls the worker's HTTP endpoint on the internal compose network (never exposed via Traefik).
 - **"Not Applied" is the absence of an Application row**; a row is created on first user interaction. `Application.listingId` is optional: manual entries (own `companyName`/`roleTitle`/`location`) are first-class for roles found outside the sources — bulk imports mostly won't match a listing — and can later be linked to one while keeping their fields. Status history lives in `StatusEvent`.
 - **Auth**: Auth.js (next-auth v5) generic OIDC provider → Authentik; access restricted to the single allowed subject/email from env.

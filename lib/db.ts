@@ -8,7 +8,17 @@ function createClient() {
   if (!connectionString) {
     throw new Error("DATABASE_URL is not set");
   }
-  const adapter = new PrismaPg({ connectionString });
+  // A `?schema=` parameter must be passed to the adapter explicitly: node-postgres
+  // ignores unknown connection-string parameters, so without this the client
+  // silently stays on `public`. Integration tests rely on this to keep their
+  // wipes off development data.
+  let schema: string | undefined;
+  try {
+    schema = new URL(connectionString).searchParams.get("schema") ?? undefined;
+  } catch {
+    schema = undefined;
+  }
+  const adapter = new PrismaPg({ connectionString }, schema ? { schema } : undefined);
   return new PrismaClient({ adapter });
 }
 

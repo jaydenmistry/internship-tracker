@@ -1,0 +1,407 @@
+{
+  "version": 1,
+  "notes": [
+    "ALL scoring knobs live here. lib/scoring/engine.ts hardcodes no weight, keyword, tier or bucket.",
+    "This file is re-read and content-hashed on every scoring run; a hash change rescoring all listings.",
+    "Every 'patterns' entry is a JavaScript regular-expression source string, compiled case-insensitively.",
+    "Keep patterns word-boundary safe: \\bgo\\b must not match 'Google' or 'Chicago'."
+  ],
+  "weights": {
+    "techFit": 30,
+    "roleType": 22,
+    "companyTier": 14,
+    "location": 16,
+    "freshness": 12,
+    "deadlineUrgency": 6
+  },
+  "techFit": {
+    "maxPoints": 100,
+    "titleOnlyNote": "matched on title only (no posting text)",
+    "noMatchNote": "no tracked skills matched",
+    "skills": [
+      {
+        "id": "go",
+        "label": "Go",
+        "points": 12,
+        "patterns": ["\\bgolang\\b", "\\bgo\\b(?![-\\s](?:to|above|beyond|live|forward|getter|through|over|into|ahead|back))"]
+      },
+      {
+        "id": "distributed-systems",
+        "label": "distributed systems",
+        "points": 12,
+        "patterns": [
+          "\\bdistributed\\s+(?:systems?|computing|databases?)\\b",
+          "\\bconsensus\\s+(?:protocols?|algorithms?)\\b",
+          "\\bfault[-\\s]?toleran(?:t|ce)\\b",
+          "\\bhigh[-\\s]?(?:availability|throughput)\\b"
+        ]
+      },
+      {
+        "id": "backend",
+        "label": "backend",
+        "points": 10,
+        "patterns": [
+          "\\bback[-\\s]?end\\b",
+          "\\bserver[-\\s]?side\\b",
+          "\\bmicroservices?\\b",
+          "\\brest(?:ful)?\\s+apis?\\b",
+          "\\bgrpc\\b"
+        ]
+      },
+      {
+        "id": "infra",
+        "label": "infrastructure",
+        "points": 10,
+        "patterns": [
+          "\\binfrastructure\\b",
+          "\\bplatform\\s+engineering\\b",
+          "\\bsite\\s+reliability\\b",
+          "\\bsre\\b",
+          "\\bdevops\\b",
+          "\\bci\\s?/\\s?cd\\b",
+          "\\bterraform\\b"
+        ]
+      },
+      {
+        "id": "cybersecurity",
+        "label": "cybersecurity",
+        "points": 10,
+        "patterns": [
+          "\\bcyber\\s?security\\b",
+          "\\binfosec\\b",
+          "\\bapp\\s?sec\\b",
+          "\\bapplication\\s+security\\b",
+          "\\bsecurity\\s+engineer(?:ing)?\\b",
+          "\\bthreat\\s+(?:detection|modeling)\\b",
+          "\\bpenetration\\s+testing\\b",
+          "\\bcryptograph(?:y|ic)\\b"
+        ]
+      },
+      {
+        "id": "kubernetes",
+        "label": "Kubernetes",
+        "points": 8,
+        "patterns": ["\\bkubernetes\\b", "\\bk8s\\b"]
+      },
+      {
+        "id": "aws",
+        "label": "AWS",
+        "points": 8,
+        "patterns": ["\\baws\\b", "\\bamazon\\s+web\\s+services\\b", "\\bec2\\b", "\\bs3\\b", "\\blambda\\s+functions?\\b"]
+      },
+      {
+        "id": "python",
+        "label": "Python",
+        "points": 8,
+        "patterns": ["\\bpython\\b"]
+      },
+      {
+        "id": "typescript",
+        "label": "TypeScript",
+        "points": 8,
+        "patterns": ["\\btypescript\\b", "\\bts\\s?/\\s?js\\b"]
+      },
+      {
+        "id": "cpp",
+        "label": "C++",
+        "points": 8,
+        "patterns": ["c\\+\\+", "\\bcpp\\b"]
+      },
+      {
+        "id": "docker",
+        "label": "Docker",
+        "points": 7,
+        "patterns": ["\\bdocker\\b", "\\bcontaineri[sz](?:ed|ation)\\b", "\\bcontainer\\s+orchestration\\b"]
+      },
+      {
+        "id": "react",
+        "label": "React",
+        "points": 7,
+        "patterns": ["\\breact\\b", "\\breact\\.?js\\b", "\\breact\\s+native\\b"]
+      },
+      {
+        "id": "c",
+        "label": "C",
+        "points": 6,
+        "patterns": ["(?<![\\w+#.])c(?![\\w+#.])"]
+      },
+      {
+        "id": "linux",
+        "label": "Linux",
+        "points": 6,
+        "patterns": ["\\blinux\\b", "\\bunix\\b", "\\bposix\\b"]
+      },
+      {
+        "id": "nextjs",
+        "label": "Next.js",
+        "points": 5,
+        "patterns": ["\\bnext\\.js\\b", "\\bnextjs\\b"]
+      }
+    ]
+  },
+  "roleType": {
+    "maxPoints": 100,
+    "matchPostingTextWhenTitleUnmatched": true,
+    "unmatched": {
+      "fraction": 0.45,
+      "label": "unclassified role"
+    },
+    "notes": "Classes are evaluated IN ARRAY ORDER and the first match wins, so the array is ordered by specificity, not by score: narrow low-value classes (IT support, QA) come first so a generic high-value pattern cannot swallow them. data/ML sits at 0.6 — adjacent to the systems work the user wants, but not the target.",
+    "classes": [
+      {
+        "id": "it-support",
+        "label": "IT / help desk / support",
+        "fraction": 0.1,
+        "patterns": [
+          "\\bhelp\\s?desk\\b",
+          "\\bit\\s+support\\b",
+          "\\btechnical\\s+support\\b",
+          "\\bdesktop\\s+support\\b",
+          "\\bservice\\s+desk\\b",
+          "\\bsystems?\\s+administrat(?:or|ion)\\b",
+          "\\bit\\s+intern(?:ship)?\\b"
+        ]
+      },
+      {
+        "id": "qa",
+        "label": "QA / test engineering",
+        "fraction": 0.35,
+        "patterns": ["\\bqa\\b", "\\bquality\\s+assurance\\b", "\\btest\\s+engineer(?:ing)?\\b", "\\bsdet\\b"]
+      },
+      {
+        "id": "security",
+        "label": "security / cybersecurity",
+        "fraction": 1.0,
+        "patterns": [
+          "\\bcyber\\s?security\\b",
+          "\\bsecurity\\b",
+          "\\bcyber\\b",
+          "\\bappsec\\b",
+          "\\binfosec\\b",
+          "\\bcryptograph(?:y|ic)\\b",
+          "\\bvulnerabilit(?:y|ies)\\b"
+        ]
+      },
+      {
+        "id": "backend-infra",
+        "label": "backend / infrastructure / platform / systems",
+        "fraction": 1.0,
+        "patterns": [
+          "\\bback[-\\s]?end\\b",
+          "\\binfrastructure\\b",
+          "\\binfra\\b",
+          "\\bplatform\\b",
+          "\\bsite\\s+reliability\\b",
+          "\\bsre\\b",
+          "\\bdevops\\b",
+          "\\bdistributed\\b",
+          "\\bsystems?\\s+engineer(?:ing)?\\b",
+          "\\bcloud\\s+engineer(?:ing)?\\b",
+          "\\bnetwork(?:ing)?\\s+engineer(?:ing)?\\b",
+          "\\bcompilers?\\b",
+          "\\bkernel\\b",
+          "\\bembedded\\b",
+          "\\bdatabase\\s+engineer(?:ing)?\\b",
+          "\\bapi\\s+engineer(?:ing)?\\b",
+          "\\bserver[-\\s]?side\\b"
+        ]
+      },
+      {
+        "id": "data-ml",
+        "label": "data / machine learning",
+        "fraction": 0.6,
+        "patterns": [
+          "\\bmachine\\s+learning\\b",
+          "\\bdeep\\s+learning\\b",
+          "\\b(?:ml|ai)\\b",
+          "\\bdata\\s+(?:scien(?:ce|tist)|engineer(?:ing)?|analyst|analytics)\\b",
+          "\\bbusiness\\s+intelligence\\b",
+          "\\bresearch\\s+scientist\\b"
+        ]
+      },
+      {
+        "id": "mobile",
+        "label": "mobile",
+        "fraction": 0.55,
+        "patterns": ["\\bmobile\\b", "\\bios\\b", "\\bandroid\\b"]
+      },
+      {
+        "id": "frontend",
+        "label": "frontend / UI",
+        "fraction": 0.5,
+        "patterns": [
+          "\\bfront[-\\s]?end\\b",
+          "\\bui\\s+engineer(?:ing)?\\b",
+          "\\bux\\s+engineer(?:ing)?\\b",
+          "\\buser\\s+experience\\b",
+          "\\buser\\s+interface\\b",
+          "\\bweb\\s+develop(?:er|ment)\\b",
+          "\\bclient[-\\s]?side\\b"
+        ]
+      },
+      {
+        "id": "swe-general",
+        "label": "general software engineering",
+        "fraction": 0.8,
+        "patterns": [
+          "\\bsoftware\\s+engineer(?:ing)?\\b",
+          "\\bsoftware\\s+develop(?:er|ment)\\b",
+          "\\bswe\\b",
+          "\\bfull[-\\s]?stack\\b",
+          "\\bsoftware\\b",
+          "\\bprogrammer\\b",
+          "\\bapplication\\s+develop(?:er|ment)\\b"
+        ]
+      }
+    ]
+  },
+  "companyTier": {
+    "maxPoints": 100,
+    "faangPlusTier": 1,
+    "defaultTier": 3,
+    "unknownTierFraction": 0.5,
+    "tiers": [
+      { "tier": 1, "fraction": 1.0, "label": "tier 1 — FAANG+ / top-tier engineering" },
+      { "tier": 2, "fraction": 0.75, "label": "tier 2 — strong tech company" },
+      { "tier": 3, "fraction": 0.5, "label": "tier 3 — standard" },
+      { "tier": 4, "fraction": 0.3, "label": "tier 4 — weak fit" },
+      { "tier": 5, "fraction": 0.15, "label": "tier 5 — avoid" }
+    ]
+  },
+  "location": {
+    "maxPoints": 100,
+    "usCountryCodes": ["US"],
+    "remote": { "fraction": 1.0, "label": "US-remote" },
+    "homeMetro": {
+      "fraction": 1.0,
+      "label": "Atlanta metro",
+      "patterns": [
+        "\\batlanta\\b",
+        "\\balpharetta\\b",
+        "\\bmarietta\\b",
+        "\\bsandy\\s+springs\\b",
+        "\\bdunwoody\\b",
+        "\\broswell,\\s*ga\\b",
+        "\\bkennesaw\\b",
+        "\\bsmyrna,\\s*ga\\b",
+        "\\bduluth,\\s*ga\\b",
+        "\\bpeachtree\\b",
+        "\\bathens,\\s*ga\\b"
+      ]
+    },
+    "hubs": {
+      "fraction": 0.8,
+      "label": "major tech hub",
+      "patterns": [
+        "\\bsan\\s+francisco\\b",
+        "\\bbay\\s+area\\b",
+        "\\bpalo\\s+alto\\b",
+        "\\bmountain\\s+view\\b",
+        "\\bsunnyvale\\b",
+        "\\bsanta\\s+clara\\b",
+        "\\bsan\\s+jose\\b",
+        "\\bmenlo\\s+park\\b",
+        "\\bcupertino\\b",
+        "\\bredwood\\s+city\\b",
+        "\\bnew\\s+york\\b",
+        "\\bnyc\\b",
+        "\\bbrooklyn\\b",
+        "\\bseattle\\b",
+        "\\bbellevue\\b",
+        "\\bredmond\\b",
+        "\\baustin\\b",
+        "\\bboston\\b",
+        "\\bcambridge,\\s*ma\\b",
+        "\\blos\\s+angeles\\b",
+        "\\bsanta\\s+monica\\b",
+        "\\bpasadena\\b",
+        "\\birvine\\b",
+        "\\bsan\\s+diego\\b",
+        "\\bchicago\\b",
+        "\\bwashington,\\s*dc\\b",
+        "\\barlington,\\s*va\\b",
+        "\\breston\\b",
+        "\\bmclean\\b",
+        "\\bbethesda\\b",
+        "\\bdenver\\b",
+        "\\bboulder\\b"
+      ]
+    },
+    "restOfUs": { "fraction": 0.5, "label": "elsewhere in the US" },
+    "nonUs": { "fraction": 0.0, "label": "outside the US" },
+    "unknown": { "fraction": 0.3, "label": "location unknown" }
+  },
+  "freshness": {
+    "maxPoints": 100,
+    "halfLifeDays": 14,
+    "missingPostedAtFraction": 0.4,
+    "missingPostedAtLabel": "no posted date"
+  },
+  "deadlineUrgency": {
+    "maxPoints": 100,
+    "windowDays": 7,
+    "inWindowFraction": 1.0,
+    "outsideWindowFraction": 0.0,
+    "pastFraction": 0.0,
+    "missingFraction": 0.0
+  },
+  "disqualifiers": {
+    "advancedDegrees": {
+      "reasonPrefix": "requires",
+      "bachelorsExempt": true,
+      "bachelorsExemptNote": "Sources list degrees[] as the set of ACCEPTED degrees (Simplify emits [\"Bachelor's\",\"Master's\",\"MBA\",\"PhD\"] for a role open to undergrads). When a bachelor-level entry is present the posting accepts undergrads, so it is NOT disqualified.",
+      "bachelorPatterns": ["\\bbachelor'?s?\\b", "\\bb\\.?s\\.?\\b", "\\bb\\.?a\\.?\\b", "\\bundergraduate\\b"],
+      "degrees": [
+        { "id": "masters", "reason": "requires Master's degree", "patterns": ["\\bmaster'?s?\\b", "\\bm\\.?s\\.?\\b", "\\bm\\.?sc\\.?\\b", "\\bm\\.?eng\\.?\\b"] },
+        { "id": "phd", "reason": "requires PhD", "patterns": ["\\bph\\.?\\s?d\\.?\\b", "\\bdoctoral\\b", "\\bdoctorate\\b"] },
+        { "id": "mba", "reason": "requires MBA", "patterns": ["\\bm\\.?b\\.?a\\.?\\b"] },
+        { "id": "jd", "reason": "requires JD", "patterns": ["\\bj\\.?d\\.?\\b", "\\bjuris\\s+doctor\\b"] },
+        { "id": "md", "reason": "requires MD", "patterns": ["\\bm\\.?d\\.?\\b"] },
+        { "id": "dds", "reason": "requires DDS", "patterns": ["\\bd\\.?d\\.?s\\.?\\b", "\\bd\\.?m\\.?d\\.?\\b"] },
+        { "id": "do", "reason": "requires DO", "patterns": ["\\bd\\.?o\\.?\\b"] },
+        { "id": "dvm", "reason": "requires DVM", "patterns": ["\\bd\\.?v\\.?m\\.?\\b"] },
+        { "id": "pharmd", "reason": "requires PharmD", "patterns": ["\\bpharm\\.?\\s?d\\.?\\b"] }
+      ],
+      "textPatterns": [
+        { "pattern": "master'?s?(?:\\s+degree)?\\s+(?:is\\s+)?required", "reason": "requires Master's degree" },
+        { "pattern": "ph\\.?\\s?d\\.?(?:\\s+degree)?\\s+(?:is\\s+)?required", "reason": "requires PhD" },
+        { "pattern": "mba(?:\\s+degree)?\\s+(?:is\\s+)?required", "reason": "requires MBA" },
+        { "pattern": "graduate\\s+degree\\s+(?:is\\s+)?required", "reason": "requires a graduate degree" },
+        { "pattern": "requires?\\s+(?:a\\s+|an\\s+)?(?:master'?s?|ph\\.?\\s?d\\.?|mba)(?:\\s+degree)?", "reason": "requires an advanced degree" },
+        { "pattern": "currently\\s+pursuing\\s+(?:a\\s+|an\\s+)?(?:master'?s?|ph\\.?\\s?d\\.?|mba|graduate\\s+degree)", "reason": "for students pursuing an advanced degree" },
+        { "pattern": "must\\s+be\\s+(?:currently\\s+)?(?:enrolled\\s+in|pursuing)\\s+(?:a\\s+|an\\s+)?(?:master'?s?|ph\\.?\\s?d\\.?|graduate)", "reason": "for students pursuing an advanced degree" },
+        { "pattern": "(?:master'?s?|ph\\.?\\s?d\\.?)\\s+(?:students?|candidates?)\\s+only", "reason": "advanced-degree students only" },
+        { "pattern": "open\\s+(?:only\\s+)?to\\s+(?:master'?s?|ph\\.?\\s?d\\.?|graduate)\\s+students?", "reason": "advanced-degree students only" }
+      ],
+      "textExemptPatterns": [
+        "bachelor'?s?[^.]{0,80}\\bor\\b[^.]{0,40}(?:master'?s?|ph\\.?\\s?d\\.?)",
+        "(?:master'?s?|ph\\.?\\s?d\\.?)[^.]{0,80}\\bor\\b[^.]{0,40}bachelor'?s?",
+        "bachelor'?s?[^.]{0,40}[,/]\\s*(?:master'?s?|ph\\.?\\s?d\\.?)",
+        "(?:bachelor'?s?|undergraduate)[^.]{0,60}\\b(?:and|or)\\s+(?:above|higher)\\b"
+      ]
+    },
+    "workAuthorization": {
+      "reason": "Canada/UK/EU work authorization",
+      "remoteExempt": true,
+      "blockedCountries": [
+        "CA", "UK", "DE", "FR", "IE", "NL", "ES", "IT", "PL", "SE",
+        "DK", "FI", "NO", "PT", "BE", "AT", "CH", "CZ", "RO", "HU"
+      ]
+    },
+    "closed": {
+      "reason": "posting likely closed"
+    }
+  },
+  "thresholds": {
+    "detailFetchMin": 55,
+    "llmMin": 70
+  },
+  "llm": {
+    "enabled": true,
+    "model": "claude-haiku-4-5",
+    "maxAdjustment": 15,
+    "maxPostingTextChars": 6000,
+    "maxRationaleChars": 300,
+    "maxTokens": 512
+  }
+}
