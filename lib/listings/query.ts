@@ -14,9 +14,15 @@ export interface ListingRow {
   company: string;
   faangPlus: boolean;
   title: string;
-  /** Primary location for the column; `locationCount` hints at the rest. */
+  /**
+   * Location shown in the column. A US location wins when the listing has one:
+   * these are multi-country postings, and showing "Canada" first for a role
+   * that is also in Santa Clara reads as ineligible when it isn't.
+   */
   location: string;
   locationCount: number;
+  /** Every location (capped), so the cell can name them rather than say "+1". */
+  allLocations: string[];
   remote: boolean;
   url: string;
   score: number | null;
@@ -40,6 +46,19 @@ export interface ListingRow {
    * blocked posting reads as "couldn't fetch" rather than a genuinely low score.
    */
   fetchStatus: string | null;
+}
+
+const US_STATE_RE =
+  /\b(A[LKZR]|C[AOT]|D[EC]|FL|GA|HI|I[DLNA]|K[SY]|LA|M[EDAINSOT]|N[EVHJMYCD]|O[HKR]|PA|RI|S[CD]|T[NX]|UT|V[TA]|W[AVIY])\b/;
+
+/** Prefers a US location for display; falls back to the first one given. */
+function primaryLocation(locations: string[], remote: boolean): string {
+  if (remote) return "Remote";
+  if (locations.length === 0) return "—";
+  return (
+    locations.find((l) => US_STATE_RE.test(l) || /\b(USA|United States|US)\b/i.test(l)) ??
+    locations[0]
+  );
 }
 
 export async function loadListingRows(): Promise<ListingRow[]> {
@@ -75,8 +94,9 @@ export async function loadListingRows(): Promise<ListingRow[]> {
     company: l.company.name,
     faangPlus: l.company.faangPlus,
     title: l.title,
-    location: l.remote ? "Remote" : (l.locations[0] ?? "—"),
+    location: primaryLocation(l.locations, l.remote),
     locationCount: l.locations.length,
+    allLocations: l.locations.slice(0, 8),
     remote: l.remote,
     url: l.url,
     score: l.finalScore,

@@ -31,7 +31,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       // still used so a future preference switch is a one-line change.
       className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="flex min-h-full flex-col bg-canvas text-ink">
+      {/* h-full + min-h-0 on main: the listings table owns its own scroll
+          container, so the page itself must not grow past the viewport. */}
+      <body className="flex h-full flex-col overflow-hidden bg-canvas text-ink">
         <header className="sticky top-0 z-20 flex h-10 shrink-0 items-center gap-1 border-b border-line bg-panel px-3">
           <span className="mr-3 font-mono text-[11px] font-semibold tracking-wide text-dim uppercase">
             internship-tracker
@@ -48,7 +50,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             ))}
           </nav>
         </header>
-        <main className="flex flex-1 flex-col">{children}</main>
+        <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</main>
       </body>
     </html>
   );

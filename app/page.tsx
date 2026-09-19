@@ -1,24 +1,20 @@
-import Link from "next/link";
+import { loadListingRows } from "@/lib/listings/query";
+import ListingsTable from "./listings/ListingsTable";
 
 /**
- * Placeholder. The ranked listings table is a later Phase 3 deliverable; this
- * page exists so the shell has a home and the import flow is reachable.
+ * The ranked listings table — the app's primary view.
+ *
+ * The whole eligible catalog (~2,900 lean rows) is loaded once here and handed
+ * to the client, which sorts and filters it in memory: every interaction is
+ * then a local array pass instead of a round trip. The rows are deliberately
+ * thin — anything only the detail panel needs is fetched per row on demand.
  */
-export default function Home() {
-  return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-16">
-      <h1 className="text-lg font-semibold tracking-tight">Internship Tracker</h1>
-      <p className="mt-2 max-w-prose text-dim">
-        The ranked listings table lands in a later deliverable. Until then, start by
-        telling the tracker which roles you have already applied to, so they stop
-        showing up as new.
-      </p>
-      <Link
-        href="/import"
-        className="mt-6 inline-flex items-center rounded border border-line bg-raised px-3 py-1.5 font-medium text-ink transition-colors hover:border-accent hover:text-accent"
-      >
-        Import applications
-      </Link>
-    </div>
-  );
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const rows = await loadListingRows();
+
+  // "Now" is fixed on the server so the first paint and hydration agree on
+  // every relative date; the client takes over the clock after mount.
+  return <ListingsTable rows={rows} nowIso={new Date().toISOString()} />;
 }
