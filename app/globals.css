@@ -89,6 +89,49 @@ button {
   background: color-mix(in oklab, var(--accent) 35%, transparent);
 }
 
+/* --- Listings table ------------------------------------------------------
+   The header row and every virtualized body row share one grid template, so
+   the columns stay aligned without a table element (rows are absolutely
+   positioned by the virtualizer and can't participate in table layout).
+   Sized to fit 1440px with no horizontal scroll; role takes the slack. */
+.lt-grid {
+  display: grid;
+  grid-template-columns:
+    3rem /* rank */
+    3.25rem /* score */
+    minmax(7rem, 11rem) /* company */
+    minmax(10rem, 1fr) /* role */
+    minmax(6.5rem, 10rem) /* location */
+    3.25rem /* age */
+    4.75rem /* deadline */
+    5.25rem /* status */
+    5.5rem; /* source */
+  align-items: center;
+  column-gap: 0.625rem;
+  padding-inline: 0.75rem;
+}
+
+/* One line, ellipsised — a wrapped cell would break the fixed row height the
+   virtualizer measures against. */
+.lt-cell {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The scroll container owns focus for the whole grid (individual rows unmount
+   as you scroll), so its focus ring would otherwise frame 2,900 rows. */
+.lt-scroll:focus-visible {
+  outline: none;
+}
+
+.lt-scroll {
+  scrollbar-color: var(--line) transparent;
+  scrollbar-width: thin;
+  overflow-anchor: none;
+}
+
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
