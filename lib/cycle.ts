@@ -61,9 +61,20 @@ export async function runFullCycle(opts: CycleOptions = {}): Promise<CycleSummar
   if (!opts.skipDetail) {
     const { config } = loadScoringConfig();
     const { detailFetchMin } = orchestrationSettings(config);
+    // Gate on gateScore (techFit excluded), NOT ruleScore: gating on a score
+    // that counts missing posting text as zero is what starved this stage.
     const selector = (l: DetailCandidate) =>
-      !l.dismissed && !l.likelyClosed && !l.disqualified && (l.ruleScore ?? 0) >= detailFetchMin;
-    detail = await runDetailFetch({ now, log, fetchImpl: opts.fetchImpl, selector });
+      !l.dismissed &&
+      !l.likelyClosed &&
+      !l.disqualified &&
+      (l.gateScore === null || l.gateScore >= detailFetchMin);
+    detail = await runDetailFetch({
+      now,
+      log,
+      fetchImpl: opts.fetchImpl,
+      selector,
+      minGateScore: detailFetchMin,
+    });
   }
 
   // Final: rescores whatever the detail fetch invalidated, then stage 2.

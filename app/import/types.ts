@@ -32,6 +32,13 @@ export interface ReviewRow {
   verdict: MatchVerdict;
   best: ReviewCandidate | null;
   alternatives: ReviewCandidate[];
+  /**
+   * Present when the company IS in the catalog. With no match, this
+   * distinguishes "we've never seen this company" from "we know this company
+   * but none of its roles match" — the latter suggests the posting closed or
+   * was never carried by the sources.
+   */
+  companyContext: { company: string; roleCount: number; sampleTitles: string[] } | null;
 }
 
 export interface ParseIssue {

@@ -91,6 +91,7 @@ function fakeRow(key: string, verdict: ReviewRow["verdict"], withMatch = true): 
     verdict,
     best,
     alternatives: [],
+    companyContext: null,
   };
 }
 

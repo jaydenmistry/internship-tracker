@@ -22,11 +22,41 @@ const GreenhouseJobSchema = z.looseObject({
   requisition_id: z.union([z.string(), z.number()]).nullish(),
 });
 
+/**
+ * Follows a greenhouse embed URL to discover which board it belongs to.
+ * boards.greenhouse.io/embed/job_app?token=N redirects to
+ * job-boards.greenhouse.io/embed/job_app?for={board}&token=N.
+ */
+async function resolveEmbedBoard(url: string, ctx: DetailContext): Promise<string | undefined> {
+  const res = await politeFetch(url, ctx);
+  // Read the body so the connection isn't left dangling; only the final URL matters.
+  await res.text().catch(() => "");
+  try {
+    return new URL(res.url).searchParams.get("for") ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function fetchGreenhouseDetail(url: string, ctx: DetailContext): Promise<DetailResult> {
   const u = new URL(url);
+  let board: string | undefined;
+  let jobId: string | undefined;
+
   const match = u.pathname.match(/^\/([^/]+)\/jobs\/(\d+)/);
-  if (!match) throw new UnsupportedUrlError(`unrecognized greenhouse URL: ${url}`);
-  const [, board, jobId] = match;
+  if (match) {
+    [, board, jobId] = match;
+  } else if (/\/embed\/job_app$/.test(u.pathname)) {
+    // Embed form: /embed/job_app?token={jobId}. The board isn't in the URL,
+    // but the redirect target carries it as ?for={board}.
+    const token = u.searchParams.get("token");
+    const forParam = u.searchParams.get("for");
+    if (!token) throw new UnsupportedUrlError(`greenhouse embed URL without token: ${url}`);
+    jobId = token;
+    board = forParam ?? (await resolveEmbedBoard(url, ctx));
+  }
+
+  if (!board || !jobId) throw new UnsupportedUrlError(`unrecognized greenhouse URL: ${url}`);
 
   const apiUrl = `https://boards-api.greenhouse.io/v1/boards/${board}/jobs/${jobId}`;
   const res = await politeFetch(apiUrl, ctx);

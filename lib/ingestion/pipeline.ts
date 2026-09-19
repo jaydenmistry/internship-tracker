@@ -53,6 +53,7 @@ const DETAIL_CANDIDATE_SELECT = {
   saved: true,
   finalScore: true,
   ruleScore: true,
+  gateScore: true,
   disqualified: true,
   detailFetchedAt: true,
   detailFetchStatus: true,
@@ -388,6 +389,12 @@ export interface DetailStageOptions {
   fetchImpl?: typeof globalThis.fetch;
   /** Defaults to the term/category heuristic; Phase 2 passes a score gate. */
   selector?: (l: DetailCandidate) => boolean;
+  /**
+   * Gate on the text-independent score, applied in SQL so the candidate set
+   * stays small. Listings never scored (gateScore null) are included: a brand
+   * new listing should not wait a full cycle for its first fetch.
+   */
+  minGateScore?: number;
   log?: (m: string) => void;
 }
 
@@ -403,6 +410,7 @@ export function runDetailFetch(
     opts.fetchImpl ?? globalThis.fetch,
     opts.selector ?? defaultDetailSelector,
     opts.log ?? ((m: string) => console.log(m)),
+    opts.minGateScore,
   );
 }
 
@@ -411,9 +419,10 @@ async function runDetailStage(
   fetchImpl: typeof globalThis.fetch,
   selector: (l: DetailCandidate) => boolean,
   log: (m: string) => void,
+  minGateScore?: number,
 ): Promise<{ fetched: number; errors: number }> {
   const refetchDays = Number(process.env.DETAIL_REFETCH_DAYS ?? 14);
-  const maxPerRun = Number(process.env.DETAIL_MAX_PER_RUN ?? 100);
+  const maxPerRun = Number(process.env.DETAIL_MAX_PER_RUN ?? 250);
   const staleBefore = new Date(now.getTime() - refetchDays * 24 * 60 * 60 * 1000);
 
   // Narrow select: only what the selector needs (postingText alone can be
@@ -423,9 +432,17 @@ async function runDetailStage(
     where: {
       likelyClosed: false,
       dismissed: false,
-      OR: [
-        { detailFetchedAt: null },
-        { detailFetchedAt: { lt: staleBefore }, detailFetchStatus: { not: "http_404" } },
+      disqualified: false,
+      ...(minGateScore === undefined
+        ? {}
+        : { OR: [{ gateScore: { gte: minGateScore } }, { gateScore: null }] }),
+      AND: [
+        {
+          OR: [
+            { detailFetchedAt: null },
+            { detailFetchedAt: { lt: staleBefore }, detailFetchStatus: { not: "http_404" } },
+          ],
+        },
       ],
     },
     select: DETAIL_CANDIDATE_SELECT,

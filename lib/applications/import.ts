@@ -51,11 +51,24 @@ export interface MatchCandidate {
 
 export type MatchVerdict = "exact" | "strong" | "likely" | "weak" | "none";
 
+/**
+ * What the catalog knows about the company, independent of whether any role
+ * matched. "Company absent entirely" and "company present but no role matches"
+ * mean different things: the second says the posting probably closed or was
+ * never carried by the sources, which is worth going to check.
+ */
+export interface CompanyContext {
+  company: string;
+  roleCount: number;
+  sampleTitles: string[];
+}
+
 export interface RowMatch {
   row: ImportRow;
   best: MatchCandidate | null;
   alternatives: MatchCandidate[];
   verdict: MatchVerdict;
+  companyContext: CompanyContext | null;
 }
 
 const HEADER_ALIASES: Record<string, keyof ImportRow> = {
@@ -312,6 +325,17 @@ export function matchRows(
         pool.push(...byCompany.get(key)!);
       }
     }
+
+    // Recorded whether or not a role matches, so the UI can tell the user
+    // "we know this company, but none of its roles look like what you typed".
+    const companyContext: CompanyContext | null =
+      pool.length > 0
+        ? {
+            company: pool[0].company,
+            roleCount: pool.length,
+            sampleTitles: [...new Set(pool.map((l) => l.title))].slice(0, 3),
+          }
+        : null;
     // A URL or requisition id can identify a listing under a different company
     // spelling, so those rows fall back to the whole catalog.
     const searchSpace =
@@ -328,6 +352,7 @@ export function matchRows(
       best,
       alternatives: scored.slice(1, 1 + maxAlternatives),
       verdict: verdictFor(best, scored[1] ?? null),
+      companyContext,
     };
   });
 }

@@ -27,6 +27,8 @@ Next.js 16 App Router + TypeScript + React 19 + Tailwind v4 (CSS-based config in
 
 Tests are Vitest, fixture-driven (`tests/fixtures/`), and never touch the network.
 
+`DATABASE_URL` must name its schema explicitly (`?schema=public` in development). `prisma dev`'s proxy leaks `search_path` between connections, so a URL without `?schema=` can silently read and write the *test* schema — which looks like "the column doesn't exist" in the app while `prisma db push` insists it already does. Always pass `--url` with the schema when pushing by hand.
+
 `*.integration.test.ts` files use a real database and wipe tables in `beforeEach`, so they run against a dedicated Postgres **schema** (`itest`), created by `tests/global-setup.ts` and selected by `tests/setup-env.ts`. Two traps are already handled here — don't undo them: (1) `prisma dev`'s local proxy ignores the *database* name in a connection string and routes every name to one physical database, so separate-database isolation silently fails; (2) with Prisma 7 driver adapters, `?schema=` is passed to node-postgres, which ignores unknown parameters, so `lib/db.ts` must read that parameter and hand it to `PrismaPg` explicitly. Vitest also runs test files sequentially (`fileParallelism: false`) since they share the one test schema.
 
 ## Layout
