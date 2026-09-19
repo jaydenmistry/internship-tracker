@@ -125,6 +125,17 @@ async function ingestListing(
   });
 
   if (existingSource) {
+    // Anything that changes a scoring input clears scoringConfigHash so the
+    // next scoring pass picks the row up — see "score self-invalidation".
+    const current = await prisma.listing.findUnique({
+      where: { id: existingSource.listingId },
+      select: { postingText: true, likelyClosed: true, deadline: true },
+    });
+    const reopened = item.active && current?.likelyClosed === true;
+    const deadlineChanged =
+      item.deadline !== undefined &&
+      item.deadline.getTime() !== (current?.deadline?.getTime() ?? NaN);
+
     await prisma.$transaction([
       prisma.listingSource.update({
         where: { id: existingSource.id },
@@ -138,19 +149,20 @@ async function ingestListing(
           ...(item.salary ? { salary: item.salary } : {}),
           ...(item.deadline ? { deadline: item.deadline } : {}),
           ...(item.sponsorship ? { sponsorship: item.sponsorship } : {}),
+          ...(reopened || deadlineChanged ? { scoringConfigHash: null } : {}),
         },
       }),
     ]);
     // Keep the richer posting text without clobbering stage-3 fetched text.
     if (item.postingText) {
-      const listing = await prisma.listing.findUnique({
-        where: { id: existingSource.listingId },
-        select: { postingText: true },
-      });
-      if (!listing?.postingText || listing.postingText.length < item.postingText.length) {
+      if (!current?.postingText || current.postingText.length < item.postingText.length) {
         await prisma.listing.update({
           where: { id: existingSource.listingId },
-          data: { postingText: item.postingText, postingTextHash: sha256(item.postingText) },
+          data: {
+            postingText: item.postingText,
+            postingTextHash: sha256(item.postingText),
+            scoringConfigHash: null,
+          },
         });
       }
     }
@@ -354,16 +366,44 @@ async function runAdapter(
   return summary;
 }
 
-/** Listings whose every source row is inactive or unseen this run → likelyClosed. */
+/**
+ * Listings whose every source row is inactive or unseen this run → likelyClosed.
+ * Clearing scoringConfigHash is what makes the "posting closed" disqualifier
+ * actually fire: without it a listing that closes after being scored would keep
+ * its score and stay visible forever.
+ */
 async function markLikelyClosed(runStart: Date): Promise<number> {
   const result = await prisma.listing.updateMany({
     where: {
       likelyClosed: false,
       sources: { none: { active: true, lastSeen: { gte: runStart } } },
     },
-    data: { likelyClosed: true },
+    data: { likelyClosed: true, scoringConfigHash: null },
   });
   return result.count;
+}
+
+export interface DetailStageOptions {
+  now?: Date;
+  fetchImpl?: typeof globalThis.fetch;
+  /** Defaults to the term/category heuristic; Phase 2 passes a score gate. */
+  selector?: (l: DetailCandidate) => boolean;
+  log?: (m: string) => void;
+}
+
+/**
+ * Stage 3 as a standalone step, so a full cycle can run
+ * ingest → provisional score → detail fetch → final score.
+ */
+export function runDetailFetch(
+  opts: DetailStageOptions = {},
+): Promise<{ fetched: number; errors: number }> {
+  return runDetailStage(
+    opts.now ?? new Date(),
+    opts.fetchImpl ?? globalThis.fetch,
+    opts.selector ?? defaultDetailSelector,
+    opts.log ?? ((m: string) => console.log(m)),
+  );
 }
 
 async function runDetailStage(
@@ -398,7 +438,7 @@ async function runDetailStage(
   const selectedIds = candidates.filter(selector).slice(0, maxPerRun).map((c) => c.id);
   const selected = await prisma.listing.findMany({
     where: { id: { in: selectedIds } },
-    select: { id: true, url: true, postingText: true, requisitionId: true },
+    select: { id: true, url: true, postingText: true, requisitionId: true, deadline: true },
   });
   const ctx: DetailContext = {
     fetch: fetchImpl,
@@ -430,10 +470,21 @@ async function runDetailStage(
         atsKind: result.atsKind,
         detailFetchedAt: now,
         detailFetchStatus: result.status,
+        // New posting text (or a CHANGED deadline) invalidates the stored
+        // score: clearing the config hash makes the next pass pick this up.
+        // An unchanged deadline must not invalidate, or every re-fetch would
+        // force a pointless rescore.
         ...(richer
-          ? { postingText: result.postingText, postingTextHash: sha256(result.postingText!) }
+          ? {
+              postingText: result.postingText,
+              postingTextHash: sha256(result.postingText!),
+              scoringConfigHash: null,
+            }
           : {}),
-        ...(result.deadline ? { deadline: result.deadline } : {}),
+        ...(result.deadline &&
+        result.deadline.getTime() !== (listing.deadline?.getTime() ?? NaN)
+          ? { deadline: result.deadline, scoringConfigHash: null }
+          : {}),
         ...(result.requisitionId && !listing.requisitionId
           ? { requisitionId: result.requisitionId }
           : {}),

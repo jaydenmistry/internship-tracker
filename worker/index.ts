@@ -2,25 +2,26 @@ import "dotenv/config";
 import { createServer } from "node:http";
 import cron from "node-cron";
 import { prisma } from "@/lib/db";
-import { runIngestion, type RunSummary } from "@/lib/ingestion/pipeline";
+import { runFullCycle, type CycleSummary } from "@/lib/cycle";
 
 const INGEST_CRON = process.env.INGEST_CRON ?? "0 6 * * *";
 const WORKER_PORT = Number(process.env.WORKER_PORT ?? 8081);
 
 let running = false;
-let lastRun: { at: string; summary: RunSummary | null; error?: string } | null = null;
+let lastRun: { at: string; summary: CycleSummary | null; error?: string } | null = null;
 
-async function ingest(trigger: string): Promise<RunSummary> {
+async function ingest(trigger: string): Promise<CycleSummary> {
   if (running) throw new Error("ingestion already running");
   running = true;
-  console.log(`[worker] ingestion started (${trigger})`);
+  console.log(`[worker] cycle started (${trigger})`);
   try {
-    const summary = await runIngestion();
+    const summary = await runFullCycle();
     lastRun = { at: new Date().toISOString(), summary };
     console.log(
-      `[worker] ingestion finished: ${summary.sources
+      `[worker] cycle finished: ${summary.ingestion.sources
         .map((s) => `${s.source}:${s.ok ? `${s.itemsNew} new/${s.itemsUpdated} upd` : "FAILED"}`)
-        .join(", ")}, ${summary.likelyClosed} likely-closed, ${summary.detailFetched} detail fetches`,
+        .join(", ")}, ${summary.ingestion.likelyClosed} likely-closed, ` +
+        `${summary.detail.fetched} detail fetches, ${summary.final.llmCalls} llm calls`,
     );
     return summary;
   } catch (err) {
@@ -32,7 +33,7 @@ async function ingest(trigger: string): Promise<RunSummary> {
 }
 
 cron.schedule(INGEST_CRON, () => {
-  ingest("cron").catch((err) => console.error("[worker] scheduled ingestion failed:", err));
+  ingest("cron").catch((err) => console.error("[worker] scheduled cycle failed:", err));
 });
 
 // Internal-only HTTP endpoint (compose network, never exposed via Traefik):
@@ -46,7 +47,7 @@ const server = createServer((req, res) => {
   if (req.method === "POST" && req.url === "/refresh") {
     if (running) return respond(409, { ok: false, error: "already running" });
     // Fire and forget; the caller polls /healthz or the IngestRun table.
-    ingest("manual").catch((err) => console.error("[worker] manual ingestion failed:", err));
+    ingest("manual").catch((err) => console.error("[worker] manual cycle failed:", err));
     return respond(202, { ok: true, started: true });
   }
 
