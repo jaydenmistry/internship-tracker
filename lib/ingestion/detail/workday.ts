@@ -19,7 +19,10 @@ const WorkdayJobSchema = z.looseObject({
   }),
 });
 
-const LOCALE_RE = /^[a-z]{2}-[A-Z]{2}$/;
+// Case-insensitive on purpose: tenants use both "en-US" and "en-us" (Intel),
+// and a case-sensitive match silently treats the locale as the site name,
+// producing a 404 cxs URL.
+const LOCALE_RE = /^[a-z]{2}-[a-z]{2}$/i;
 
 export async function fetchWorkdayDetail(url: string, ctx: DetailContext): Promise<DetailResult> {
   const u = new URL(url);

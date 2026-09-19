@@ -16,7 +16,7 @@ import { COMPONENT_NAMES, type ComponentName, type ScoringConfig } from "@/lib/s
  * on its old score. (Forgetting to bump is not fatal — the time-based
  * staleness window in rescore.ts re-scores everything within a day anyway.)
  */
-export const SCORING_ENGINE_VERSION = 2;
+export const SCORING_ENGINE_VERSION = 3;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -53,6 +53,14 @@ export type ComponentScore = {
 export interface ScoreResult {
   /** Integer 0–100. Forced to 0 when `disqualified`, breakdown kept intact. */
   ruleScore: number;
+  /**
+   * The same weighted score with techFit EXCLUDED from the denominator, rather
+   * than counted as zero. Used to decide which postings are worth fetching: a
+   * listing must not be judged on the very data the fetch exists to collect.
+   * Without this the pipeline deadlocks — no text means techFit 0, which keeps
+   * the score under the gate, which prevents the fetch that would supply text.
+   */
+  gateScore: number;
   breakdown: Record<string, ComponentScore>;
   disqualified: boolean;
   disqualifyReasons: string[];
@@ -366,23 +374,33 @@ export function scoreListing(
 
   let weightSum = 0;
   let weighted = 0;
+  // Same sum with techFit left out entirely — not scored 0, but excluded from
+  // the denominator. See gateScore below.
+  let gateWeightSum = 0;
+  let gateWeighted = 0;
   for (const name of COMPONENT_NAMES) {
     const weight = config.weights[name] ?? 0;
     if (weight <= 0) continue;
     const { points, max } = breakdown[name];
+    const fraction = max > 0 ? points / max : 0;
     weightSum += weight;
-    weighted += weight * (max > 0 ? points / max : 0);
+    weighted += weight * fraction;
+    if (name !== "techFit") {
+      gateWeightSum += weight;
+      gateWeighted += weight * fraction;
+    }
   }
 
+  const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
+  const disqualified = disqualifyReasons.length > 0;
   const normalized = weightSum > 0 ? (100 * weighted) / weightSum : 0;
-  const ruleScore = disqualifyReasons.length > 0
-    ? 0
-    : Math.max(0, Math.min(100, Math.round(normalized)));
+  const gateNormalized = gateWeightSum > 0 ? (100 * gateWeighted) / gateWeightSum : 0;
 
   return {
-    ruleScore,
+    ruleScore: disqualified ? 0 : clamp(normalized),
+    gateScore: disqualified ? 0 : clamp(gateNormalized),
     breakdown,
-    disqualified: disqualifyReasons.length > 0,
+    disqualified,
     disqualifyReasons,
   };
 }

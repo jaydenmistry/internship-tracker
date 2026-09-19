@@ -151,11 +151,30 @@ describe("matchRows", () => {
     const r = match("Some Startup That Does Not Exist, Platform Engineer Intern, Atlanta GA");
     expect(r.verdict).toBe("none");
     expect(r.best).toBeNull();
+    // Nothing known about the company at all — different from the case below.
+    expect(r.companyContext).toBeNull();
   });
 
   it("does not match a different role at the same company", () => {
     const r = match("Datadog, Recruiting Coordinator, New York NY");
     expect(r.verdict).toBe("none");
+  });
+
+  it("distinguishes 'company not tracked' from 'company tracked, no role matches'", () => {
+    // The real Datadog case: the company IS in the catalog, but the role the
+    // user applied to isn't — which means the posting probably closed or was
+    // never carried by the sources, and is worth going to check.
+    const r = match("Datadog, Recruiting Coordinator, New York NY");
+    expect(r.best).toBeNull();
+    expect(r.companyContext).not.toBeNull();
+    expect(r.companyContext!.company).toBe("Datadog");
+    expect(r.companyContext!.roleCount).toBe(1);
+    expect(r.companyContext!.sampleTitles).toContain("Backend Engineer Intern");
+  });
+
+  it("reports company context even when a role does match", () => {
+    const r = match("Datadog, Backend Engineer Intern, New York NY");
+    expect(r.companyContext?.company).toBe("Datadog");
   });
 
   it("demotes an ambiguous match so the user has to choose", () => {

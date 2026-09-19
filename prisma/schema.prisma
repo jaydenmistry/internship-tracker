@@ -85,6 +85,9 @@ model Listing {
 
   // scoring snapshot (recomputed when config hash changes)
   ruleScore         Int?
+  /// Score with techFit excluded from the denominator; gates the detail fetch
+  /// so a listing isn't judged on the data the fetch exists to collect.
+  gateScore         Int?
   llmAdjustment     Int? // clamped ±15
   finalScore        Int?
   scoreBreakdown    Json?
@@ -100,6 +103,7 @@ model Listing {
   @@index([dedupKey])
   @@index([companyId])
   @@index([finalScore])
+  @@index([gateScore])
   @@index([likelyClosed, dismissed])
 }
 

@@ -361,8 +361,29 @@ export default function ReviewStep({
                           )}
                         </div>
                       </>
+                    ) : row.companyContext ? (
+                      // The company IS tracked but no role matches: likely the
+                      // posting closed, or the sources never carried it.
+                      <div className="space-y-0.5">
+                        <span className="text-warn">
+                          {row.companyContext.company} is in the catalog, but no role matches
+                        </span>
+                        <div className="text-[11px] text-faint">
+                          {row.companyContext.roleCount}{" "}
+                          {row.companyContext.roleCount === 1 ? "role" : "roles"} tracked:{" "}
+                          {row.companyContext.sampleTitles.join(" · ")}
+                          {row.companyContext.roleCount > row.companyContext.sampleTitles.length
+                            ? " · …"
+                            : ""}
+                        </div>
+                        <div className="text-[11px] text-faint">
+                          Check whether the posting closed — importing as manual keeps it tracked.
+                        </div>
+                      </div>
                     ) : (
-                      <span className="text-faint">no listing in the catalog</span>
+                      <span className="text-faint">
+                        no listing in the catalog — company not tracked either
+                      </span>
                     )}
                   </td>
 

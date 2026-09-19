@@ -46,6 +46,7 @@ export function toReviewRows(matches: RowMatch[]): ReviewRow[] {
     alternatives: m.alternatives
       .map(toCandidate)
       .filter((c): c is ReviewCandidate => c !== null),
+    companyContext: m.companyContext,
   }));
 }
 

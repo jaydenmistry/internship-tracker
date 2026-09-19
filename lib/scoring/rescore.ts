@@ -206,6 +206,7 @@ async function runStageOne(
           where: { id: row.id },
           data: {
             ruleScore: result.ruleScore,
+            gateScore: result.gateScore,
             // finalScore is provisional here; stage 2 may adjust it.
             finalScore: result.ruleScore,
             llmAdjustment: null,
