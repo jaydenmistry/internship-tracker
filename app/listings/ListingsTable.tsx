@@ -8,15 +8,16 @@ import {
   useMemo,
   useRef,
   useState,
-  useTransition,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import Badge from "@/components/Badge";
 import type { ListingRow } from "@/lib/listings/query";
-import { setDismissedAction, setSavedAction, setStatusAction } from "./actions";
-import DetailStub from "./DetailStub";
+import ContextMenu from "./ContextMenu";
+import DetailPanel from "./DetailPanel";
 import HelpOverlay from "./HelpOverlay";
-import { isEditable, isPlainKey } from "./keys";
+import { isActivatable, isEditable, isPlainKey } from "./keys";
+import type { RowCommand, Toast } from "./row-actions";
 import Toolbar from "./Toolbar";
 import {
   absoluteDate,
@@ -25,6 +26,7 @@ import {
   allSources,
   DEFAULT_SORT,
   deadlineUrgency,
+  dqBadge,
   EMPTY_FILTER,
   fetchBadge,
   formatDeadline,
@@ -34,18 +36,19 @@ import {
   isTrackedApplied,
   nextSort,
   prepareRows,
+  rankMovement,
   relativeAge,
   scoreTone,
   sortRows,
   STATUS_LABELS,
   makeRowPredicate,
   type FilterState,
-  type PatchMap,
-  type RowPatch,
   type SortKey,
   type SortState,
   type TableRow,
 } from "./table-state";
+import { useListingDetail } from "./useListingDetail";
+import { useRowActions } from "./useRowActions";
 
 /** Fixed row height — the virtualizer measures nothing, so cells never wrap. */
 const ROW_HEIGHT = 26;
@@ -73,17 +76,33 @@ export default function ListingsTable({ rows, nowIso }: Props) {
 
   const [filter, setFilter] = useState<FilterState>(EMPTY_FILTER);
   const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
-  const [patches, setPatches] = useState<PatchMap>({});
   const [cursor, setCursor] = useState<number | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
+  const [toast, setToast] = useState<(Toast & { id: number }) | null>(null);
+  const [menu, setMenu] = useState<{ rowId: string; x: number; y: number } | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  const patchesRef = useRef<PatchMap>(patches);
-  patchesRef.current = patches;
+
+  const notify = useCallback((t: Toast) => {
+    setToast({ ...t, id: Date.now() + Math.random() });
+  }, []);
+
+  // Confirmations fade on their own; errors stay until dismissed.
+  useEffect(() => {
+    if (!toast || toast.kind !== "ok") return;
+    const id = setTimeout(() => setToast((t) => (t === toast ? null : t)), 2200);
+    return () => clearTimeout(id);
+  }, [toast]);
+
+  const detail = useListingDetail(openId);
+  const { patches, perform, saveNotes } = useRowActions({
+    notify,
+    openDetail: setOpenId,
+    // A confirmed write changes the detail read model (timeline, notes row).
+    onSettled: detail.invalidate,
+  });
 
   // `now` comes from the server for the first paint, then follows the clock so
   // "2h" and "closing soon" don't go stale in a tab left open all afternoon.
@@ -160,10 +179,19 @@ export default function ListingsTable({ rows, nowIso }: Props) {
     });
   }, [visible.length]);
 
+  // The detail panel follows the cursor while it is open (j/k, click).
+  const openIdRef = useRef(openId);
+  openIdRef.current = openId;
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
+
   const focusCursor = useCallback(
     (index: number | null) => {
       setCursor(index);
-      if (index !== null) virtualizer.scrollToIndex(index, { align: "auto" });
+      if (index === null) return;
+      virtualizer.scrollToIndex(index, { align: "auto" });
+      const row = visibleRef.current[index];
+      if (row && openIdRef.current !== null) setOpenId(row.id);
     },
     [virtualizer],
   );
@@ -173,106 +201,57 @@ export default function ListingsTable({ rows, nowIso }: Props) {
     [openId, patched],
   );
 
-  /**
-   * Optimistic write: patch the row now, call the action, and put the exact
-   * previous values back if the server refuses. The table must never look like
-   * it dropped a keystroke.
-   */
-  const mutate = useCallback(
-    (
-      id: string,
-      patch: RowPatch,
-      run: () => Promise<{ ok: true } | { ok: false; message: string }>,
-    ) => {
-      const before = patchesRef.current[id] ?? {};
-      const previous: RowPatch = {};
-      for (const key of Object.keys(patch) as Array<keyof RowPatch>) {
-        // `undefined` means "had no override", which is what we restore to.
-        (previous as Record<string, unknown>)[key] = before[key];
-      }
-      const nextPatches = { ...patchesRef.current, [id]: { ...before, ...patch } };
-      patchesRef.current = nextPatches;
-      setPatches(nextPatches);
-      setError(null);
+  const menuRow = useMemo(
+    () => (menu ? (patched.find((r) => r.id === menu.rowId) ?? null) : null),
+    [menu, patched],
+  );
 
-      startTransition(async () => {
-        const result = await run();
-        if (result.ok) return;
-        const current = patchesRef.current[id] ?? {};
-        const reverted: RowPatch = { ...current };
-        for (const key of Object.keys(patch) as Array<keyof RowPatch>) {
-          if (previous[key] === undefined) delete reverted[key];
-          else (reverted as Record<string, unknown>)[key] = previous[key];
-        }
-        const restored = { ...patchesRef.current, [id]: reverted };
-        patchesRef.current = restored;
-        setPatches(restored);
-        setError(result.message);
-      });
+  /** Every row action — key, menu item or panel button — goes through here. */
+  const act = useCallback(
+    (row: TableRow, command: RowCommand) => {
+      void perform(row, command);
+    },
+    [perform],
+  );
+
+  const closeMenu = useCallback(() => {
+    setMenu(null);
+    // Hand focus back to the grid so j/k and the shortcuts keep working.
+    scrollRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  /** Right-click: move the cursor to the clicked row FIRST, then open. */
+  const openMenuAt = useCallback(
+    (index: number, x: number, y: number) => {
+      const row = visibleRef.current[index];
+      if (!row) return;
+      focusCursor(index);
+      setMenu({ rowId: row.id, x, y });
+    },
+    [focusCursor],
+  );
+
+  const onRowClick = useCallback(
+    (index: number) => {
+      const row = visibleRef.current[index];
+      setCursor(index);
+      if (row) setOpenId(row.id);
     },
     [],
   );
 
-  const toggleApplied = useCallback(
-    (row: TableRow) => {
-      const next = row.statusKey === "APPLIED" ? "NOT_APPLIED" : "APPLIED";
-      mutate(row.id, { status: next === "NOT_APPLIED" ? null : next }, async () => {
-        const res = await setStatusAction({ listingId: row.id, status: next });
-        return res.ok ? { ok: true } : res;
-      });
-    },
-    [mutate],
-  );
-
-  const toggleSaved = useCallback(
-    (row: TableRow) => {
-      const value = !row.saved;
-      mutate(row.id, { saved: value }, () =>
-        setSavedAction({ listingId: row.id, value }),
-      );
-    },
-    [mutate],
-  );
-
-  const toggleDismissed = useCallback(
-    (row: TableRow) => {
-      const value = !row.dismissed;
-      mutate(row.id, { dismissed: value }, () =>
-        setDismissedAction({ listingId: row.id, value }),
-      );
-    },
-    [mutate],
-  );
-
-  const openApplyUrl = useCallback((row: TableRow) => {
-    // Scraped URLs: anything that isn't plain http(s) never reaches window.open.
-    const href = safeOpenUrl(row.url);
-    if (href) window.open(href, "_blank", "noopener,noreferrer");
-  }, []);
-
   // A single window-level listener, reading live state through a ref so it is
   // registered once rather than on every cursor move.
-  const latest = useRef({
-    visible,
-    cursor,
-    showHelp,
-    openId,
-    focusCursor,
-    toggleApplied,
-    toggleSaved,
-    toggleDismissed,
-    openApplyUrl,
-  });
+  const latest = useRef({ visible, cursor, showHelp, openId, menuOpen: false, focusCursor, act, openMenuAt });
   latest.current = {
     visible,
     cursor,
     showHelp,
     openId,
+    menuOpen: menu !== null,
     focusCursor,
-    toggleApplied,
-    toggleSaved,
-    toggleDismissed,
-    openApplyUrl,
+    act,
+    openMenuAt,
   };
 
   useEffect(() => {
@@ -282,6 +261,8 @@ export default function ListingsTable({ rows, nowIso }: Props) {
       if (isEditable(event.target)) return;
 
       const s = latest.current;
+      // The open context menu owns the keyboard (it stops propagation too).
+      if (s.menuOpen) return;
       const rowsNow = s.visible;
       const at = s.cursor;
       const row = at !== null ? rowsNow[at] : undefined;
@@ -317,30 +298,45 @@ export default function ListingsTable({ rows, nowIso }: Props) {
           if (rowsNow.length) s.focusCursor(rowsNow.length - 1);
           return;
         case "Enter":
-          if (!row) return;
+          // Enter on a focused button or link (e.g. in the detail panel) is
+          // that control's own activation, not "open the cursor row".
+          if (!row || isActivatable(event.target)) return;
           event.preventDefault();
-          setOpenId(row.id);
+          s.act(row, { kind: "openDetail" });
           return;
         case "o":
           if (!row) return;
           event.preventDefault();
-          s.openApplyUrl(row);
+          s.act(row, { kind: "openUrl" });
           return;
         case "a":
           if (!row) return;
           event.preventDefault();
-          s.toggleApplied(row);
+          s.act(row, { kind: "toggleApplied" });
           return;
         case "s":
           if (!row) return;
           event.preventDefault();
-          s.toggleSaved(row);
+          s.act(row, { kind: "toggleSaved" });
           return;
         case "d":
           if (!row) return;
           event.preventDefault();
-          s.toggleDismissed(row);
+          s.act(row, { kind: "toggleDismissed" });
           return;
+        case "ContextMenu":
+        case "F10": {
+          // The keyboard's menu key, or Shift+F10: open at the cursor row.
+          if (event.key === "F10" && !event.shiftKey) return;
+          if (!row || at === null) return;
+          event.preventDefault();
+          const el = document.querySelector<HTMLElement>(
+            `[data-testid="listing-row"][aria-rowindex="${at + 1}"]`,
+          );
+          const rect = el?.getBoundingClientRect();
+          s.openMenuAt(at, rect ? rect.left + 160 : 200, rect ? rect.bottom : 200);
+          return;
+        }
         case "/":
           event.preventDefault();
           searchRef.current?.focus();
@@ -445,8 +441,8 @@ export default function ListingsTable({ rows, nowIso }: Props) {
                       now={now}
                       focused={cursor === item.index}
                       open={openId === row.id}
-                      onFocus={focusCursor}
-                      onOpen={setOpenId}
+                      onClick={onRowClick}
+                      onContextMenu={openMenuAt}
                     />
                   );
                 })}
@@ -455,20 +451,49 @@ export default function ListingsTable({ rows, nowIso }: Props) {
           </div>
         </div>
 
-        {openRow && <DetailStub row={openRow} onClose={() => setOpenId(null)} />}
+        {openRow && (
+          <DetailPanel
+            row={openRow}
+            load={detail.load}
+            now={now}
+            onCommand={(command) => act(openRow, command)}
+            onSaveNotes={saveNotes}
+            onRetry={detail.retry}
+            onClose={() => {
+              setOpenId(null);
+              scrollRef.current?.focus({ preventScroll: true });
+            }}
+          />
+        )}
       </div>
 
-      {error && (
+      {menu && menuRow && (
+        <ContextMenu
+          key={`${menu.rowId}:${menu.x}:${menu.y}`}
+          row={menuRow}
+          point={{ x: menu.x, y: menu.y }}
+          onClose={closeMenu}
+          onCommand={(command) => {
+            closeMenu();
+            act(menuRow, command);
+          }}
+        />
+      )}
+
+      {toast && (
         <div
-          role="status"
-          className="fixed bottom-3 left-3 z-40 flex max-w-md items-start gap-2 rounded border border-bad/60 bg-panel px-3 py-2 text-[12px] text-bad shadow-lg"
+          key={toast.id}
+          role={toast.kind === "error" ? "alert" : "status"}
+          className={`fixed bottom-3 left-3 z-[60] flex max-w-md items-start gap-2 rounded border bg-panel px-3 py-2 text-[12px] shadow-lg ${
+            toast.kind === "error" ? "border-bad/60 text-bad" : "border-ok/50 text-ok"
+          }`}
         >
-          <span className="min-w-0 flex-1">{error}</span>
+          <span className="min-w-0 flex-1">{toast.message}</span>
           <button
             type="button"
-            onClick={() => setError(null)}
+            onClick={() => setToast(null)}
             className="shrink-0 text-faint hover:text-ink"
-            aria-label="Dismiss error"
+            aria-label="Dismiss message"
           >
             ×
           </button>
@@ -478,18 +503,6 @@ export default function ListingsTable({ rows, nowIso }: Props) {
       {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
     </div>
   );
-}
-
-/** Local copy of the http(s) guard so the row never calls window.open blind. */
-function safeOpenUrl(url: string): string | null {
-  const trimmed = url.trim();
-  if (!/^https?:\/\//i.test(trimmed)) return null;
-  try {
-    const parsed = new URL(trimmed);
-    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : null;
-  } catch {
-    return null;
-  }
 }
 
 const SCORE_TONE_CLASS = {
@@ -518,8 +531,8 @@ interface RowProps {
   now: number;
   focused: boolean;
   open: boolean;
-  onFocus: (index: number) => void;
-  onOpen: (id: string) => void;
+  onClick: (index: number) => void;
+  onContextMenu: (index: number, x: number, y: number) => void;
 }
 
 /**
@@ -536,10 +549,12 @@ const Row = memo(function Row({
   now,
   focused,
   open,
-  onFocus,
-  onOpen,
+  onClick,
+  onContextMenu,
 }: RowProps) {
   const badge = fetchBadge(row.fetchStatus);
+  const movement = rankMovement(row.rankDelta);
+  const dq = row.disqualified ? dqBadge(row.disqualifyReasons) : null;
   const urgency = deadlineUrgency(row.deadlineTs, now);
   const muted = row.disqualified || row.dismissed;
 
@@ -549,8 +564,12 @@ const Row = memo(function Row({
       aria-rowindex={index + 1}
       aria-selected={focused}
       data-testid="listing-row"
-      onClick={() => onFocus(index)}
-      onDoubleClick={() => onOpen(row.id)}
+      onClick={() => onClick(index)}
+      // Only rows replace the browser's menu; everywhere else keeps it.
+      onContextMenu={(e: ReactMouseEvent) => {
+        e.preventDefault();
+        onContextMenu(index, e.clientX, e.clientY);
+      }}
       style={{
         position: "absolute",
         top: 0,
@@ -568,16 +587,18 @@ const Row = memo(function Row({
       } ${muted ? "opacity-55" : ""}`}
     >
       <span
-        className="lt-cell text-right font-mono text-[11px] text-faint tabular-nums"
-        title={
-          row.rank === null
-            ? "no rank — disqualified"
-            : row.rankDelta
-              ? `moved ${row.rankDelta > 0 ? "up" : "down"} ${Math.abs(row.rankDelta)} since the last change`
-              : undefined
-        }
+        className="lt-cell flex items-baseline justify-end gap-[3px] font-mono tabular-nums"
+        title={row.rank === null ? "no rank — disqualified" : movement?.label}
       >
-        {row.rank ?? "—"}
+        {movement && (
+          <span
+            data-testid="rank-move"
+            className={`lt-rank-move ${movement.direction === "up" ? "text-ok" : "text-warn"}`}
+          >
+            {movement.text}
+          </span>
+        )}
+        <span className="text-[10.5px] text-faint">{row.rank ?? "—"}</span>
       </span>
 
       <span
@@ -620,12 +641,9 @@ const Row = memo(function Row({
           </Badge>
         )}
         {row.dismissed && <Badge tone="dim">dismissed</Badge>}
-        {row.disqualified && (
-          <Badge
-            tone="bad"
-            title={row.disqualifyReason ?? "Disqualified by the scoring config"}
-          >
-            dq{row.disqualifyReason ? `: ${row.disqualifyReason}` : ""}
+        {dq && (
+          <Badge tone="bad" title={dq.title}>
+            {dq.text}
           </Badge>
         )}
       </span>

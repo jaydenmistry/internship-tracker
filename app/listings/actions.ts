@@ -2,8 +2,11 @@
 
 import { z } from "zod";
 import { AppStatus } from "@/generated/prisma/enums";
+import { NOTES_MAX } from "./row-actions";
+import { loadListingDetail, type ListingDetail } from "@/lib/listings/detail";
 import {
   setListingDismissed,
+  setListingNotes,
   setListingSaved,
   setListingStatus,
 } from "@/lib/listings/mutations";
@@ -33,6 +36,13 @@ const statusSchema = z.object({
   status: z.enum(AppStatus),
 });
 
+const detailSchema = z.object({ listingId: listingIdSchema });
+
+const notesSchema = z.object({
+  listingId: listingIdSchema,
+  notes: z.string().max(NOTES_MAX),
+});
+
 const flagSchema = z.object({
   listingId: listingIdSchema,
   value: z.boolean(),
@@ -60,8 +70,8 @@ export async function setStatusAction(
   if (!parsed.success) return invalid(parsed.error);
 
   try {
-    // NOT_APPLIED removes the tracking row and comes back as `status: null`,
-    // which is what the table stores for "no Application row yet".
+    // NOT_APPLIED comes back as `null` (row removed) or "NOT_APPLIED" (row kept
+    // because it holds notes). The table treats both as "not applied".
     const { status } = await setListingStatus(parsed.data.listingId, parsed.data.status);
     return { ok: true, status };
   } catch (err) {
@@ -90,5 +100,34 @@ export async function setDismissedAction(payload: unknown): Promise<ActionResult
     return { ok: true };
   } catch (err) {
     return failed("Dismiss", err);
+  }
+}
+
+/**
+ * The detail panel's on-demand read. Returns the panel's read model only —
+ * `loadListingDetail` already shapes it to what the panel renders.
+ */
+export async function loadDetailAction(
+  payload: unknown,
+): Promise<ActionResult<{ detail: ListingDetail | null }>> {
+  const parsed = detailSchema.safeParse(payload);
+  if (!parsed.success) return invalid(parsed.error);
+
+  try {
+    return { ok: true, detail: await loadListingDetail(parsed.data.listingId) };
+  } catch (err) {
+    return failed("Loading the listing", err);
+  }
+}
+
+export async function setNotesAction(payload: unknown): Promise<ActionResult> {
+  const parsed = notesSchema.safeParse(payload);
+  if (!parsed.success) return invalid(parsed.error);
+
+  try {
+    await setListingNotes(parsed.data.listingId, parsed.data.notes);
+    return { ok: true };
+  } catch (err) {
+    return failed("Saving notes", err);
   }
 }

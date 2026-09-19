@@ -559,3 +559,52 @@ export function allSources(rows: readonly TableRow[]): string[] {
   for (const row of rows) for (const s of row.sources) set.add(s);
   return [...set].sort();
 }
+
+// ---------------------------------------------------------------------------
+// Rank movement + disqualification badge
+// ---------------------------------------------------------------------------
+
+export interface RankMovement {
+  /** "↑3" / "↓12" — rendered in the rank cell, not only in a tooltip. */
+  text: string;
+  direction: "up" | "down";
+  /** Plain-language version for the tooltip and screen readers. */
+  label: string;
+}
+
+/**
+ * The rank-cell indicator. Nothing at all for a listing that never moved (0),
+ * has no previous rank, or has no rank (disqualified): an arrow only appears
+ * when there is real movement to report.
+ */
+export function rankMovement(delta: number | null | undefined): RankMovement | null {
+  if (delta === null || delta === undefined || delta === 0 || !Number.isFinite(delta)) {
+    return null;
+  }
+  const n = Math.abs(Math.trunc(delta));
+  if (n === 0) return null;
+  return delta > 0
+    ? { text: `↑${n}`, direction: "up", label: `moved up ${n} since the last rank change` }
+    : { text: `↓${n}`, direction: "down", label: `moved down ${n} since the last rank change` };
+}
+
+export interface DqBadge {
+  text: string;
+  /** Every reason, so the tooltip never hides one behind "+1". */
+  title: string;
+}
+
+/**
+ * Badge for a disqualified row. One reason reads in full; several carry a
+ * count so a listing excluded on two grounds is visibly different from one
+ * excluded on either alone, and the tooltip lists them all.
+ */
+export function dqBadge(reasons: readonly string[]): DqBadge {
+  const clean = reasons.map((r) => r.trim()).filter(Boolean);
+  if (clean.length === 0) {
+    return { text: "dq", title: "Disqualified by the scoring config" };
+  }
+  const title = `Disqualified — ${clean.join(" · ")}`;
+  if (clean.length === 1) return { text: `dq: ${clean[0]}`, title };
+  return { text: `dq ×${clean.length}: ${clean[0]} +${clean.length - 1}`, title };
+}

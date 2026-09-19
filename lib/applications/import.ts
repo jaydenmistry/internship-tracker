@@ -5,6 +5,8 @@ import {
   normalizeTitle,
   titleSimilarity,
 } from "@/lib/ingestion/normalize";
+import type { AppStatus } from "@/generated/prisma/enums";
+import { restoreFormulaPrefix } from "@/lib/applications/csv";
 
 /**
  * Bulk import of applications the user already submitted.
@@ -20,6 +22,12 @@ export interface ImportRow {
   location?: string;
   requisitionId?: string;
   url?: string;
+  /** Per-row status (header "Status"). When present it wins over the review
+   *  step's global status, so an exported CSV restores each row exactly. */
+  status?: AppStatus;
+  /** ISO date from an "Applied" column. */
+  appliedAt?: string;
+  notes?: string;
   /** 1-based line number in the pasted text, for error reporting. */
   lineNumber: number;
   raw: string;
@@ -93,35 +101,174 @@ const HEADER_ALIASES: Record<string, keyof ImportRow> = {
   link: "url",
   "job url": "url",
   "apply url": "url",
+  status: "status",
+  stage: "status",
+  applied: "appliedAt",
+  "applied at": "appliedAt",
+  "applied on": "appliedAt",
+  "date applied": "appliedAt",
+  "applied date": "appliedAt",
+  date: "appliedAt",
+  notes: "notes",
+  note: "notes",
+  comments: "notes",
 };
 
-/** Splits a line on the first delimiter style that yields multiple fields. */
-function splitLine(line: string): string[] {
-  if (line.includes("\t")) return line.split("\t").map((s) => s.trim());
-  if (line.includes("|")) return line.split("|").map((s) => s.trim());
-  // Quoted CSV fields may legitimately contain commas.
-  if (line.includes(",")) {
-    const out: string[] = [];
-    let cur = "";
-    let quoted = false;
-    for (let i = 0; i < line.length; i += 1) {
-      const c = line[i];
-      if (c === '"') {
-        if (quoted && line[i + 1] === '"') {
-          cur += '"';
-          i += 1;
-        } else quoted = !quoted;
-      } else if (c === "," && !quoted) {
-        out.push(cur.trim());
-        cur = "";
-      } else cur += c;
-    }
-    out.push(cur.trim());
-    return out;
+/** Accepts enum values (PHONE_SCREEN) and the words people actually type. */
+const STATUS_ALIASES: Record<string, AppStatus> = {
+  "not applied": "NOT_APPLIED",
+  applied: "APPLIED",
+  submitted: "APPLIED",
+  oa: "OA",
+  "online assessment": "OA",
+  assessment: "OA",
+  "coding challenge": "OA",
+  "phone screen": "PHONE_SCREEN",
+  phone: "PHONE_SCREEN",
+  "recruiter screen": "PHONE_SCREEN",
+  screen: "PHONE_SCREEN",
+  interview: "INTERVIEW",
+  interviewing: "INTERVIEW",
+  onsite: "INTERVIEW",
+  "final round": "INTERVIEW",
+  offer: "OFFER",
+  rejected: "REJECTED",
+  rejection: "REJECTED",
+  declined: "REJECTED",
+  closed: "CLOSED",
+  skipped: "SKIPPED",
+  skip: "SKIPPED",
+};
+
+export function parseStatus(raw: string): AppStatus | null {
+  const key = raw.trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+  return STATUS_ALIASES[key] ?? null;
+}
+
+/** YYYY-MM-DD (what the export writes) or any unambiguous full date. */
+export function parseAppliedDate(raw: string): string | null {
+  const v = raw.trim();
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  const d = ymd
+    ? new Date(Date.UTC(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3])))
+    : new Date(v);
+  if (Number.isNaN(d.getTime())) return null;
+  // Guard against Date's silent rollover: 2026-02-31 → March 3, and
+  // 2026-13-01 → January 2027. Every component must survive unchanged.
+  if (
+    ymd &&
+    (d.getUTCFullYear() !== Number(ymd[1]) ||
+      d.getUTCMonth() !== Number(ymd[2]) - 1 ||
+      d.getUTCDate() !== Number(ymd[3]))
+  ) {
+    return null;
   }
-  // Dash-separated freeform: "Company — Role — Location".
-  if (/\s[–—-]\s/.test(line)) return line.split(/\s[–—-]\s/).map((s) => s.trim());
-  return [line.trim()];
+  return d.toISOString();
+}
+
+type Delimiter = "tab" | "pipe" | "comma" | "dash" | "none";
+
+function detectDelimiter(record: string): Delimiter {
+  if (record.includes("\t")) return "tab";
+  if (record.includes("|")) return "pipe";
+  if (record.includes(",")) return "comma";
+  if (/\s[–—-]\s/.test(record)) return "dash";
+  return "none";
+}
+
+/** A quote only opens a quoted field at the START of a field (RFC 4180), so a
+ *  stray inch mark — `6" display` — is literal text, not a runaway quote. */
+function atFieldStart(cur: string, sep: string): boolean {
+  const t = cur.trimEnd();
+  return t === "" || t.endsWith(sep);
+}
+
+function splitComma(record: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let quoted = false;
+  for (let i = 0; i < record.length; i += 1) {
+    const c = record[i];
+    if (c === '"') {
+      if (quoted && record[i + 1] === '"') {
+        cur += '"';
+        i += 1;
+        continue;
+      }
+      if (quoted) {
+        quoted = false;
+        continue;
+      }
+      if (cur.trim() === "") {
+        quoted = true;
+        cur = "";
+        continue;
+      }
+      cur += c;
+    } else if (c === "," && !quoted) {
+      out.push(cur.trim());
+      cur = "";
+    } else cur += c;
+  }
+  out.push(cur.trim());
+  return out;
+}
+
+function splitWith(delimiter: Delimiter, record: string): string[] {
+  switch (delimiter) {
+    case "tab":
+      return record.split("\t").map((s) => s.trim());
+    case "pipe":
+      return record.split("|").map((s) => s.trim());
+    case "comma":
+      return splitComma(record);
+    case "dash":
+      return record.split(/\s[–—-]\s/).map((s) => s.trim());
+    default:
+      return [record.trim()];
+  }
+}
+
+/**
+ * Splits text into logical records. A newline inside a quoted field (a
+ * multi-line note in an exported CSV) does not end the record. Each record
+ * keeps the line number it started on, for error messages.
+ */
+function splitRecords(text: string): Array<{ text: string; lineNumber: number }> {
+  const out: Array<{ text: string; lineNumber: number }> = [];
+  let cur = "";
+  let inQuotes = false;
+  let line = 1;
+  let startLine = 1;
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i];
+    if (c === '"') {
+      if (inQuotes && text[i + 1] === '"') {
+        cur += '""';
+        i += 1;
+        continue;
+      }
+      if (inQuotes) inQuotes = false;
+      else if (atFieldStart(cur, ",")) inQuotes = true;
+      cur += c;
+      continue;
+    }
+    if (c === "\r" && text[i + 1] === "\n") continue;
+    if (c === "\n") {
+      line += 1;
+      if (inQuotes) {
+        cur += "\n";
+        continue;
+      }
+      out.push({ text: cur, lineNumber: startLine });
+      cur = "";
+      startLine = line;
+      continue;
+    }
+    cur += c;
+  }
+  if (cur.length > 0) out.push({ text: cur, lineNumber: startLine });
+  return out;
 }
 
 function looksLikeHeader(fields: string[]): boolean {
@@ -129,44 +276,52 @@ function looksLikeHeader(fields: string[]): boolean {
   return lowered.some((f) => f in HEADER_ALIASES) && lowered.every((f) => f.length < 24);
 }
 
-// [\s\S] rather than the /s flag: tsconfig targets ES2017, where dotAll is
-// unavailable.
-const stripQuotes = (s: string) => s.replace(/^"([\s\S]*)"$/, "$1").trim();
-
 /**
  * Parses pasted text or CSV. Accepts a header row (in any column order) or
- * positional "Company, Role, Location, ReqId, Url".
+ * positional "Company, Role, Location, ReqId, Url". With a header, optional
+ * Status / Applied / Notes columns restore per-row state — which is what makes
+ * the tracker's CSV export round-trip.
+ *
+ * The delimiter is chosen once from the first record so a comma CSV whose notes
+ * contain "|" isn't re-split per line; a record that yields a single field
+ * under it falls back to its own detection, for mixed freeform pastes.
  */
 export function parseImportText(text: string): ParseResult {
   const rows: ImportRow[] = [];
   const errors: ParseResult["errors"] = [];
-  const lines = text.split(/\r?\n/);
 
   let columns: Array<keyof ImportRow | null> | null = null;
+  let delimiter: Delimiter | null = null;
 
-  lines.forEach((rawLine, index) => {
-    const lineNumber = index + 1;
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) return;
+  for (const record of splitRecords(text)) {
+    const { lineNumber } = record;
+    const line = record.text.trim();
+    if (!line || line.startsWith("#")) continue;
 
-    const fields = splitLine(line).map(stripQuotes);
+    if (delimiter === null) delimiter = detectDelimiter(line);
+    let fields = splitWith(delimiter, line);
+    if (fields.length === 1) {
+      const own = detectDelimiter(line);
+      if (own !== delimiter) fields = splitWith(own, line);
+    }
+    fields = fields.map((f) => restoreFormulaPrefix(f.replace(/^"([\s\S]*)"$/, "$1").trim()));
 
     if (columns === null && looksLikeHeader(fields)) {
       columns = fields.map((f) => HEADER_ALIASES[f.toLowerCase().trim()] ?? null);
-      return;
+      continue;
     }
 
-    const row: Partial<ImportRow> = {};
+    const row: Record<string, string> = {};
     if (columns) {
       columns.forEach((key, i) => {
-        if (key && fields[i]) (row[key] as string) = fields[i];
+        if (key && fields[i]) row[key] = fields[i];
       });
     } else {
       // Positional fallback. A bare URL in any field is recognized as the URL.
       const [company, role, location, reqOrUrl, maybeUrl] = fields;
-      row.company = company;
-      row.role = role;
-      row.location = location;
+      if (company) row.company = company;
+      if (role) row.role = role;
+      if (location) row.location = location;
       for (const v of [reqOrUrl, maybeUrl]) {
         if (!v) continue;
         if (/^https?:\/\//i.test(v)) row.url = v;
@@ -187,11 +342,33 @@ export function parseImportText(text: string): ParseResult {
       errors.push({
         lineNumber,
         raw: line,
-        reason: !row.company && !row.role
-          ? "could not find a company or a role"
-          : `missing ${!row.company ? "company" : "role"}`,
+        reason:
+          !row.company && !row.role
+            ? "could not find a company or a role"
+            : `missing ${!row.company ? "company" : "role"}`,
       });
-      return;
+      continue;
+    }
+
+    // Strict on purpose: silently defaulting an unrecognized status to
+    // "Applied" would mark a role as submitted that may not have been.
+    let status: AppStatus | undefined;
+    if (row.status) {
+      const parsed = parseStatus(row.status);
+      if (!parsed) {
+        errors.push({ lineNumber, raw: line, reason: `unknown status "${row.status}"` });
+        continue;
+      }
+      status = parsed;
+    }
+    let appliedAt: string | undefined;
+    if (row.appliedAt) {
+      const parsed = parseAppliedDate(row.appliedAt);
+      if (!parsed) {
+        errors.push({ lineNumber, raw: line, reason: `unreadable applied date "${row.appliedAt}"` });
+        continue;
+      }
+      appliedAt = parsed;
     }
 
     rows.push({
@@ -200,10 +377,13 @@ export function parseImportText(text: string): ParseResult {
       location: row.location,
       requisitionId: row.requisitionId,
       url: row.url,
+      status,
+      appliedAt,
+      notes: row.notes,
       lineNumber,
       raw: line,
     });
-  });
+  }
 
   return { rows, errors };
 }

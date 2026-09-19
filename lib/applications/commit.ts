@@ -60,15 +60,18 @@ export async function recordStatus(
 ): Promise<void> {
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
-    select: { status: true },
+    select: { status: true, appliedAt: true },
   });
   if (!app || app.status === toStatus) return;
+  // appliedAt records the FIRST submission. Moving back to APPLIED (say, an
+  // accidental OA corrected, or un-apply then re-apply) must not overwrite it.
+  const stampApplied = toStatus === "APPLIED" && app.appliedAt === null;
   await prisma.$transaction([
     prisma.application.update({
       where: { id: applicationId },
       data: {
         status: toStatus,
-        ...(toStatus === "APPLIED" ? { appliedAt: opts.occurredAt ?? new Date() } : {}),
+        ...(stampApplied ? { appliedAt: opts.occurredAt ?? new Date() } : {}),
       },
     }),
     prisma.statusEvent.create({
@@ -91,14 +94,21 @@ export async function commitImport(
   const summary: CommitSummary = { linked: 0, manual: 0, updated: 0, unchanged: 0, failed: [] };
 
   for (const decision of decisions) {
-    const status: AppStatus = decision.status ?? "APPLIED";
-    const appliedAt =
-      decision.appliedAt === undefined
+    const { row } = decision;
+    // A per-row value from the file wins over the review step's global
+    // choice: it is more specific, and it is what makes an exported CSV
+    // restore every row exactly as it was.
+    const status: AppStatus = row.status ?? decision.status ?? "APPLIED";
+    // Only a bare APPLIED row defaults to "now": stamping today onto, say, an
+    // Interview row with no date would fabricate when it was submitted.
+    const appliedAt = row.appliedAt
+      ? new Date(row.appliedAt)
+      : decision.appliedAt === undefined
         ? status === "APPLIED"
           ? now
           : null
         : decision.appliedAt;
-    const { row } = decision;
+    const notes = row.notes ?? decision.notes;
 
     try {
       if (decision.listingId) {
@@ -128,7 +138,7 @@ export async function commitImport(
             appliedAt,
             requisitionId: row.requisitionId,
             applyUrl: row.url,
-            notes: decision.notes,
+            notes,
             // Manual fields are kept even when linked, so unlinking later (or a
             // bad merge upstream) never loses what the user actually typed.
             companyName: row.company,
@@ -168,7 +178,7 @@ export async function commitImport(
             appliedAt,
             requisitionId: row.requisitionId,
             applyUrl: row.url,
-            notes: decision.notes,
+            notes,
           },
         });
         await prisma.statusEvent.create({

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import type { Prisma } from "@/generated/prisma/client";
 import { loadScoringConfig, type ScoringConfig } from "@/lib/scoring/config";
 import { scoreListing, SCORING_ENGINE_VERSION, type ScoringInput } from "@/lib/scoring/engine";
 import { assessPosting, createAnthropicClient, type LlmClient } from "@/lib/scoring/llm";
@@ -149,6 +150,51 @@ function toScoringInput(row: ListingRow): ScoringInput {
 
 const clampScore = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 
+/**
+ * Small transactions, not one big one. Each score write carries a JSON
+ * breakdown, and a 200-row transaction ran past Prisma's 5s transaction limit
+ * (P2028) — throwing out of the whole pass. Raising the timeout instead would
+ * hold row locks open long enough to stall the user's own writes (saving or
+ * dismissing a listing mid-rescore), so chunks stay short.
+ */
+const WRITE_CHUNK = 50;
+
+async function writeScores(
+  writes: Array<{ id: string; disqualified: boolean; data: Prisma.ListingUpdateInput }>,
+  log: (m: string) => void,
+): Promise<{ ok: number; failed: number; disqualified: number }> {
+  let ok = 0;
+  let failed = 0;
+  let disqualified = 0;
+  for (let i = 0; i < writes.length; i += WRITE_CHUNK) {
+    const chunk = writes.slice(i, i + WRITE_CHUNK);
+    try {
+      await prisma.$transaction(
+        chunk.map((w) => prisma.listing.update({ where: { id: w.id }, data: w.data })),
+        { timeout: 20_000 },
+      );
+      ok += chunk.length;
+      disqualified += chunk.filter((w) => w.disqualified).length;
+    } catch (err) {
+      // Scores are independent per listing, so fall back row by row: one bad
+      // row or one slow moment must not cost the other 49. A row that still
+      // fails keeps its stale hash and is picked up by the next pass.
+      log(`[scoring] stage 1 chunk write failed, retrying row by row: ${String(err).slice(0, 160)}`);
+      for (const w of chunk) {
+        try {
+          await prisma.listing.update({ where: { id: w.id }, data: w.data });
+          ok += 1;
+          if (w.disqualified) disqualified += 1;
+        } catch (rowErr) {
+          failed += 1;
+          log(`[scoring] stage 1 write failed for ${w.id}: ${String(rowErr).slice(0, 160)}`);
+        }
+      }
+    }
+  }
+  return { ok, failed, disqualified };
+}
+
 /** Stage 1: deterministic scoring for every listing that needs it. */
 async function runStageOne(
   config: ScoringConfig,
@@ -197,7 +243,7 @@ async function runStageOne(
 
     cursor = batch[batch.length - 1].id;
 
-    const updates = [];
+    const writes: Array<{ id: string; disqualified: boolean; data: Prisma.ListingUpdateInput }> = [];
     for (const row of batch) {
       let result;
       try {
@@ -208,28 +254,28 @@ async function runStageOne(
         log(`[scoring] stage 1 failed for ${row.id}: ${String(err)}`);
         continue;
       }
-      if (result.disqualified) disqualified += 1;
-      updates.push(
-        prisma.listing.update({
-          where: { id: row.id },
-          data: {
-            ruleScore: result.ruleScore,
-            gateScore: result.gateScore,
-            // finalScore is provisional here; stage 2 may adjust it.
-            finalScore: result.ruleScore,
-            llmAdjustment: null,
-            scoreBreakdown: result.breakdown,
-            disqualified: result.disqualified,
-            disqualifyReasons: result.disqualifyReasons,
-            scoredAt: now,
-            scoringConfigHash: configHash,
-          },
-        }),
-      );
+      writes.push({
+        id: row.id,
+        disqualified: result.disqualified,
+        data: {
+          ruleScore: result.ruleScore,
+          gateScore: result.gateScore,
+          // finalScore is provisional here; stage 2 may adjust it.
+          finalScore: result.ruleScore,
+          llmAdjustment: null,
+          scoreBreakdown: result.breakdown,
+          disqualified: result.disqualified,
+          disqualifyReasons: result.disqualifyReasons,
+          scoredAt: now,
+          scoringConfigHash: configHash,
+        },
+      });
     }
-    if (updates.length > 0) await prisma.$transaction(updates);
 
-    scored += updates.length;
+    const written = await writeScores(writes, log);
+    scored += written.ok;
+    failed += written.failed;
+    disqualified += written.disqualified;
     log(`[scoring] stage 1: ${scored} listings scored`);
   }
 

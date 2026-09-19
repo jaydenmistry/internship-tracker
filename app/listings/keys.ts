@@ -45,3 +45,25 @@ export function isPlainKey(event: {
 }): boolean {
   return !event.metaKey && !event.ctrlKey && !event.altKey;
 }
+
+/**
+ * A control that Enter/Space already activates natively — a button, a link,
+ * a summary. The table's Enter ("open the cursor row") must yield to it, or
+ * pressing Enter on a detail-panel button would do the wrong thing.
+ */
+export function isActivatable(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  switch (target.tagName) {
+    case "BUTTON":
+    case "SUMMARY":
+      return true;
+    case "A":
+      return target.hasAttribute("href");
+    case "INPUT": {
+      const type = (target as HTMLInputElement).type.toLowerCase();
+      return type === "button" || type === "submit" || type === "reset" || type === "checkbox" || type === "radio";
+    }
+    default:
+      return target.getAttribute("role") === "button" || target.getAttribute("role") === "menuitem";
+  }
+}
