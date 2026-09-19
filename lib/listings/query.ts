@@ -11,6 +11,13 @@ import type { AppStatus } from "@/generated/prisma/enums";
  */
 export interface ListingRow {
   id: string;
+  /**
+   * Global position by score, assigned during the scoring run — NOT derived
+   * from load order, so every tab and every filtered view agrees on it.
+   * Null for disqualified listings. `previousRank` shows where it moved from.
+   */
+  rank: number | null;
+  previousRank: number | null;
   company: string;
   faangPlus: boolean;
   title: string;
@@ -65,6 +72,8 @@ export async function loadListingRows(): Promise<ListingRow[]> {
   const rows = await prisma.listing.findMany({
     select: {
       id: true,
+      rank: true,
+      previousRank: true,
       title: true,
       locations: true,
       remote: true,
@@ -86,11 +95,15 @@ export async function loadListingRows(): Promise<ListingRow[]> {
       application: { select: { status: true } },
       postingTextHash: true,
     },
-    orderBy: [{ finalScore: "desc" }, { firstSeen: "desc" }],
+    // Same ordering the rank pass uses, so the server-rendered order already
+    // matches rank before the client sorts. Rank itself is authoritative.
+    orderBy: [{ finalScore: "desc" }, { firstSeen: "desc" }, { id: "asc" }],
   });
 
   return rows.map((l) => ({
     id: l.id,
+    rank: l.rank,
+    previousRank: l.previousRank,
     company: l.company.name,
     faangPlus: l.company.faangPlus,
     title: l.title,

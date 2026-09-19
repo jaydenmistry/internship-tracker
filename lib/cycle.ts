@@ -55,7 +55,9 @@ export async function runFullCycle(opts: CycleOptions = {}): Promise<CycleSummar
   });
 
   // Provisional: deterministic only, so the detail gate has scores to read.
-  const provisional = await rescoreListings({ now, log, skipLlm: true });
+  // No ranks here: these scores are provisional (no posting text yet), so
+  // publishing a rank now would show movement the final pass immediately undoes.
+  const provisional = await rescoreListings({ now, log, skipLlm: true, updateRanks: false });
 
   let detail = { fetched: 0, errors: 0 };
   if (!opts.skipDetail) {

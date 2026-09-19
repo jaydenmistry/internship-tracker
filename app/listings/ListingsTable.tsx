@@ -567,8 +567,17 @@ const Row = memo(function Row({
             : "hover:bg-panel"
       } ${muted ? "opacity-55" : ""}`}
     >
-      <span className="lt-cell text-right font-mono text-[11px] text-faint tabular-nums">
-        {row.rank}
+      <span
+        className="lt-cell text-right font-mono text-[11px] text-faint tabular-nums"
+        title={
+          row.rank === null
+            ? "no rank — disqualified"
+            : row.rankDelta
+              ? `moved ${row.rankDelta > 0 ? "up" : "down"} ${Math.abs(row.rankDelta)} since the last change`
+              : undefined
+        }
+      >
+        {row.rank ?? "—"}
       </span>
 
       <span

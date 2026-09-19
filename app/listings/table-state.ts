@@ -20,11 +20,15 @@ import type { ListingRow } from "@/lib/listings/query";
 // Row shape
 // ---------------------------------------------------------------------------
 
-export interface TableRow extends ListingRow {
-  /** 1-based position in the server's ranking (score desc). Fixed: filtering
-   *  the view never renumbers a listing, so "rank 12" means the same thing all
-   *  session long. */
-  rank: number;
+export interface TableRow extends Omit<ListingRow, "rank"> {
+  /** 1-based global position, persisted on the listing by the scoring run —
+   *  not derived from load order, so every tab agrees and a rescore can't make
+   *  two views disagree. Filtering never renumbers it. Disqualified listings
+   *  have no position; they sort to the end. */
+  rank: number | null;
+  /** How far this listing moved at its last rank change: positive = moved up.
+   *  Null when it has never moved or has no rank. */
+  rankDelta: number | null;
   /** Lowercased "company title location" for substring search. Precomputed
    *  once because the search box filters on every keystroke. */
   haystack: string;
@@ -42,9 +46,12 @@ function epoch(iso: string): number {
 }
 
 export function prepareRows(rows: readonly ListingRow[]): TableRow[] {
-  return rows.map((row, index) => ({
+  return rows.map((row) => ({
     ...row,
-    rank: index + 1,
+    rank: row.rank,
+    // previousRank is where it moved FROM, so a smaller rank now means it rose.
+    rankDelta:
+      row.rank !== null && row.previousRank !== null ? row.previousRank - row.rank : null,
     haystack: `${row.company} ${row.title} ${row.location}`.toLowerCase(),
     ageTs: epoch(row.postedAt ?? row.firstSeen),
     deadlineTs: row.deadline ? epoch(row.deadline) : null,
@@ -475,10 +482,13 @@ export function comparatorFor(sort: SortState): Cmp {
   }
 }
 
+/** Unranked (disqualified) listings sort after every ranked one. */
+const rankOrder = (r: number | null) => (r ?? Number.MAX_SAFE_INTEGER);
+
 /** Sorts a copy. Ties always fall back to rank, so the order never wobbles. */
 export function sortRows(rows: readonly TableRow[], sort: SortState): TableRow[] {
   const cmp = comparatorFor(sort);
-  return [...rows].sort((a, b) => cmp(a, b) || a.rank - b.rank);
+  return [...rows].sort((a, b) => cmp(a, b) || rankOrder(a.rank) - rankOrder(b.rank));
 }
 
 export function visibleRows(
