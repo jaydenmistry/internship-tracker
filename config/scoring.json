@@ -393,8 +393,8 @@
     }
   },
   "thresholds": {
-    "_comment": "detailFetchMin is measured on gateScore (techFit excluded from the denominator), NOT on the displayed score. llmMin is measured on ruleScore.",
-    "detailFetchMin": 60,
+    "_comment": "detailFetchMin is measured on gateScore (techFit excluded from the denominator), NOT on the displayed score. Raise it if fetch volume becomes a problem; lower it to cover more of the catalog. llmMin is measured on ruleScore.",
+    "detailFetchMin": 50,
     "llmMin": 70
   },
   "llm": {
