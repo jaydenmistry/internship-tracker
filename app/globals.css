@@ -136,3 +136,40 @@ button {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+
+/* ── listings: detail panel + context menu ── */
+
+/* Rank movement sits beside the rank inside the 3rem rank column: small
+   enough that a 4-digit rank plus a 3-digit move still fits unclipped. */
+.lt-rank-move {
+  font-size: 9px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+/* Highlighted menu item — driven by the keyboard reducer and by hover alike,
+   so there is exactly one highlight at a time. */
+.ctx-item[data-active] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.ctx-item[data-active] .text-faint,
+.ctx-item[data-active] .text-accent {
+  color: color-mix(in oklab, var(--accent-ink) 75%, transparent);
+}
+.ctx-item[aria-disabled="true"][data-active] {
+  background: var(--raised);
+  color: var(--faint);
+}
+
+/* Evidence strings are raw scraped substrings: mark them as quoted material,
+   never styled as if they were the app's own prose. */
+.dp-evidence {
+  border-left: 2px solid var(--line);
+  padding-left: 0.4rem;
+}
+
+.dp-panel {
+  scrollbar-color: var(--line) transparent;
+  scrollbar-width: thin;
+}

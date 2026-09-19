@@ -1,0 +1,86 @@
+import type { ListingDetail } from "@/lib/listings/detail";
+import type { ListingRow } from "@/lib/listings/query";
+import { prepareRows, type TableRow } from "@/app/listings/table-state";
+
+/** A fully-populated detail read model, overridable per test. */
+export function detailFixture(overrides: Partial<ListingDetail> = {}): ListingDetail {
+  return {
+    id: "l1",
+    company: "Acme",
+    faangPlus: false,
+    title: "Software Engineer Intern",
+    locations: ["Atlanta, GA"],
+    remote: false,
+    url: "https://jobs.example.com/42",
+    requisitionId: null,
+    salary: null,
+    sponsorship: null,
+    degrees: [],
+    terms: ["Summer 2027"],
+    category: "Software",
+    sources: [{ source: "simplify", url: "https://x.test", active: true, lastSeen: "2026-09-01T12:00:00.000Z" }],
+    score: 72,
+    ruleScore: 72,
+    undisqualifiedScore: 72,
+    llmAdjustment: null,
+    rank: 4,
+    previousRank: 9,
+    rankChangedAt: "2026-09-10T12:00:00.000Z",
+    components: [
+      { name: "techFit", points: 18, max: 30, weight: 35, contribution: 21.3, evidence: ["TypeScript", "React"] },
+      { name: "roleType", points: 10, max: 10, weight: 20, contribution: 20.2, evidence: ["title: software engineer intern"] },
+      { name: "companyTier", points: 0, max: 10, weight: 15, contribution: 0, evidence: [] },
+      { name: "location", points: 8, max: 10, weight: 15, contribution: 12.1, evidence: ["Atlanta, GA — preferred metro"] },
+      { name: "freshness", points: 10, max: 10, weight: 10, contribution: 10.1, evidence: ["posted 3d ago"] },
+      { name: "deadlineUrgency", points: 0, max: 10, weight: 4, contribution: 0, evidence: [] },
+    ],
+    scoredAt: "2026-09-18T12:00:00.000Z",
+    disqualified: false,
+    disqualifyReasons: [],
+    likelyClosed: false,
+    llm: null,
+    hasPostingText: true,
+    atsKind: "greenhouse",
+    fetch: { status: "ok", label: "Fetched", detail: "Posting text was fetched and scored.", failed: false },
+    postedAt: "2026-09-15T12:00:00.000Z",
+    firstSeen: "2026-09-15T12:00:00.000Z",
+    deadline: null,
+    saved: false,
+    dismissed: false,
+    application: null,
+    resumeMatch: { state: "no-resume", postingKeywords: ["TypeScript", "React", "Go"] },
+    ...overrides,
+  };
+}
+
+export function rowFixture(overrides: Partial<ListingRow> = {}): TableRow {
+  const base: ListingRow = {
+    id: "l1",
+    rank: 4,
+    previousRank: 9,
+    company: "Acme",
+    faangPlus: false,
+    title: "Software Engineer Intern",
+    location: "Atlanta, GA",
+    locationCount: 1,
+    allLocations: ["Atlanta, GA"],
+    remote: false,
+    url: "https://jobs.example.com/42",
+    score: 72,
+    llmAdjustment: null,
+    postedAt: "2026-09-15T12:00:00.000Z",
+    firstSeen: "2026-09-15T12:00:00.000Z",
+    deadline: null,
+    saved: false,
+    dismissed: false,
+    disqualified: false,
+    disqualifyReasons: [],
+    likelyClosed: false,
+    sources: ["simplify"],
+    status: null,
+    hasPostingText: true,
+    fetchStatus: "ok",
+    ...overrides,
+  };
+  return prepareRows([base])[0];
+}

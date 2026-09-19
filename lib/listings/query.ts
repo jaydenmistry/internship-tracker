@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import type { AppStatus } from "@/generated/prisma/enums";
+import { primaryLocation } from "@/lib/listings/location";
 
 /**
  * Read model for the main table.
@@ -41,7 +42,9 @@ export interface ListingRow {
   saved: boolean;
   dismissed: boolean;
   disqualified: boolean;
-  disqualifyReason: string | null;
+  /** Every reason, in engine order (degree, work authorization, closed). A
+   *  listing excluded on two grounds tells you something neither does alone. */
+  disqualifyReasons: string[];
   likelyClosed: boolean;
   sources: string[];
   /** null means no Application row yet, i.e. "Not Applied". */
@@ -53,19 +56,6 @@ export interface ListingRow {
    * blocked posting reads as "couldn't fetch" rather than a genuinely low score.
    */
   fetchStatus: string | null;
-}
-
-const US_STATE_RE =
-  /\b(A[LKZR]|C[AOT]|D[EC]|FL|GA|HI|I[DLNA]|K[SY]|LA|M[EDAINSOT]|N[EVHJMYCD]|O[HKR]|PA|RI|S[CD]|T[NX]|UT|V[TA]|W[AVIY])\b/;
-
-/** Prefers a US location for display; falls back to the first one given. */
-function primaryLocation(locations: string[], remote: boolean): string {
-  if (remote) return "Remote";
-  if (locations.length === 0) return "—";
-  return (
-    locations.find((l) => US_STATE_RE.test(l) || /\b(USA|United States|US)\b/i.test(l)) ??
-    locations[0]
-  );
 }
 
 export async function loadListingRows(): Promise<ListingRow[]> {
@@ -120,7 +110,7 @@ export async function loadListingRows(): Promise<ListingRow[]> {
     saved: l.saved,
     dismissed: l.dismissed,
     disqualified: l.disqualified,
-    disqualifyReason: l.disqualifyReasons[0] ?? null,
+    disqualifyReasons: l.disqualifyReasons,
     likelyClosed: l.likelyClosed,
     sources: [...new Set(l.sources.map((s) => s.source))],
     status: l.application?.status ?? null,

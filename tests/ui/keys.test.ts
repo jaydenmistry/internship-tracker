@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { isEditable, isPlainKey } from "@/app/listings/keys";
+import { isActivatable, isEditable, isPlainKey } from "@/app/listings/keys";
 
 /**
  * The single-key shortcuts live on `window`, so the guard in front of them is
@@ -62,5 +62,21 @@ describe("isPlainKey", () => {
 
   it("accepts an unmodified key, and Shift, so `?` still works", () => {
     expect(isPlainKey({ metaKey: false, ctrlKey: false, altKey: false })).toBe(true);
+  });
+});
+
+describe("isActivatable", () => {
+  it("yields Enter to buttons, links and menu items", () => {
+    expect(isActivatable(el("<button>go</button>"))).toBe(true);
+    expect(isActivatable(el('<a href="https://x.test">x</a>'))).toBe(true);
+    expect(isActivatable(el('<div role="menuitem">x</div>'))).toBe(true);
+    expect(isActivatable(el('<input type="checkbox">'))).toBe(true);
+  });
+
+  it("keeps Enter for the table everywhere else", () => {
+    expect(isActivatable(el("<a>no href</a>"))).toBe(false);
+    expect(isActivatable(el('<div role="grid"></div>'))).toBe(false);
+    expect(isActivatable(document.body)).toBe(false);
+    expect(isActivatable(null)).toBe(false);
   });
 });

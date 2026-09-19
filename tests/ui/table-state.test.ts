@@ -62,7 +62,7 @@ function listing(overrides: Partial<ListingRow> = {}): ListingRow {
     saved: false,
     dismissed: false,
     disqualified: false,
-    disqualifyReason: null,
+    disqualifyReasons: [],
     likelyClosed: false,
     sources: ["simplify"],
     status: null,
@@ -270,7 +270,7 @@ describe("default view", () => {
   it("hides disqualified and dismissed listings", () => {
     const rows = prep(
       { id: "plain" },
-      { disqualified: true, disqualifyReason: "not an internship" },
+      { disqualified: true, disqualifyReasons: ["requires PhD"] },
       { dismissed: true },
     );
     const shown = filterRows(rows, EMPTY_FILTER, NOW);
