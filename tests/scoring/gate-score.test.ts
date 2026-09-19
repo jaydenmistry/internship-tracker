@@ -42,11 +42,21 @@ describe("gateScore", () => {
     expect(r.gateScore).toBeGreaterThan(r.ruleScore);
   });
 
-  it("lets a strong no-text listing clear the fetch gate its ruleScore could not", () => {
-    // A FAANG+ role in the user's home city, recently posted — exactly the kind
-    // of listing worth reading. Judged on ruleScore it never gets fetched.
-    const r = scoreListing(input(), config, NOW);
+  it("lets a solid no-text listing clear the fetch gate its ruleScore could not", () => {
+    // A mid-tier SWE role in a tech hub: worth reading, but its missing
+    // techFit drags ruleScore below any sane gate. This is the exact listing
+    // shape that was being starved, and the assertion is written against the
+    // configured threshold so retuning the gate doesn't silently void it.
+    const r = scoreListing(
+      input({
+        locations: ["Seattle, WA"],
+        company: { name: "Acme", faangPlus: false, tierOverride: null },
+      }),
+      config,
+      NOW,
+    );
     const gate = config.thresholds.detailFetchMin;
+    expect(r.breakdown.techFit.points).toBe(0);
     expect(r.ruleScore).toBeLessThan(gate);
     expect(r.gateScore).toBeGreaterThanOrEqual(gate);
   });
