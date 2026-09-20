@@ -7,6 +7,7 @@ import { matchRows, parseImportText, type ImportRow } from "@/lib/applications/i
 import { commitImport, loadMatchableListings } from "@/lib/applications/commit";
 import { toReviewRows } from "./state";
 import type { AnalyzeResult, CommitResult, SearchResult } from "./types";
+import { requireSession } from "@/lib/auth-guard";
 
 /**
  * Server boundary for the import flow.
@@ -23,6 +24,10 @@ const textSchema = z
   .max(MAX_TEXT, `paste is too large (max ${MAX_TEXT} characters)`);
 
 export async function analyzeImport(rawText: unknown): Promise<AnalyzeResult> {
+  // Every Server Action is a public POST endpoint. proxy.ts already blocks
+  // unauthenticated callers, but this does not rely on that: a matcher mistake
+  // must cost a redirect, not the catalog.
+  await requireSession();
   const parsedInput = textSchema.safeParse(rawText);
   if (!parsedInput.success) {
     return { ok: false, message: parsedInput.error.issues[0]?.message ?? "invalid input" };
@@ -65,6 +70,10 @@ const commitSchema = z.object({
 });
 
 export async function commitImportRows(payload: unknown): Promise<CommitResult> {
+  // Every Server Action is a public POST endpoint. proxy.ts already blocks
+  // unauthenticated callers, but this does not rely on that: a matcher mistake
+  // must cost a redirect, not the catalog.
+  await requireSession();
   const parsed = commitSchema.safeParse(payload);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
@@ -104,6 +113,10 @@ const searchSchema = z.string().min(2).max(120);
  * capped at 12 hits — the full catalog must never reach the client.
  */
 export async function searchCatalog(rawQuery: unknown): Promise<SearchResult> {
+  // Every Server Action is a public POST endpoint. proxy.ts already blocks
+  // unauthenticated callers, but this does not rely on that: a matcher mistake
+  // must cost a redirect, not the catalog.
+  await requireSession();
   const parsed = searchSchema.safeParse(rawQuery);
   if (!parsed.success) return { ok: true, hits: [] };
   const q = parsed.data.trim();

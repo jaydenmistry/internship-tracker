@@ -5,6 +5,7 @@ import { z } from "zod";
 import { MAX_PDF_BYTES, ResumeExtractError, formatBytes } from "@/lib/resume/extract";
 import { saveResume } from "@/lib/resume/store";
 import type { UploadErrorReason, UploadState } from "./types";
+import { requireSession } from "@/lib/auth-guard";
 
 /**
  * Upload boundary for /resume.
@@ -31,6 +32,10 @@ export async function uploadResumeAction(
   _prev: UploadState,
   formData: FormData,
 ): Promise<UploadState> {
+  // Every Server Action is a public POST endpoint. proxy.ts already blocks
+  // unauthenticated callers, but this does not rely on that: a matcher mistake
+  // must cost a redirect, not the catalog.
+  await requireSession();
   const parsed = fileSchema.safeParse(formData.get("resume"));
   if (!parsed.success) {
     return fail("no-file", "Choose a PDF file to upload.");

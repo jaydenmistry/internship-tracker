@@ -5,6 +5,7 @@ import { refresh } from "next/cache";
 import { AlertKind } from "@/generated/prisma/enums";
 import { AlertSettingsSchema, saveAlertSettings } from "@/lib/alerts/config";
 import { sendAlerts, type SendAlertsResult } from "@/lib/alerts/send";
+import { requireSession } from "@/lib/auth-guard";
 
 /**
  * Server boundary for /alerts. A Server Action is a public POST endpoint, so
@@ -28,6 +29,10 @@ function invalid(error: z.ZodError): { ok: false; message: string } {
 }
 
 export async function saveAlertSettingsAction(payload: unknown): Promise<AlertsActionResult> {
+  // Every Server Action is a public POST endpoint. proxy.ts already blocks
+  // unauthenticated callers, but this does not rely on that: a matcher mistake
+  // must cost a redirect, not the catalog.
+  await requireSession();
   const parsed = AlertSettingsSchema.safeParse(payload);
   if (!parsed.success) return invalid(parsed.error);
 
@@ -78,6 +83,10 @@ function describe(result: SendAlertsResult): string {
 }
 
 export async function sendAlertNowAction(payload: unknown): Promise<AlertsActionResult> {
+  // Every Server Action is a public POST endpoint. proxy.ts already blocks
+  // unauthenticated callers, but this does not rely on that: a matcher mistake
+  // must cost a redirect, not the catalog.
+  await requireSession();
   const parsed = sendSchema.safeParse(payload);
   if (!parsed.success) return invalid(parsed.error);
 

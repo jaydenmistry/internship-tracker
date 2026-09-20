@@ -1,9 +1,14 @@
 # Architecture
 
 How the internship tracker actually works, written from the code as it exists
-(through Phase 3). Where the original plan in `CLAUDE.md` describes something
+(through Phase 5). Where the original plan in `CLAUDE.md` describes something
 that isn't built yet, or was built differently, this document says so — see
 [Plan vs. reality](#plan-vs-reality) first if you're orienting.
+
+**Deployment is written but has never run.** The container stack exists as
+files; no image has been built and the stack has never started. Read
+`docs/DEPLOYMENT.md` — which opens with that caveat and ends with a first-deploy
+checklist — before trusting anything in here about containers.
 
 ---
 
@@ -52,10 +57,18 @@ flowchart LR
   DB <--> UI
 ```
 
-**Containers do not exist yet.** Deployment (Dockerfile, compose, Traefik) is
-Phase 5. Today everything runs as local processes: `npm run dev` (app),
-`npm run worker` (worker), and `npx prisma dev` (Postgres). The subgraph labels
-show where each stage runs now and which container it is planned to move into.
+**The containers are defined but unbuilt.** `Dockerfile` and
+`docker-compose.yml` describe app, worker, postgres and a backup sidecar, and
+none of them has ever been built or started — there is no container runtime on
+the development machine. Today everything runs as local processes: `npm run dev`
+(app), `npm run worker` (worker), and `npx prisma dev` (Postgres). The subgraph
+labels show where each stage runs now and which container it is destined for.
+
+The schema and the scoring pipeline *have* been exercised against a real
+PostgreSQL 17 server (not the `prisma dev` proxy): `prisma migrate deploy`
+applied all six migrations to an empty database with zero drift afterwards, and
+the raw-SQL rank pass ranked correctly while leaving a decoy schema untouched —
+which is the guard described under [the prisma-dev trap](#the-prisma-dev-schema-trap).
 
 ### Why the stages are ordered this way
 
@@ -166,10 +179,11 @@ plain string with no foreign key.
   bug can't mass-close the catalog.
 - `dedupKey` (`normalized company | normalized title | location bucket`) is
   **indexed but not unique** — distinct requisitions legitimately share it.
-- **Merge guard:** two records whose requisition id, or same-host canonical URL,
-  differ are never merged, whatever the fuzzy title score says. Multiple
-  surviving candidates means *create*, not guess. Every merge is recorded in
-  `mergedFrom`. There is no UI to split a bad merge yet (see Plan vs. reality).
+- **Merge guard:** two records whose requisition id, or same-host canonical URL
+  *including its query string*, differ are never merged, whatever the fuzzy
+  title score says. Multiple surviving candidates means *create*, not guess.
+  Every merge is recorded in `mergedFrom`, and a bad one can be split back apart
+  from the detail panel (`lib/ingestion/split.ts`).
 - The scoring snapshot (`ruleScore`, `gateScore`, `finalScore`,
   `scoreBreakdown`, `disqualified`, `disqualifyReasons`) is rewritten by every
   stage-1 pass. A disqualified listing keeps its full breakdown but scores 0.
@@ -369,6 +383,46 @@ session that started it — if the app shows `ECONNREFUSED`, run
 
 ---
 
+## Auth
+
+Auth.js (next-auth v5) against Authentik over OIDC, restricted to one address.
+There is no user table, no roles and no sign-up: identity comes from Authentik,
+authorization is a single string comparison.
+
+**Two layers, both load-bearing.**
+
+| Layer | Where | What it does |
+|---|---|---|
+| Gate | `proxy.ts` | Runs on every path except `/signin`, `/api/auth/*` and `/api/health`. A browser navigation gets `307 → /signin`; anything else gets `401 JSON`, because redirecting a `fetch` to an HTML page only produces a confusing parse error at the caller. |
+| Guard | `lib/auth-guard.ts` | `requireSession()` is the first statement of all 14 Server Actions, and `/api/applications/export` calls it too. |
+
+The second layer is not belt-and-braces paranoia. Next documents the proxy as
+running separately from render code and, in optimized deployments, at the edge —
+so it is the wrong thing to be the *only* check. A mistake in that negative-match
+regex should cost a redirect, not the catalog.
+
+**It fails closed.** `isAllowedEmail` returns false when `ALLOWED_EMAIL` is
+unset or blank, so a half-configured deployment admits nobody rather than
+everyone who can authenticate against the Authentik tenant. It is applied in the
+`signIn` callback (a rejected identity never receives a cookie), re-applied in
+the `jwt` callback (so changing the variable invalidates live sessions), and
+again in `requireSession`.
+
+**`isPublicPath` matches exactly, never by prefix.** `startsWith("/api/health")`
+would open `/api/healthz`; `tests/auth/guard.test.ts` pins that.
+
+**`public/` is deliberately inside the matcher.** Static files there would
+otherwise be served to anonymous callers, and a resume lives at
+`public/resume.pdf`. Only `_next/static`, `_next/image` and `favicon.ico` are
+excluded — gating those would block the gate's own stylesheets.
+
+**Verified from the deny side only.** Every route, the CSV export, a Server
+Action POST and `public/resume.pdf` were confirmed to refuse an anonymous caller
+against a running server. Completing a sign-in needs a live Authentik tenant and
+has never been done.
+
+---
+
 ## Where the knobs live
 
 **`config/scoring.json` — no restart.** Re-read and hashed on every scoring
@@ -404,6 +458,11 @@ that are read on every call. `.env.example` documents them all.
 | Variable | Read by | Purpose |
 |---|---|---|
 | `DATABASE_URL` | app, worker, Prisma CLI | Must include `?schema=` |
+| `AUTH_SECRET` | app | Signs the session cookie. A real secret. |
+| `AUTH_URL` | app | Public origin, used to build the OAuth redirect URI |
+| `AUTH_AUTHENTIK_ISSUER` | app | Issuer URL **without** a trailing slash |
+| `AUTH_AUTHENTIK_ID` / `_SECRET` | app | OAuth client credentials |
+| `ALLOWED_EMAIL` | app | The one address allowed in. Unset ⇒ nobody gets in |
 | `SHADOW_DATABASE_URL` | Prisma CLI only | `migrate dev/diff` locally |
 | `INGEST_CRON` | worker | Cycle schedule |
 | `WORKER_PORT` | worker | Internal `/refresh` + `/healthz` |
@@ -492,13 +551,13 @@ What `CLAUDE.md`'s original plan describes, against what exists after Phase 3:
 
 | Planned | Actual |
 |---|---|
-| Docker containers: app, worker, postgres | **Not built** (Phase 5). Local processes. |
-| OIDC auth via `proxy.ts` | **Not built** (Phase 5). Nothing is authenticated: anyone who can reach the port can read the catalog, replace the stored resume, trigger real Discord/SMTP sends from `/alerts`, split listings, and download `/api/applications/export`. Phase 5 must cover `/api/*` and the Server Actions, not only pages. |
-| `scripts/backup.sh` | **Not built** (Phase 5). |
-| `lib/alerts/`, Discord + SMTP | Built. **Never delivered a real message** — both transports are injected in tests, so the Discord webhook contract and a real SMTP handshake are unexercised; the first live "Send now" is the real test. |
+| Docker containers: app, worker, postgres | Written (`Dockerfile`, `docker-compose.yml`), **never built or run** — there is no container runtime on the development machine. Every stage, `COPY --from`, healthcheck and Traefik label is reasoned about, not observed. `docs/DEPLOYMENT.md` lists each unverified assumption. |
+| OIDC auth via `proxy.ts` | Built, two layers: the proxy gate plus a `requireSession()` call at the top of all 14 Server Actions and in the CSV export route. The **deny** path is verified live against a running server — every page, `/api/applications/export`, a Server Action POST and `public/resume.pdf` all refuse an anonymous caller (307 to `/signin` for navigations, 401 JSON otherwise), and `/signin` + `/api/health` are the only things that answer. The **allow** path is NOT verified: completing a sign-in needs a live Authentik tenant, which this machine has none of. |
+| `scripts/backup.sh` | Written, plus `scripts/restore.sh` and a `backup` sidecar in compose (`pg_dump` on a schedule, retention by age with a minimum-kept floor, dumps verified with `pg_restore --list` before being renamed into place). **Never executed** — no container runtime here. Restore procedure is in `docs/DEPLOYMENT.md`. |
+| `lib/alerts/`, Discord + SMTP | Built. **Discord has now delivered real messages** against a live webhook: the send succeeded, `AlertLog` recorded it, and an immediate repeat reported the listing as already sent rather than re-sending it. **SMTP is still unexercised** — no real server has ever been contacted. |
 | Resume PDF upload | Built. Upload, extraction and the matched panel state were driven end to end through the real Server Action over real multipart. |
 | "Refresh now" button → worker `/refresh` | Endpoint exists; **no UI calls it**. |
-| UI action to split an incorrect merge | Built (`lib/ingestion/split.ts` + the shared row-action registry). Exercised against a real merged listing copied into the test schema; **never run against the live catalog**. The two concurrency guards (a racing ingest, two simultaneous splits) are reasoned about and coded, not covered by a test — that needs two interleaved transactions. |
+| UI action to split an incorrect merge | Built, and **run against the live catalog**: the three EquipmentShare requisitions that dedup had collapsed into one row are now three listings ranking independently. The two concurrency guards (a racing ingest, two simultaneous splits) are coded and reasoned about but not covered by a test — that needs two interleaved transactions. |
 | "Not applied" = absence of an Application row | Also a `NOT_APPLIED` row holding pre-apply notes. |
 | Detail fetch gated on the score | Gated on **`gateScore`** (tech fit excluded) — the plain score deadlocked. |
 | Rank derived for display | **Persisted** on Listing, with movement history. The ↑/↓ indicator is shown only when the listing's own score moved (`scoreMoved`) — 88% of ranked rows carried a cascade move, which told the reader nothing. |

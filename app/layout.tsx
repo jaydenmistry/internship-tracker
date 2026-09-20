@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Geist, Geist_Mono } from "next/font/google";
+import { auth } from "@/lib/auth";
+import { endSession } from "./signin/actions";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -26,7 +28,12 @@ const NAV = [
   { href: "/alerts", label: "Alerts" },
 ] as const;
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  // Only used to decide whether the nav and the sign-out control are worth
+  // rendering — proxy.ts and each action's own guard do the actual gating.
+  const session = await auth();
+  const signedIn = Boolean(session?.user);
+
   return (
     <html
       lang="en"
@@ -41,17 +48,32 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <span className="mr-3 font-mono text-[11px] font-semibold tracking-wide text-dim uppercase">
             internship-tracker
           </span>
-          <nav className="flex items-center gap-1">
-            {NAV.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="rounded px-2 py-1 text-[12px] text-dim transition-colors hover:bg-raised hover:text-ink"
-              >
-                {item.label}
-              </Link>
-            ))}
-          </nav>
+          {/* Signed out, the only reachable page is /signin — linking the rest
+              would just bounce off the gate. */}
+          {signedIn && (
+            <>
+              <nav className="flex items-center gap-1">
+                {NAV.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="rounded px-2 py-1 text-[12px] text-dim transition-colors hover:bg-raised hover:text-ink"
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </nav>
+              <form action={endSession} className="ml-auto flex items-center gap-2">
+                <span className="font-mono text-[11px] text-faint">{session?.user?.email}</span>
+                <button
+                  type="submit"
+                  className="rounded px-2 py-1 text-[12px] text-dim transition-colors hover:bg-raised hover:text-ink"
+                >
+                  Sign out
+                </button>
+              </form>
+            </>
+          )}
         </header>
         <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</main>
       </body>

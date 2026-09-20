@@ -5,6 +5,7 @@ import { refresh } from "next/cache";
 import { AppStatus } from "@/generated/prisma/enums";
 import { MAX_NOTES } from "./state";
 import { setApplicationNotes, setApplicationStatus } from "@/lib/applications/tracker";
+import { requireSession } from "@/lib/auth-guard";
 
 /**
  * Mutations from /tracker. A Server Action is a public POST endpoint, so every
@@ -40,6 +41,10 @@ function failed(verb: string, err: unknown): { ok: false; message: string } {
 }
 
 export async function setTrackerStatusAction(payload: unknown): Promise<TrackerActionResult> {
+  // Every Server Action is a public POST endpoint. proxy.ts already blocks
+  // unauthenticated callers, but this does not rely on that: a matcher mistake
+  // must cost a redirect, not the catalog.
+  await requireSession();
   const parsed = statusSchema.safeParse(payload);
   if (!parsed.success) return invalid(parsed.error);
   try {
@@ -54,6 +59,10 @@ export async function setTrackerStatusAction(payload: unknown): Promise<TrackerA
 }
 
 export async function setTrackerNotesAction(payload: unknown): Promise<TrackerActionResult> {
+  // Every Server Action is a public POST endpoint. proxy.ts already blocks
+  // unauthenticated callers, but this does not rely on that: a matcher mistake
+  // must cost a redirect, not the catalog.
+  await requireSession();
   const parsed = notesSchema.safeParse(payload);
   if (!parsed.success) return invalid(parsed.error);
   try {

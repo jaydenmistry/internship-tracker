@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Compiled worker bundle (scripts/build-worker.mjs). Generated code, built
+    // fresh by the image build — linting it only reports on its dependencies.
+    "dist/**",
     // Gitignored one-off query/smoke scripts (see .gitignore). They are never
     // committed, so holding them to the app's lint rules only ever produces
     // noise that hides real findings.
