@@ -82,7 +82,7 @@ export interface RunSummary {
   detailErrors: number;
 }
 
-function sha256(text: string): string {
+export function sha256(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
 
@@ -94,7 +94,8 @@ const defaultDetailSelector = (listing: DetailCandidate): boolean =>
   (listing.terms.length === 0 || listing.terms.includes("Summer 2027")) &&
   (listing.category === null || /software|engineering|swe/i.test(listing.category));
 
-async function upsertCompany(name: string, faangPlus: boolean) {
+/** Exported for the merge-split path, which resolves the same company row. */
+export async function upsertCompany(name: string, faangPlus: boolean) {
   const normalizedName = normalizeCompany(name);
   const company = await prisma.company.upsert({
     where: { normalizedName },
@@ -103,6 +104,48 @@ async function upsertCompany(name: string, faangPlus: boolean) {
     update: faangPlus ? { faangPlus: true } : {},
   });
   return company;
+}
+
+/**
+ * The field mapping from a NormalizedListing to a NEW Listing row — every
+ * derived field (normalizedTitle, dedupKey, countries, canonical url,
+ * requisitionId, posting-text hash) computed by the same helpers the dedup
+ * pass uses.
+ *
+ * Exported because `splitMerge` (lib/ingestion/split.ts) rebuilds a listing
+ * that was merged away and MUST produce the row the pipeline would have
+ * created — in particular the dedupKey and normalizedTitle, or the next
+ * ingestion run would simply merge it back. `sources` is the caller's
+ * business: the run path creates a source row, the split path moves one.
+ */
+export function buildListingCreateData(
+  item: NormalizedListing,
+  companyId: string,
+  now: Date,
+) {
+  return {
+    companyId,
+    title: item.title,
+    normalizedTitle: normalizeTitle(item.title),
+    dedupKey: buildDedupKey(item.company, item.title, item.locations, item.remote),
+    locations: item.locations,
+    countries: deriveCountries(item.locations, item.remote),
+    remote: item.remote,
+    url: canonicalizeUrl(item.url),
+    requisitionId: extractRequisitionId(item.url),
+    category: item.category,
+    terms: item.terms,
+    sponsorship: item.sponsorship,
+    salary: item.salary,
+    degrees: item.degrees,
+    postingText: item.postingText,
+    postingTextHash: item.postingText ? sha256(item.postingText) : null,
+    postedAt: item.postedAt,
+    deadline: item.deadline,
+    firstSeen: now,
+    lastSeen: now,
+    likelyClosed: false,
+  };
 }
 
 /** Ingest one normalized listing: update its per-source row, or dedup + create. */
@@ -184,6 +227,8 @@ async function ingestListing(
       remote: true,
       firstSeen: true,
       postingText: true,
+      // Read by the merge path to tell a reopening from a routine re-merge.
+      likelyClosed: true,
     },
   });
   const candidates: MergeCandidate[] = companyListings
@@ -229,6 +274,19 @@ async function ingestListing(
       reason: decision.reason,
       mergedAt: now.toISOString(),
     };
+    // Same self-invalidation rule the update path above follows. A merge that
+    // brings in the first real description, or that reopens a listing marked
+    // closed, has changed a scoring input: without clearing the hash the
+    // listing stays scored on its title alone until something unrelated
+    // happens to invalidate it — and posting text is exactly what stage 2 is
+    // gated on, so the merge that earns a listing an LLM pass would not
+    // trigger one.
+    const adoptsPostingText = Boolean(
+      item.postingText &&
+        (!target?.postingText || target.postingText.length < item.postingText.length),
+    );
+    const reopened = item.active && target?.likelyClosed === true;
+
     await prisma.$transaction([
       prisma.listingSource.create({ data: { ...sourceRow, listingId: decision.targetId } }),
       prisma.listing.update({
@@ -238,10 +296,10 @@ async function ingestListing(
           likelyClosed: item.active ? false : undefined,
           mergedFrom: { push: mergedFromEntry },
           ...(item.salary ? { salary: item.salary } : {}),
-          ...(item.postingText &&
-          (!target?.postingText || target.postingText.length < item.postingText.length)
-            ? { postingText: item.postingText, postingTextHash: sha256(item.postingText) }
+          ...(adoptsPostingText
+            ? { postingText: item.postingText, postingTextHash: sha256(item.postingText!) }
             : {}),
+          ...(adoptsPostingText || reopened ? { scoringConfigHash: null } : {}),
         },
       }),
     ]);
@@ -251,27 +309,7 @@ async function ingestListing(
 
   await prisma.listing.create({
     data: {
-      companyId: company.id,
-      title: item.title,
-      normalizedTitle,
-      dedupKey,
-      locations: item.locations,
-      countries: deriveCountries(item.locations, item.remote),
-      remote: item.remote,
-      url: canonicalUrl,
-      requisitionId,
-      category: item.category,
-      terms: item.terms,
-      sponsorship: item.sponsorship,
-      salary: item.salary,
-      degrees: item.degrees,
-      postingText: item.postingText,
-      postingTextHash: item.postingText ? sha256(item.postingText) : null,
-      postedAt: item.postedAt,
-      deadline: item.deadline,
-      firstSeen: now,
-      lastSeen: now,
-      likelyClosed: false,
+      ...buildListingCreateData(item, company.id, now),
       sources: { create: sourceRow },
     },
   });

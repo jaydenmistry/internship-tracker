@@ -43,3 +43,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local scratch scripts (one-off DB queries, smoke tests) — never committed
+/.scratch/
+
+# Your resume: kept out of git so PII never enters history. See docs/ARCHITECTURE.md
+# — the app stores extracted text in the Resume table and never needs a file here.
+/public/resume.pdf

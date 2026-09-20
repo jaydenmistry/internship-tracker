@@ -31,10 +31,20 @@ export type MergeDecision =
 
 export const DEFAULT_FUZZY_THRESHOLD = 0.87;
 
+/**
+ * Identity of a URL for guard purposes: host, path, AND the canonical query.
+ *
+ * The query has to count. An ATS embedded in a company's own careers page puts
+ * the job id there, so every requisition shares one path and differs only
+ * after the "?" — comparing paths alone declared three distinct EquipmentShare
+ * requisitions identical and merged them. `canonicalizeUrl` has already
+ * dropped tracking params (utm_*, gh_src, ref, …), so what remains is
+ * meaningful.
+ */
 function canonicalHostPath(url: string): { host: string; path: string } | null {
   try {
     const u = new URL(canonicalizeUrl(url));
-    return { host: u.host, path: u.pathname };
+    return { host: u.host, path: `${u.pathname}${u.search}` };
   } catch {
     return null;
   }
@@ -114,7 +124,7 @@ export function decideMerge(
       incomingHostPath.path !== candidateHostPath.path
     ) {
       dropped.push(
-        `${candidate.id}: same host ${incomingHostPath.host}, differing paths (${incomingHostPath.path} vs ${candidateHostPath.path})`,
+        `${candidate.id}: same host ${incomingHostPath.host}, differing URLs (${incomingHostPath.path} vs ${candidateHostPath.path})`,
       );
       continue;
     }

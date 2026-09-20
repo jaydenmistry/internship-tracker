@@ -18,6 +18,7 @@ export type MenuItemId =
   | "status"
   | "save"
   | "dismiss"
+  | "splitMerge"
   | "openDetail"
   | "copyLabel";
 
@@ -33,9 +34,32 @@ export interface MenuItem {
   separator?: boolean;
 }
 
-export type MenuRow = Pick<TableRow, "url" | "saved" | "dismissed" | "statusKey">;
+export type MenuRow = Pick<
+  TableRow,
+  "url" | "saved" | "dismissed" | "statusKey" | "sources" | "mergedCount"
+>;
 
-export function buildMenuItems(row: MenuRow): MenuItem[] {
+/**
+ * Does this row have a merge to split?
+ *
+ * `mergedCount` comes from the table read model and is already exact — it
+ * counts merge entries in `Listing.mergedFrom`, skipping the reverse
+ * "splitFrom" entries that share that column. Counting distinct sources would
+ * undercount a same-source merge (two Simplify records collapsed into one row
+ * share a source id), and a wrong merge that never offers a split is the exact
+ * failure this action exists to undo.
+ *
+ * `mergeCount` overrides it when the detail panel has loaded: after a split the
+ * panel knows the new count before the table has refetched.
+ */
+export function mayHaveMerges(
+  row: Pick<MenuRow, "mergedCount">,
+  mergeCount?: number | null,
+): boolean {
+  return (typeof mergeCount === "number" ? mergeCount : row.mergedCount) > 0;
+}
+
+export function buildMenuItems(row: MenuRow, mergeCount?: number | null): MenuItem[] {
   const noUrl = safeHttpUrl(row.url) === null;
   return [
     { id: "openUrl", label: "Open apply link in new tab", hint: "o", disabled: noUrl },
@@ -43,6 +67,11 @@ export function buildMenuItems(row: MenuRow): MenuItem[] {
     { id: "status", label: "Set status", submenu: true, separator: true },
     { id: "save", label: row.saved ? "Unsave" : "Save", hint: "s" },
     { id: "dismiss", label: row.dismissed ? "Undismiss" : "Dismiss", hint: "d" },
+    // Only for a row that actually has something merged in — on every other
+    // row the item would be permanent dead weight in a menu used constantly.
+    ...(mayHaveMerges(row, mergeCount)
+      ? [{ id: "splitMerge" as const, label: "Split merged listing…", separator: true }]
+      : []),
     { id: "openDetail", label: "Open detail panel", hint: "↵", separator: true },
     { id: "copyLabel", label: "Copy “Company — Role”" },
   ];
@@ -77,6 +106,11 @@ export function commandForItem(id: MenuItemId): RowCommand | null {
       return { kind: "openDetail" };
     case "copyLabel":
       return { kind: "copyLabel" };
+    // The menu has no room to show WHAT would be split apart, and a blind
+    // split is not usable — so it opens the panel's merge section instead,
+    // where each merged-in record has its own button.
+    case "splitMerge":
+      return { kind: "openDetail", focus: "merges" };
     case "status":
       return null;
   }

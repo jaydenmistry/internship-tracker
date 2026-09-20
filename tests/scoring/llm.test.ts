@@ -8,6 +8,7 @@ import {
   MAX_POSTING_TEXT_CHARS,
   MAX_RATIONALE_CHARS,
   assessPosting,
+  assessmentJsonSchema,
   createAnthropicClient,
   truncatePostingText,
   type LlmAssessInput,
@@ -51,6 +52,7 @@ type CapturedParams = {
   system: string;
   messages: Array<{ role: string; content: string }>;
   output_config?: { format?: { type?: string; schema?: unknown } };
+  temperature?: number;
 };
 
 describe("assessPosting — happy path", () => {
@@ -237,16 +239,41 @@ describe("config-driven options", () => {
     expect((await assessPosting(input, negative, { maxAdjustment: 5 })).adjustment).toBe(-5);
   });
 
-  it("states the config-supplied bound in the prompt and the schema", async () => {
+  it("states the config-supplied bound in the prompt and the schema description", async () => {
     const client = mockClient(json(0, "Fine."));
     await assessPosting(input, client, { maxAdjustment: 5 });
     const params = client.calls[0] as CapturedParams;
     const schema = params.output_config?.format?.schema as {
-      properties: { adjustment: { minimum: number; maximum: number } };
+      properties: { adjustment: { type: string; description: string } };
     };
-    expect(schema.properties.adjustment).toMatchObject({ minimum: -5, maximum: 5 });
+    expect(schema.properties.adjustment.description).toContain("-5");
+    expect(schema.properties.adjustment.description).toContain("5");
     expect(params.system).toContain("+5");
     expect(params.messages[0].content).toContain("-5..5");
+  });
+
+  it("samples at temperature 0 by default, and honours a config override", async () => {
+    // Assessments are cached forever against the posting-text hash, so the
+    // first roll is the score that sticks. At the API default, four identical
+    // calls on one real posting spread 10 points on a ±15 scale.
+    const client = mockClient(json(3, "Fine."));
+    await assessPosting(input, client);
+    expect((client.calls[0] as CapturedParams).temperature).toBe(0);
+
+    const warm = mockClient(json(3, "Fine."));
+    await assessPosting(input, warm, { temperature: 1 });
+    expect((warm.calls[0] as CapturedParams).temperature).toBe(1);
+  });
+
+  it("does not send JSON Schema keywords the Messages API rejects", () => {
+    // The API 400s on `minimum`/`maximum` for an integer property, and a mocked
+    // client never sees that — so every stage-2 call failed in production while
+    // this suite stayed green. The bound is enforced by clampAdjustment above,
+    // which is what the range assertions in this file actually exercise.
+    const schema = assessmentJsonSchema(15);
+    const adjustment = (schema.properties as Record<string, Record<string, unknown>>).adjustment;
+    expect(adjustment).not.toHaveProperty("minimum");
+    expect(adjustment).not.toHaveProperty("maximum");
   });
 
   it("truncates to a config-supplied maxPostingTextChars", async () => {

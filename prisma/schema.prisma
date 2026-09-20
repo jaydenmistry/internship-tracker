@@ -105,6 +105,16 @@ model Listing {
   /// When rank last CHANGED (not when it was last recomputed), so "moved
   /// yesterday" stays true through subsequent no-op runs.
   rankChangedAt DateTime?
+  /// finalScore as of the PREVIOUS rank recomputation — the baseline the next
+  /// one compares against. Refreshed for every listing at the end of each
+  /// ranking run, so it is always exactly one run behind.
+  previousScore Int?
+  /// Whether this listing's OWN finalScore changed in the run that last moved
+  /// its rank. Most rank moves are cascades (a listing above it moved), and an
+  /// arrow that fires on those carries no information — the UI shows movement
+  /// only when this is true. Written alongside `previousRank`, so it stays
+  /// paired with the move it describes.
+  scoreMoved   Boolean  @default(false)
 
   sources     ListingSource[]
   application Application?

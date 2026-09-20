@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Gitignored one-off query/smoke scripts (see .gitignore). They are never
+    // committed, so holding them to the app's lint rules only ever produces
+    // noise that hides real findings.
+    ".scratch/**",
   ]),
 ]);
 

@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import type { AppStatus } from "@/generated/prisma/enums";
 import Badge from "@/components/Badge";
 import type { ComponentDetail, ListingDetail, ResumeMatchState } from "@/lib/listings/detail";
-import { NOTES_MAX, type RowCommand, type SendResult } from "./row-actions";
+import { NOTES_MAX, type DetailFocus, type RowCommand, type SendResult } from "./row-actions";
 import {
   absoluteDate,
   absoluteDay,
@@ -43,7 +43,10 @@ interface Props {
   row: TableRow;
   load: DetailLoadState;
   now: number;
-  onCommand: (command: RowCommand) => void;
+  /** Which section the command that opened the panel wanted to show. */
+  focus?: DetailFocus | null;
+  /** Resolves once the command has settled, so a button can show progress. */
+  onCommand: (command: RowCommand) => void | Promise<boolean>;
   onSaveNotes: (listingId: string, notes: string) => Promise<SendResult>;
   onRetry: () => void;
   onClose: () => void;
@@ -53,6 +56,7 @@ export default function DetailPanel({
   row,
   load,
   now,
+  focus = null,
   onCommand,
   onSaveNotes,
   onRetry,
@@ -121,6 +125,7 @@ export default function DetailPanel({
           <>
             <Facts detail={detail} now={now} />
             {detail.disqualified && <Disqualified detail={detail} />}
+            <MergedSources detail={detail} focus={focus} onCommand={onCommand} />
             <Breakdown detail={detail} />
             <LlmSection detail={detail} />
             <FetchSection detail={detail} />
@@ -530,8 +535,11 @@ function ResumeSection({ match }: { match: ResumeMatchState }) {
         {match.state === "no-resume" && (
           <>
             <p className="text-faint">
-              No resume uploaded yet — resume upload lands in Phase 4. Keywords this posting asks
-              for:
+              No resume uploaded yet — add one on{" "}
+              <a href="/resume" className="underline hover:text-fg">
+                the Resume page
+              </a>{" "}
+              to see which of these you already cover. Keywords this posting asks for:
             </p>
             {match.postingKeywords.length ? (
               <KeywordList words={match.postingKeywords} tone="plain" />
@@ -566,6 +574,127 @@ function ResumeSection({ match }: { match: ResumeMatchState }) {
         )}
       </div>
     </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Merged-in sources
+// ---------------------------------------------------------------------------
+
+/**
+ * The merge audit, and the only place a merge can be undone.
+ *
+ * A wrong merge silently hides a role, so this lists every record dedup folded
+ * into this listing — which source, why it merged, and when — and gives each
+ * one its own split button. Splitting is not destructive: the record becomes
+ * its own listing and the split is recorded on it.
+ *
+ * Reasons and URLs come from source data; both are rendered as text (the URL
+ * only as a link when it is http(s)).
+ */
+function MergedSources({
+  detail,
+  focus,
+  onCommand,
+}: {
+  detail: ListingDetail;
+  focus: DetailFocus | null;
+  onCommand: (command: RowCommand) => void | Promise<boolean>;
+}) {
+  const anchor = useRef<HTMLDivElement>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const has =
+    detail.merges.length > 0 || detail.splitFrom.length > 0 || detail.unreadableMerges > 0;
+
+  useEffect(() => {
+    if (focus === "merges" && has) anchor.current?.scrollIntoView({ block: "nearest" });
+  }, [focus, has, detail.id]);
+
+  if (!has) return null;
+
+  async function split(source: string, sourceUid: string) {
+    const key = `${source}:${sourceUid}`;
+    setBusy(key);
+    try {
+      await onCommand({ kind: "splitMerge", source, sourceUid });
+    } finally {
+      setBusy((b) => (b === key ? null : b));
+    }
+  }
+
+  return (
+    <div ref={anchor}>
+      <Section title="Merged-in sources" aside={`${detail.merges.length} merged`}>
+        <div className="space-y-2 text-[12px]" data-testid="merged-sources">
+          {detail.merges.length > 0 && (
+            <p className="text-faint">
+              Dedup folded these records into this listing. If one of them is a different
+              role, split it back out — it becomes its own listing and nothing is lost.
+            </p>
+          )}
+          <ul className="space-y-2">
+            {detail.merges.map((m) => {
+              const key = `${m.source}:${m.sourceUid}`;
+              const href = safeHttpUrl(m.url);
+              return (
+                <li
+                  key={key}
+                  data-testid="merged-source"
+                  className="rounded border border-line-soft px-2 py-1.5"
+                >
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-mono text-[11px] text-ink">{m.source}</span>
+                    <span className="truncate font-mono text-[10.5px] text-faint" title={m.sourceUid}>
+                      {m.sourceUid}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={busy !== null}
+                      onClick={() => void split(m.source, m.sourceUid)}
+                      className="ml-auto shrink-0 rounded border border-line px-1.5 py-[2px] text-[11px] text-dim hover:border-faint hover:text-ink disabled:opacity-50"
+                    >
+                      {busy === key ? "Splitting…" : "Split out"}
+                    </button>
+                  </div>
+                  <p className="mt-0.5 break-words text-faint">{m.reason}</p>
+                  <p className="mt-0.5 font-mono text-[10.5px] text-faint">
+                    merged {absoluteDate(new Date(m.mergedAt).getTime())}
+                  </p>
+                  {href ? (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-0.5 block truncate text-[11px] text-accent"
+                      title={href}
+                    >
+                      {href}
+                    </a>
+                  ) : (
+                    <p className="mt-0.5 text-[11px] text-faint">no usable link on that record</p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+
+          {detail.splitFrom.map((s) => (
+            <p key={`${s.source}:${s.sourceUid}`} className="text-faint" data-testid="split-origin">
+              Split out of another listing on {absoluteDate(new Date(s.splitAt).getTime())} — it had
+              been merged there because: {s.reason}
+            </p>
+          ))}
+
+          {detail.unreadableMerges > 0 && (
+            <p className="text-warn">
+              {detail.unreadableMerges} merge {detail.unreadableMerges === 1 ? "entry" : "entries"}{" "}
+              could not be read and cannot be split from here.
+            </p>
+          )}
+        </div>
+      </Section>
+    </div>
   );
 }
 

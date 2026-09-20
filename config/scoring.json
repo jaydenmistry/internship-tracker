@@ -403,6 +403,8 @@
     "maxAdjustment": 15,
     "maxPostingTextChars": 6000,
     "maxRationaleChars": 300,
-    "maxTokens": 512
+    "maxTokens": 512,
+    "_temperature": "0 keeps stage 2 reproducible: an assessment is cached forever against the posting-text hash, so the first roll is the score the listing keeps. At the API default, four identical calls on one posting spread 10 points on a ±15 scale.",
+    "temperature": 0
   }
 }

@@ -22,9 +22,26 @@ describe("rank movement indicator", () => {
     expect(rankMovement(rowFixture({ rank: 7, previousRank: null }).rankDelta)).toBeNull();
   });
 
-  it("has a plain-language label for the tooltip", () => {
+  it("stays silent when the listing only moved because other listings did", () => {
+    // The cascade case: same score as last run, shoved two places by listings
+    // that did change. On the real catalog this was 88% of ranked rows, which
+    // is why the arrow is gated on the listing's own score moving.
+    const cascaded = rowFixture({ rank: 6, previousRank: 4, scoreMoved: false });
+    expect(cascaded.rankDelta).toBeNull();
+    expect(rankMovement(cascaded.rankDelta)).toBeNull();
+
+    // Identical positions, but this one earned the move.
+    const earned = rowFixture({ rank: 6, previousRank: 4, scoreMoved: true });
+    expect(earned.rankDelta).toBe(-2);
+    expect(rankMovement(earned.rankDelta)?.text).toBe("↓2");
+  });
+
+  it("has a plain-language label for the tooltip that says why it is shown", () => {
     expect(rankMovement(3)?.label).toMatch(/moved up 3/);
     expect(rankMovement(-3)?.label).toMatch(/moved down 3/);
+    // The arrow now means "this listing's score changed", not just "it moved" —
+    // the tooltip has to say so or the number is unexplained.
+    expect(rankMovement(3)?.label).toMatch(/score/);
   });
 });
 

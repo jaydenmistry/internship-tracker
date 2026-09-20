@@ -21,6 +21,8 @@ interface Props {
   row: TableRow;
   /** Pointer position in viewport coordinates. */
   point: Point;
+  /** Merged-in record count, when this row's details are already loaded. */
+  mergeCount?: number | null;
   onCommand: (command: RowCommand) => void;
   /** Close without acting (Escape, Tab, click outside, scroll). */
   onClose: () => void;
@@ -32,8 +34,8 @@ interface Props {
  * `aria-activedescendant`, so arrow keys never have to chase DOM focus into a
  * submenu that mounts and unmounts.
  */
-export default function ContextMenu({ row, point, onCommand, onClose }: Props) {
-  const items = useMemo(() => buildMenuItems(row), [row]);
+export default function ContextMenu({ row, point, mergeCount, onCommand, onClose }: Props) {
+  const items = useMemo(() => buildMenuItems(row, mergeCount), [row, mergeCount]);
   const statusItems = useMemo(() => buildStatusItems(row.statusKey), [row.statusKey]);
   const model: MenuNavModel = useMemo(
     () => ({

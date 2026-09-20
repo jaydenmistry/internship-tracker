@@ -57,6 +57,40 @@ describe("menu items", () => {
     expect(subs.filter((s) => s.current).map((s) => s.status)).toEqual(["OA"]);
   });
 
+  it("offers the split item only when something was merged in", () => {
+    // The default row has nothing merged in: nothing to split.
+    expect(items.some((i) => i.id === "splitMerge")).toBe(false);
+
+    const merged = buildMenuItems(rowFixture({ mergedCount: 1 }));
+    expect(merged.some((i) => i.id === "splitMerge")).toBe(true);
+
+    // The count comes from the table read model, not from counting distinct
+    // sources: two records from the SAME source merged together collapse to
+    // one source id, and that row must still offer the split.
+    const sameSource = buildMenuItems(rowFixture({ sources: ["simplify"], mergedCount: 1 }));
+    expect(sameSource.some((i) => i.id === "splitMerge")).toBe(true);
+
+    // Two sources with nothing merged in — a split that already happened, or
+    // two rows the pipeline attached separately — offers nothing.
+    expect(
+      buildMenuItems(rowFixture({ sources: ["simplify", "intern-list"], mergedCount: 0 })).some(
+        (i) => i.id === "splitMerge",
+      ),
+    ).toBe(false);
+
+    // An exact count from the loaded detail panel overrides the row's own,
+    // so a split shows its effect before the table has refetched.
+    expect(buildMenuItems(row, 2).some((i) => i.id === "splitMerge")).toBe(true);
+    expect(
+      buildMenuItems(rowFixture({ mergedCount: 3 }), 0).some((i) => i.id === "splitMerge"),
+    ).toBe(false);
+  });
+
+  it("sends the split item to the detail panel, where the entries are listed", () => {
+    // A blind split from the menu would hide WHAT is being pulled apart.
+    expect(commandForItem("splitMerge")).toEqual({ kind: "openDetail", focus: "merges" });
+  });
+
   it("maps items to commands", () => {
     expect(commandForItem("save")).toEqual({ kind: "toggleSaved" });
     expect(commandForItem("dismiss")).toEqual({ kind: "toggleDismissed" });

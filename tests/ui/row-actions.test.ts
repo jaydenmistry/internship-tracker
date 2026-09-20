@@ -8,6 +8,7 @@ import {
   writeClipboard,
   type RowActionDeps,
   type SendResult,
+  type SplitResult,
   type Toast,
 } from "@/app/listings/row-actions";
 import { applyPatches, type PatchMap } from "@/app/listings/table-state";
@@ -36,6 +37,8 @@ function harness(result: SendResult | Error = { ok: true }, initial: PatchMap = 
     notify: (t) => toasts.push(t),
     onSettled: vi.fn(),
     openDetail: vi.fn(),
+    splitMerge: vi.fn(async () => ({ ok: true, listingId: "l2", alreadySplit: false, label: "Acme — Intern" }) as SplitResult),
+    onSplit: vi.fn(),
     openWindow: vi.fn(),
     writeClipboard: vi.fn(async () => {}),
   };
@@ -204,8 +207,69 @@ describe("runRowCommand — non-mutations", () => {
   it("openDetail hands the id over", async () => {
     const h = harness();
     await runRowCommand(rowFixture(), { kind: "openDetail" }, h.deps);
-    expect(h.deps.openDetail).toHaveBeenCalledWith("l1");
+    expect(h.deps.openDetail).toHaveBeenCalledWith("l1", undefined);
     expect(h.deps.send).not.toHaveBeenCalled();
+  });
+
+  it("openDetail carries the section the caller wants shown", async () => {
+    const h = harness();
+    await runRowCommand(rowFixture(), { kind: "openDetail", focus: "merges" }, h.deps);
+    expect(h.deps.openDetail).toHaveBeenCalledWith("l1", "merges");
+  });
+});
+
+/**
+ * A split creates a listing, so there is nothing to patch optimistically — the
+ * table reloads instead. What matters is that the outcome is never silent: a
+ * recovered listing is reported, and so is every refusal.
+ */
+describe("runRowCommand — splitMerge", () => {
+  const command = { kind: "splitMerge", source: "intern-list", sourceUid: "u9" } as const;
+
+  it("sends the entry and reports the recovered listing", async () => {
+    const h = harness();
+    expect(await runRowCommand(rowFixture(), command, h.deps)).toBe(true);
+    expect(h.deps.splitMerge).toHaveBeenCalledWith("l1", "intern-list", "u9");
+    expect(h.deps.onSplit).toHaveBeenCalledWith("l1", "l2");
+    expect(h.toasts).toEqual([{ kind: "ok", message: "Split out Acme — Intern as its own listing." }]);
+    // No optimistic patch: the row's own fields didn't change.
+    expect(h.history).toHaveLength(0);
+  });
+
+  it("says so when the entry had already been split", async () => {
+    const h = harness();
+    h.deps.splitMerge = vi.fn(async () => ({
+      ok: true as const,
+      listingId: "l2",
+      alreadySplit: true,
+      label: "Acme — Intern",
+    }));
+    expect(await runRowCommand(rowFixture(), command, h.deps)).toBe(true);
+    expect(h.toasts[0]).toEqual({
+      kind: "ok",
+      message: "Already split — Acme — Intern is its own listing.",
+    });
+  });
+
+  it("surfaces a refusal from the server", async () => {
+    const h = harness();
+    h.deps.splitMerge = vi.fn(async () => ({
+      ok: false as const,
+      message: "This listing has no merged-in record from intern-list (u9).",
+    }));
+    expect(await runRowCommand(rowFixture(), command, h.deps)).toBe(false);
+    expect(h.deps.onSplit).not.toHaveBeenCalled();
+    expect(h.toasts[0].kind).toBe("error");
+    expect(h.toasts[0].message).toContain("no merged-in record");
+  });
+
+  it("reports a thrown error instead of losing it", async () => {
+    const h = harness();
+    h.deps.splitMerge = vi.fn(async () => {
+      throw new Error("network down");
+    });
+    expect(await runRowCommand(rowFixture(), command, h.deps)).toBe(false);
+    expect(h.toasts[0]).toEqual({ kind: "error", message: "Couldn't split: network down" });
   });
 });
 

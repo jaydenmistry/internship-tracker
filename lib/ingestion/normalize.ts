@@ -258,6 +258,19 @@ export function extractRequisitionId(url: string): string | null {
   const host = u.hostname.toLowerCase();
   const segments = u.pathname.split("/").filter(Boolean);
 
+  // Greenhouse EMBED, on any host: a company's own careers page renders the
+  // Greenhouse board inline and carries the job id as ?gh_jid=. Checked before
+  // the host rules because the host is the company's, not Greenhouse's.
+  //
+  // This is not a hypothetical shape. Without it, three EquipmentShare
+  // requisitions on .../careers/openings?gh_jid=8188474 / 8188802 / 8188926
+  // all parsed to a null requisition id; the dedup guard had no ids to compare,
+  // saw one exact dedupKey match, and merged them — hiding two real roles
+  // behind a third. A parsed id makes them differing identities, which the
+  // hard guard refuses to merge.
+  const ghJid = u.searchParams.get("gh_jid");
+  if (ghJid && /^\d+$/.test(ghJid)) return ghJid;
+
   // Workday: trailing _R123456 / _REQ-24832 / _JR12345 / _J00171081 on the last segment.
   if (host.endsWith(".myworkdayjobs.com")) {
     const last = segments[segments.length - 1] ?? "";

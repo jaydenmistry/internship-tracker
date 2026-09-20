@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import type { AppStatus } from "@/generated/prisma/enums";
 import { primaryLocation } from "@/lib/listings/location";
+import { countMergeEntries } from "@/lib/ingestion/merge-audit";
 
 /**
  * Read model for the main table.
@@ -19,6 +20,12 @@ export interface ListingRow {
    */
   rank: number | null;
   previousRank: number | null;
+  /**
+   * Whether the listing's OWN score changed in the run that last moved its
+   * rank. Almost every rank move is a cascade — the listing sat still while
+   * others crossed it — so the table reports movement only when this is true.
+   */
+  scoreMoved: boolean;
   company: string;
   faangPlus: boolean;
   title: string;
@@ -47,6 +54,14 @@ export interface ListingRow {
   disqualifyReasons: string[];
   likelyClosed: boolean;
   sources: string[];
+  /**
+   * How many source records were merged into this listing, so the row knows
+   * whether "Split merged listing…" applies to it. Counting distinct
+   * `sources` instead would miss a same-source merge — two Simplify records
+   * collapsed into one row share a source id — and a wrong merge that stays
+   * unsplittable is the exact failure this action exists to undo.
+   */
+  mergedCount: number;
   /** null means no Application row yet, i.e. "Not Applied". */
   status: AppStatus | null;
   hasPostingText: boolean;
@@ -64,6 +79,7 @@ export async function loadListingRows(): Promise<ListingRow[]> {
       id: true,
       rank: true,
       previousRank: true,
+      scoreMoved: true,
       title: true,
       locations: true,
       remote: true,
@@ -82,6 +98,7 @@ export async function loadListingRows(): Promise<ListingRow[]> {
       detailFetchStatus: true,
       company: { select: { name: true, faangPlus: true } },
       sources: { select: { source: true } },
+      mergedFrom: true,
       application: { select: { status: true } },
       postingTextHash: true,
     },
@@ -94,6 +111,7 @@ export async function loadListingRows(): Promise<ListingRow[]> {
     id: l.id,
     rank: l.rank,
     previousRank: l.previousRank,
+    scoreMoved: l.scoreMoved,
     company: l.company.name,
     faangPlus: l.company.faangPlus,
     title: l.title,
@@ -113,6 +131,10 @@ export async function loadListingRows(): Promise<ListingRow[]> {
     disqualifyReasons: l.disqualifyReasons,
     likelyClosed: l.likelyClosed,
     sources: [...new Set(l.sources.map((s) => s.source))],
+    // NOT l.mergedFrom.length: the same column also holds the reverse
+    // "splitFrom" audit written onto a listing that was split back out, and
+    // counting those would offer "Split" on a row with nothing to split.
+    mergedCount: countMergeEntries(l.mergedFrom),
     status: l.application?.status ?? null,
     hasPostingText: l.postingTextHash !== null,
     fetchStatus: l.detailFetchStatus,

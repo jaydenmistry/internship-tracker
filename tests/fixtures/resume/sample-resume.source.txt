@@ -1,0 +1,31 @@
+ALEX SAMPLE
+Athens, GA  |  alex.sample@example.com  |  github.com/alexsample
+
+EDUCATION
+University of Georgia - B.S. Computer Science, expected May 2027
+Relevant coursework: Data Structures, Algorithms, Operating Systems,
+Computer Networks, Systems Programming
+
+SKILLS
+Languages: Python, TypeScript, JavaScript, Java, Go, C, SQL
+Frameworks: React, Next.js, Node.js, Flask, FastAPI, Tailwind CSS
+Infrastructure: Docker, Kubernetes, PostgreSQL, Redis, AWS, Terraform
+Practices: Git, unit testing, CI/CD with GitHub Actions, Agile
+
+EXPERIENCE
+Software Engineering Intern - Example Labs (Summer 2026)
+- Built a distributed ingestion pipeline in Go handling 2M events per day.
+- Cut p99 API latency 40 percent by adding Redis caching and connection pooling.
+- Wrote unit tests and integration tests; raised coverage from 38 to 84 percent.
+
+Undergraduate Research Assistant - UGA Systems Lab (2025 - 2026)
+- Instrumented a Linux kernel module to measure scheduler tail latency.
+- Analyzed results in Python with pandas and matplotlib.
+
+PROJECTS
+Internship Tracker - Next.js, TypeScript, Prisma, PostgreSQL, Docker
+- Scrapes and ranks internship postings; deterministic scoring engine with
+  full test coverage in Vitest.
+
+Raft Key-Value Store - Go
+- Implemented leader election and log replication with concurrency-safe state.
