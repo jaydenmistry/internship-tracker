@@ -153,6 +153,44 @@ describe.skipIf(!hasDb)("application import commit (integration)", () => {
     expect(app.events[1]).toMatchObject({ fromStatus: "APPLIED", toStatus: "INTERVIEW" });
   });
 
+  it("does not create a notes-less NOT_APPLIED row from a CSV", async () => {
+    // NOT_APPLIED exists only to hold notes; a row saying "not applied" with
+    // nothing written on it records nothing.
+    const listing = await seedListing();
+    const summary = await commitImport([
+      { row: row({ status: "NOT_APPLIED" }), listingId: listing.id },
+      { row: row({ company: "Other Co", role: "Intern", status: "NOT_APPLIED" }), listingId: null },
+    ]);
+
+    expect(summary).toMatchObject({ linked: 0, manual: 0, unchanged: 2 });
+    expect(await prisma.application.count()).toBe(0);
+  });
+
+  it("keeps a NOT_APPLIED row that carries notes", async () => {
+    const listing = await seedListing();
+    await commitImport([
+      { row: row({ status: "NOT_APPLIED", notes: "referral pending" }), listingId: listing.id },
+    ]);
+
+    const app = await prisma.application.findFirstOrThrow();
+    expect(app.status).toBe("NOT_APPLIED");
+    expect(app.notes).toBe("referral pending");
+  });
+
+  it("removes an existing notes-less application when the CSV says not applied", async () => {
+    const listing = await seedListing();
+    await commitImport([{ row: row(), listingId: listing.id }]);
+    expect(await prisma.application.count()).toBe(1);
+
+    const summary = await commitImport([
+      { row: row({ status: "NOT_APPLIED" }), listingId: listing.id },
+    ]);
+
+    expect(summary.updated).toBe(1);
+    expect(await prisma.application.count()).toBe(0);
+    expect(await prisma.statusEvent.count()).toBe(0);
+  });
+
   it("reports a bad row instead of aborting the whole import", async () => {
     const listing = await seedListing();
     const summary = await commitImport([
