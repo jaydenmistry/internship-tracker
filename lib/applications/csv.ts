@@ -24,13 +24,31 @@ export const CSV_COLUMNS = [
  */
 const FORMULA_START = /^[=+\-@\t\r]/;
 
-export function neutralizeFormula(value: string): string {
-  return FORMULA_START.test(value) ? `'${value}` : value;
+/**
+ * Leading whitespace is checked too: a spreadsheet treats " =x" as text, but a
+ * CSV reader that trims hands "=x" straight back to one as a live formula.
+ */
+function looksLikeFormula(value: string): boolean {
+  return FORMULA_START.test(value) || FORMULA_START.test(value.trimStart());
 }
 
-/** Inverse of neutralizeFormula, applied on import. */
+/**
+ * Prefixes an apostrophe so a spreadsheet treats the cell as text. A value that
+ * ALREADY starts with an apostrophe is escaped the same way, so the guard is
+ * unambiguous on the way back — otherwise a genuine "'=x" and a guarded "=x"
+ * would be written identically and one of them would come back wrong.
+ */
+export function neutralizeFormula(value: string): string {
+  return looksLikeFormula(value) || value.startsWith("'") ? `'${value}` : value;
+}
+
+/**
+ * Inverse of neutralizeFormula: strips exactly one leading apostrophe. This
+ * matches spreadsheet convention, where a leading apostrophe is an escape
+ * marker rather than content.
+ */
 export function restoreFormulaPrefix(value: string): string {
-  return /^'[=+\-@\t\r]/.test(value) ? value.slice(1) : value;
+  return value.startsWith("'") ? value.slice(1) : value;
 }
 
 /** RFC 4180 quoting: wrap when needed, double embedded quotes. */

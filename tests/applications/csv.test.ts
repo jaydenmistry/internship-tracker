@@ -43,8 +43,21 @@ describe("formula-injection guard", () => {
     }
   });
 
+  it("neutralizes a formula hidden behind leading whitespace", () => {
+    // A spreadsheet reads " =x" as text, but a CSV reader that trims hands the
+    // formula straight back to one.
+    for (const v of [" =cmd()", "   +1+1", "\t@SUM(A1)"]) {
+      expect(neutralizeFormula(v).startsWith("'")).toBe(true);
+    }
+  });
+
+  it("escapes a value that already starts with an apostrophe, so it survives", () => {
+    expect(restoreFormulaPrefix(neutralizeFormula("'=notmine"))).toBe("'=notmine");
+    expect(restoreFormulaPrefix(neutralizeFormula("'quoted"))).toBe("'quoted");
+  });
+
   it("round-trips exactly: restore undoes neutralize", () => {
-    for (const v of ["=cmd()", "+x", "-y", "@z", "plain", "'already quoted text"]) {
+    for (const v of ["=cmd()", "+x", "-y", "@z", "plain", " =spaced", "'already quoted text", "O'Brien"]) {
       expect(restoreFormulaPrefix(neutralizeFormula(v))).toBe(v);
     }
   });
