@@ -197,6 +197,14 @@ describe("extractRequisitionId", () => {
     ["https://careers.amd.com/jobs/91866?icims=1", "91866"],
     // iCIMS.
     ["https://careers-foo.icims.com/jobs/12345/software-intern/job", "12345"],
+    // Greenhouse EMBED on the company's own host: every requisition shares one
+    // path and differs only in ?gh_jid=. Three real EquipmentShare postings
+    // parsed to null here and were merged into one row, hiding two roles.
+    ["https://www.equipmentshare.com/careers/openings/?gh_jid=8188474", "8188474"],
+    ["https://www.equipmentshare.com/careers/openings/?gh_jid=8188802", "8188802"],
+    // Trailing slash absent, extra params present.
+    ["https://www.optiver.com/join-us/jobs/8402114002/?gh_jid=8402114002", "8402114002"],
+    ["https://example.test/careers?gh_jid=42&utm_source=x", "42"],
   ])("%j → %j", (url, expected) => {
     expect(extractRequisitionId(url)).toBe(expected);
   });
@@ -208,6 +216,9 @@ describe("extractRequisitionId", () => {
     "https://bmo.wd3.myworkdayjobs.com/External/job/San-Ramon-CA-USA/No-Req-Suffix-Here",
     "https://jobs.lever.co/hermeus/not-a-uuid",
     "not a url",
+    // gh_jid must look like a Greenhouse id; a junk value is not an identity.
+    "https://example.test/careers?gh_jid=not-a-number",
+    "https://example.test/careers?gh_jid=",
   ])("%j → null", (url) => {
     expect(extractRequisitionId(url)).toBeNull();
   });

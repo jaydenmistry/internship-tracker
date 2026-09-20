@@ -46,6 +46,8 @@ function listing(overrides: Partial<ListingRow> = {}): ListingRow {
     id: `listing-${seq}`,
     rank: seq,
     previousRank: null,
+    scoreMoved: true,
+    mergedCount: 0,
     company: "Acme",
     faangPlus: false,
     title: "Software Engineer Intern",

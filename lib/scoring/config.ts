@@ -163,6 +163,8 @@ export const ScoringConfigSchema = z.object({
     maxPostingTextChars: z.number().int().positive(),
     maxRationaleChars: z.number().int().positive(),
     maxTokens: z.number().int().positive(),
+    /** Sampling temperature. Defaults to 0 — see lib/scoring/llm.ts. */
+    temperature: z.number().min(0).max(1).default(0),
   }),
 });
 

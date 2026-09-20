@@ -5,6 +5,7 @@ import {
   type AdapterResult,
   type FetchContext,
   type NormalizedListing,
+  type RecordNormalizeResult,
   type SourceAdapter,
 } from "./types";
 
@@ -116,6 +117,35 @@ function toCandidate(entry: Dict, faangKeys: Set<string>): unknown {
   };
 }
 
+/**
+ * Normalize ONE listings.json entry — the whole per-record mapping for this
+ * source, in one place. The run path calls it per entry; `splitMerge` calls it
+ * with a stored `ListingSource.raw` to rebuild a listing that was merged away.
+ *
+ * `faangKeys` is only available on the run path (it comes from the README),
+ * so a rebuilt record carries `companyFaangPlus: false`; the flag already
+ * lives on the Company row and is only ever raised, never lowered.
+ */
+export function normalizeSimplifyRecord(
+  entry: unknown,
+  faangKeys: Set<string> = new Set(),
+): RecordNormalizeResult {
+  if (!isWanted(entry)) {
+    return {
+      ok: false,
+      error: `entry is not a visible ${TARGET_TERM} listing`,
+    };
+  }
+  const result = NormalizedListingSchema.safeParse(toCandidate(entry, faangKeys));
+  if (result.success) return { ok: true, listing: result.data };
+  return {
+    ok: false,
+    error: result.error.issues
+      .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+      .join("; "),
+  };
+}
+
 function parseListingsJson(
   entries: unknown[],
   readmeText: string | undefined,
@@ -132,15 +162,14 @@ function parseListingsJson(
   let skipped = 0;
   let firstError: string | undefined;
   for (const entry of entries) {
+    // Filtered-out entries are not "skipped" — they were never wanted.
     if (!isWanted(entry)) continue;
-    const result = NormalizedListingSchema.safeParse(toCandidate(entry, faangKeys));
-    if (result.success) {
-      listings.push(result.data);
+    const result = normalizeSimplifyRecord(entry, faangKeys);
+    if (result.ok) {
+      listings.push(result.listing);
     } else {
       skipped += 1;
-      firstError ??= result.error.issues
-        .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-        .join("; ");
+      firstError ??= result.error;
     }
   }
   if (skipped > 0) {
@@ -250,6 +279,8 @@ export function parseReadmeTables(
 export const simplifyAdapter: SourceAdapter = {
   id: SOURCE_ID,
   displayName: "Simplify (Summer 2027 Internships)",
+
+  normalizeRecord: (raw) => normalizeSimplifyRecord(raw),
 
   async fetch(ctx: FetchContext): Promise<AdapterResult> {
     const headers = { "User-Agent": ctx.userAgent };

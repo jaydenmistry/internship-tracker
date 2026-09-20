@@ -5,6 +5,7 @@ import {
   type AdapterResult,
   type FetchContext,
   type NormalizedListing,
+  type RecordNormalizeResult,
   type SourceAdapter,
 } from "./types";
 
@@ -117,18 +118,24 @@ function extractNextData(minisiteHtml: string): unknown {
   }
 }
 
-function normalizeJob(
-  rawJob: unknown,
-  ctx: FetchContext,
-): NormalizedListing | null {
+/**
+ * Normalize ONE jobright minisite record — the whole per-record mapping for
+ * this source, in one place. The run path calls it per record (and logs the
+ * reason a record was dropped); `splitMerge` calls it with a stored
+ * `ListingSource.raw` to rebuild a listing that was merged away.
+ *
+ * The `error` text is phrased to read after "skipping ", which is how the run
+ * path logs it.
+ */
+export function normalizeInternListRecord(rawJob: unknown): RecordNormalizeResult {
   const jobParse = JobRecordSchema.safeParse(rawJob);
   if (!jobParse.success) {
-    ctx.log(
-      `intern-list: skipping job record failing schema: ${jobParse.error.issues
+    return {
+      ok: false,
+      error: `job record failing schema: ${jobParse.error.issues
         .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
         .join("; ")}`,
-    );
-    return null;
+    };
   }
   const job = jobParse.data;
 
@@ -159,22 +166,30 @@ function normalizeJob(
       raw: rawJob,
     };
   } catch (error) {
-    ctx.log(
-      `intern-list: skipping job ${job.id}: ${error instanceof Error ? error.message : String(error)}`,
-    );
-    return null;
+    return {
+      ok: false,
+      error: `job ${job.id}: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
 
   const listingParse = NormalizedListingSchema.safeParse(candidate);
   if (!listingParse.success) {
-    ctx.log(
-      `intern-list: skipping job ${job.id} failing NormalizedListing schema: ${listingParse.error.issues
+    return {
+      ok: false,
+      error: `job ${job.id} failing NormalizedListing schema: ${listingParse.error.issues
         .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
         .join("; ")}`,
-    );
-    return null;
+    };
   }
-  return listingParse.data;
+  return { ok: true, listing: listingParse.data };
+}
+
+/** The run path: normalize one record, logging why it was dropped. */
+function normalizeJob(rawJob: unknown, ctx: FetchContext): NormalizedListing | null {
+  const result = normalizeInternListRecord(rawJob);
+  if (result.ok) return result.listing;
+  ctx.log(`intern-list: skipping ${result.error}`);
+  return null;
 }
 
 async function fetchPage(ctx: FetchContext, url: string): Promise<string> {
@@ -191,6 +206,8 @@ async function fetchPage(ctx: FetchContext, url: string): Promise<string> {
 export const internListAdapter: SourceAdapter = {
   id: SOURCE_ID,
   displayName: "Intern List (SWE)",
+
+  normalizeRecord: (raw) => normalizeInternListRecord(raw),
 
   async fetch(ctx: FetchContext): Promise<AdapterResult> {
     const shellHtml = await fetchPage(ctx, CATEGORY_PAGE_URL);

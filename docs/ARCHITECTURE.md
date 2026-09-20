@@ -99,6 +99,9 @@ erDiagram
     string scoringConfigHash
     int rank
     int previousRank
+    int previousScore
+    boolean scoreMoved
+    json mergedFrom
     string detailFetchStatus
   }
   ListingSource {
@@ -173,6 +176,21 @@ plain string with no foreign key.
 - `rank` is assigned at the end of each final scoring pass; null when
   disqualified. `previousRank` / `rankChangedAt` change **only** when rank
   actually changes, so "moved yesterday" stays true through later no-op runs.
+- `scoreMoved` records whether the listing's **own** `finalScore` changed in the
+  run that last moved its rank; it is written in the same statement as
+  `previousRank`, so it stays paired with the move it describes.
+  `previousScore` is the baseline that comparison uses, rolled forward for
+  every listing at the end of each ranking run (so it is always exactly one run
+  behind, and the roll-forward must happen *after* the two statements that read
+  it). The table's ↑/↓ is gated on `scoreMoved`: a rank is a position in a field
+  of ~1,600, so a listing that did not change at all still gets shoved around by
+  everything that did — 1,425 of 1,615 ranked listings carried a rank change
+  while sitting still, and an arrow on 88% of rows reports nothing.
+- `mergedFrom` holds two entry shapes discriminated by `kind`: merge entries
+  pushed by the pipeline, and reverse `splitFrom` entries written onto a listing
+  that was split back out. Read it only through
+  `lib/ingestion/merge-audit.ts` — it is `Json[]`, so Postgres returns whatever
+  was written, including older shapes.
 - `saved` / `dismissed` are user flags. Dismissal survives refreshes.
 
 **ListingSource** — one row per (source, source-native id).
@@ -213,14 +231,26 @@ plain string with no foreign key.
   listing that has no notes).
 
 **Resume** — extracted resume text for keyword matching.
-- Latest `active` row wins. **Nothing writes this table yet** — PDF upload is
-  Phase 4. The detail panel reads it and shows a "no resume" state until then.
+- Written by `lib/resume/store.ts` on upload at `/resume`. Text is extracted
+  **once, at upload** (`lib/resume/extract.ts`, via `unpdf`); the PDF bytes are
+  never stored, and nothing in the app needs a file on disk.
+- Latest `active` row wins: an upload deactivates every earlier row in one
+  transaction and keeps it, so a replacement is never destructive. Extraction
+  happens *before* that transaction — a PDF that yields nothing usable must
+  leave the previous resume active rather than replacing it with an empty one.
+- Read through `getActiveResume()` only. The detail panel matched the same row
+  by copying the query once; one definition avoids the panel matching against a
+  different resume than the upload page reports.
+- Matching is for **tailoring, not scoring** — it never touches a score.
 
-**Setting** — key/value JSON for UI-editable config. **Unused so far**;
-intended for Phase 4 alert thresholds.
+**Setting** — key/value JSON for UI-editable config. Holds the alert thresholds
+edited at `/alerts`, Zod-validated on read with defaults when absent or
+malformed. Scoring weights live in `config/scoring.json` and never here.
 
-**AlertLog** — alert de-duplication (`dedupeKey` unique). **Unused so far**;
-alerts are Phase 4.
+**AlertLog** — alert de-duplication (`dedupeKey` unique, and `channel` is part
+of the key, so the same alert to Discord and email is two rows). **Written only
+after a successful send**: recording first would dedupe a failed alert away
+permanently.
 
 ---
 
@@ -252,6 +282,15 @@ score stale, with no extra bookkeeping, when:
 - an adapter supplies richer posting text on ingest,
 - a `likelyClosed` listing reappears in a source (reopened),
 - an adapter supplies a changed deadline,
+- a **merge** adopts richer posting text or reopens the target — the same rule
+  the plain update path follows. Without it, the merge that first gives a
+  listing a real description leaves it scored on its title, and stage 2 is
+  gated on having text, so the merge that earns an LLM pass would not trigger one,
+- a **split** pulls a merged-in record back out: both the parent and the new
+  listing are flagged. If the parent was holding posting text the departing
+  record had donated, that text, its hash, and the detail-fetch stamps are
+  cleared too, so stage 3 fetches the parent's own posting page instead of
+  scoring it against a role that has left,
 - the likely-closed pass flags it (this is what makes the "posting closed"
   disqualifier fire for listings that close *after* first being scored).
 
@@ -345,13 +384,18 @@ run. Any content change rescores the whole catalog on the next run.
 - `thresholds.detailFetchMin` — **measured on `gateScore`**, not the displayed
   score. Currently 50. Raise it if fetch volume becomes a problem.
 - `thresholds.llmMin` — measured on `ruleScore`. Currently 70.
-- `llm.*` — enabled, model, max adjustment, text/rationale/token caps.
+- `llm.*` — enabled, model, max adjustment, text/rationale/token caps, and
+  `temperature` (**0**; an assessment is cached forever against the posting-text
+  hash, so the first roll is the score the listing keeps — at the API default,
+  four identical calls on one posting spread 10 points on a ±15 scale).
 
 **`SCORING_ENGINE_VERSION` in `lib/scoring/engine.ts` — code, needs a deploy.**
 Bump it when scoring logic changes (see above).
 
-**`Setting` table — no restart by design, but unused.** Reserved for Phase 4's
-UI-editable alert thresholds.
+**`Setting` table — no restart by design.** Holds the alert thresholds edited at
+`/alerts`: digest and high-score minimums, the closing-soon window, per-channel
+enable flags, and the per-run send cap. Read through `lib/alerts/config.ts`,
+which Zod-validates and falls back to defaults.
 
 **Environment variables — restart the process that reads them.** `.env` is
 loaded once at process start, so every change needs a restart even for values
@@ -372,6 +416,17 @@ that are read on every call. `.env.example` documents them all.
 | `LLM_MAX_CALLS_PER_RUN` | worker | Claude spend cap (malformed ⇒ default, never "no cap") |
 | `LLM_MAX_CANDIDATES_PER_RUN` | worker | Bounds the stage-2 candidate query |
 | `RESCORE_MAX_AGE_HOURS` | worker | Max-age reclaim window |
+| `DIGEST_CRON` | worker | Daily-digest schedule |
+| `CLOSING_SOON_CRON` | worker | Closing-soon schedule |
+| `ALERT_TIMEZONE` | worker, app | Timezone for alert dates; also used to format AlertLog timestamps server-side, so the recent-alerts list can't hydrate-mismatch |
+| `DISCORD_WEBHOOK_URL` | worker, app | Discord channel; unset = channel disabled |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` | worker, app | SMTP endpoint (`SMTP_SECURE` defaults from the port: implicit TLS on 465) |
+| `SMTP_USER` / `SMTP_PASS` | worker, app | Optional; must be set together or not at all |
+| `SMTP_FROM` / `SMTP_TO` | worker, app | Envelope addresses; unset = channel disabled |
+
+Alert env vars are read by the **app** as well as the worker, because every
+alert kind is manually triggerable from `/alerts` through the same code path the
+cron uses.
 
 The app reads `SCORING_CONFIG_PATH` too, because the detail panel shows weights
 and builds the resume vocabulary from the config.
@@ -386,6 +441,8 @@ app/                       Next.js App Router (UI only; no auth yet)
   listings/                table, detail panel, context menu, their actions
   tracker/                 /tracker — kanban/list + minimal dashboard
   import/                  /import — paste/CSV import with match review
+  resume/                  /resume — PDF upload; text extracted once, at upload
+  alerts/                  /alerts — thresholds, per-kind "Send now", recent sends
   api/applications/export/ GET → applications CSV (round-trips via /import)
   layout.tsx, globals.css  shell, nav, dark theme tokens (Tailwind v4, CSS config)
 components/                small shared UI primitives
@@ -398,6 +455,10 @@ lib/
     normalize.ts           company/title/location normalization, dedupKey, req ids
     dedupe.ts              merge decision + hard guard
     pipeline.ts            ingest, upsert, likely-closed, detail stage, pruning
+    merge-audit.ts         reads Listing.mergedFrom (Zod); imported by the read
+                           models so they don't pull the pipeline into their graph
+    split.ts               undo one merge: re-normalize ListingSource.raw and
+                           rebuild the listing the pipeline would have created
   scoring/
     config.ts              loads + validates + hashes scoring.json
     engine.ts              pure stage-1 scorer + disqualifiers; SCORING_ENGINE_VERSION
@@ -405,8 +466,15 @@ lib/
     rescore.ts             persistence: stage 1, stage 2, ranks, raw-SQL schema guard
   listings/                table read model, detail read model, row mutations
   applications/            import parse/match, commit, tracker + dashboard, CSV
-  resume/                  keyword vocabulary + posting↔resume matching
-worker/index.ts            node-cron schedule + internal HTTP (/refresh, /healthz)
+  resume/                  extract (unpdf), store, vocabulary + posting↔resume match
+  alerts/
+    settings.ts            threshold schema + defaults (pure)
+    config.ts              Setting-table read/write; re-exports settings.ts
+    build.ts               pure payload builders + dedupe keys
+    data.ts                candidate queries + recent-alert list
+    send.ts                build → drop already-sent → send → record AlertLog
+    channels/              discord webhook, smtp email (injectable transports)
+worker/index.ts            node-cron (cycle, digest, closing-soon) + /refresh, /healthz
 prisma/                    schema.prisma + migrations
 config/scoring.json        every scoring weight, pattern and threshold
 tests/                     Vitest; mirrors lib/; fixtures/ are real captured payloads
@@ -425,15 +493,16 @@ What `CLAUDE.md`'s original plan describes, against what exists after Phase 3:
 | Planned | Actual |
 |---|---|
 | Docker containers: app, worker, postgres | **Not built** (Phase 5). Local processes. |
-| OIDC auth via `proxy.ts` | **Not built** (Phase 5). No auth; localhost only. The CSV export route exposes all applications and must be covered when auth lands. |
+| OIDC auth via `proxy.ts` | **Not built** (Phase 5). Nothing is authenticated: anyone who can reach the port can read the catalog, replace the stored resume, trigger real Discord/SMTP sends from `/alerts`, split listings, and download `/api/applications/export`. Phase 5 must cover `/api/*` and the Server Actions, not only pages. |
 | `scripts/backup.sh` | **Not built** (Phase 5). |
-| `lib/alerts/`, Discord + SMTP | **Not built** (Phase 4). `AlertLog` and `Setting` are unused. |
-| Resume PDF upload | **Not built** (Phase 4). Matching logic and the panel section exist. |
+| `lib/alerts/`, Discord + SMTP | Built. **Never delivered a real message** — both transports are injected in tests, so the Discord webhook contract and a real SMTP handshake are unexercised; the first live "Send now" is the real test. |
+| Resume PDF upload | Built. Upload, extraction and the matched panel state were driven end to end through the real Server Action over real multipart. |
 | "Refresh now" button → worker `/refresh` | Endpoint exists; **no UI calls it**. |
-| UI action to split an incorrect merge | **Not built.** `mergedFrom` records every merge, but nothing can undo one yet. |
+| UI action to split an incorrect merge | Built (`lib/ingestion/split.ts` + the shared row-action registry). Exercised against a real merged listing copied into the test schema; **never run against the live catalog**. The two concurrency guards (a racing ingest, two simultaneous splits) are reasoned about and coded, not covered by a test — that needs two interleaved transactions. |
 | "Not applied" = absence of an Application row | Also a `NOT_APPLIED` row holding pre-apply notes. |
 | Detail fetch gated on the score | Gated on **`gateScore`** (tech fit excluded) — the plain score deadlocked. |
-| Rank derived for display | **Persisted** on Listing, with movement history. |
+| Rank derived for display | **Persisted** on Listing, with movement history. The ↑/↓ indicator is shown only when the listing's own score moved (`scoreMoved`) — 88% of ranked rows carried a cascade move, which told the reader nothing. |
+| Stage 2 adjusts scores | It never ran: the structured-output schema sent `minimum`/`maximum` on an integer, which the Messages API rejects with a 400, so **every** stage-2 call failed while the mocked tests stayed green. Fixed, and now pinned at `temperature: 0`. |
 | intern-list HTML scrape | Parses the embedded jobright.ai minisite's `__NEXT_DATA__`; gets only the newest 50 per run because deeper pages need jobright's robots-disallowed `/api`. |
 | Separate test database | Separate test **schema** (see the `prisma dev` trap). |
 | Prisma (unspecified version) | Prisma 7 with the `@prisma/adapter-pg` driver adapter. |

@@ -17,7 +17,7 @@ import ContextMenu from "./ContextMenu";
 import DetailPanel from "./DetailPanel";
 import HelpOverlay from "./HelpOverlay";
 import { isActivatable, isEditable, isPlainKey } from "./keys";
-import type { RowCommand, Toast } from "./row-actions";
+import type { DetailFocus, RowCommand, Toast } from "./row-actions";
 import Toolbar from "./Toolbar";
 import {
   absoluteDate,
@@ -78,6 +78,8 @@ export default function ListingsTable({ rows, nowIso }: Props) {
   const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
   const [cursor, setCursor] = useState<number | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  /** Section the panel should reveal when a command opened it (split audit). */
+  const [detailFocus, setDetailFocus] = useState<DetailFocus | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [toast, setToast] = useState<(Toast & { id: number }) | null>(null);
   const [menu, setMenu] = useState<{ rowId: string; x: number; y: number } | null>(null);
@@ -97,11 +99,21 @@ export default function ListingsTable({ rows, nowIso }: Props) {
   }, [toast]);
 
   const detail = useListingDetail(openId);
+  const openDetail = useCallback((listingId: string, focus?: DetailFocus) => {
+    setOpenId(listingId);
+    setDetailFocus(focus ?? null);
+  }, []);
   const { patches, perform, saveNotes } = useRowActions({
     notify,
-    openDetail: setOpenId,
+    openDetail,
     // A confirmed write changes the detail read model (timeline, notes row).
     onSettled: detail.invalidate,
+    // A split changes BOTH listings' details; the table's own rows come back
+    // with the Server Action's refresh(), which re-runs the page's query.
+    onSplit: (parentId, newListingId) => {
+      detail.invalidate(parentId);
+      detail.invalidate(newListingId);
+    },
   });
 
   // `now` comes from the server for the first paint, then follows the clock so
@@ -206,11 +218,17 @@ export default function ListingsTable({ rows, nowIso }: Props) {
     [menu, patched],
   );
 
-  /** Every row action — key, menu item or panel button — goes through here. */
+  // Exact merge count, but only for a row whose details are already loaded.
+  // Null means "unknown" — the menu falls back to the row's source count.
+  const menuMergeCount =
+    menu && detail.load.status === "ready" && detail.load.detail.id === menu.rowId
+      ? detail.load.detail.merges.length
+      : null;
+
+  /** Every row action — key, menu item or panel button — goes through here.
+   *  Returns the promise so a panel button can show progress while it runs. */
   const act = useCallback(
-    (row: TableRow, command: RowCommand) => {
-      void perform(row, command);
-    },
+    (row: TableRow, command: RowCommand) => perform(row, command),
     [perform],
   );
 
@@ -235,9 +253,9 @@ export default function ListingsTable({ rows, nowIso }: Props) {
     (index: number) => {
       const row = visibleRef.current[index];
       setCursor(index);
-      if (row) setOpenId(row.id);
+      if (row) openDetail(row.id);
     },
-    [],
+    [openDetail],
   );
 
   // A single window-level listener, reading live state through a ref so it is
@@ -456,6 +474,7 @@ export default function ListingsTable({ rows, nowIso }: Props) {
             row={openRow}
             load={detail.load}
             now={now}
+            focus={detailFocus}
             onCommand={(command) => act(openRow, command)}
             onSaveNotes={saveNotes}
             onRetry={detail.retry}
@@ -472,6 +491,7 @@ export default function ListingsTable({ rows, nowIso }: Props) {
           key={`${menu.rowId}:${menu.x}:${menu.y}`}
           row={menuRow}
           point={{ x: menu.x, y: menu.y }}
+          mergeCount={menuMergeCount}
           onClose={closeMenu}
           onCommand={(command) => {
             closeMenu();

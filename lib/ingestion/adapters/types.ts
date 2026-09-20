@@ -51,10 +51,29 @@ export interface FetchContext {
   saveRaw?(payload: string): Promise<void>;
 }
 
+/**
+ * Outcome of re-normalizing ONE stored source record. `error` is shown to the
+ * user when a merge split can't rebuild the listing, so it names the reason.
+ */
+export type RecordNormalizeResult =
+  | { ok: true; listing: NormalizedListing }
+  | { ok: false; error: string };
+
 export interface SourceAdapter {
   /** Stable source id, e.g. "simplify" — becomes ListingSource.source. */
   id: string;
   displayName: string;
+  /**
+   * Re-normalize ONE verbatim source record (a stored `ListingSource.raw`)
+   * back into a NormalizedListing, through the SAME per-record mapping
+   * `fetch` uses — nothing about the mapping may live in two places.
+   *
+   * Splitting an incorrect merge (lib/ingestion/split.ts) is the only caller:
+   * it rebuilds the merged-away listing from the raw record the merge kept.
+   * Optional, so an adapter whose records can't stand alone simply refuses
+   * the split instead of every adapter having to implement it.
+   */
+  normalizeRecord?(raw: unknown): RecordNormalizeResult;
   /**
    * Fetch and normalize all current listings. Throwing is fine — the pipeline
    * records the failure on this adapter's IngestRun and continues with others.

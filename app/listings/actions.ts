@@ -1,9 +1,11 @@
 "use server";
 
 import { z } from "zod";
+import { refresh } from "next/cache";
 import { AppStatus } from "@/generated/prisma/enums";
 import { NOTES_MAX } from "./row-actions";
 import { loadListingDetail, type ListingDetail } from "@/lib/listings/detail";
+import { splitMerge } from "@/lib/ingestion/split";
 import {
   setListingDismissed,
   setListingNotes,
@@ -46,6 +48,12 @@ const notesSchema = z.object({
 const flagSchema = z.object({
   listingId: listingIdSchema,
   value: z.boolean(),
+});
+
+const splitSchema = z.object({
+  listingId: listingIdSchema,
+  source: z.string().min(1).max(100),
+  sourceUid: z.string().min(1).max(500),
 });
 
 function invalid(error: z.ZodError): { ok: false; message: string } {
@@ -130,4 +138,36 @@ export async function setNotesAction(payload: unknown): Promise<ActionResult> {
   } catch (err) {
     return failed("Saving notes", err);
   }
+}
+
+/**
+ * Splits one merged-in source record back out into its own listing.
+ *
+ * Unlike the row toggles above this one DOES refresh: it creates a row and
+ * removes an entry, and a wrong merge hides a real listing — the table has to
+ * show the recovered listing immediately, not on the next navigation.
+ * `refresh()` (Next 16) re-runs the page's Server Component from inside the
+ * action, so one round trip covers both.
+ */
+export async function splitMergeAction(
+  payload: unknown,
+): Promise<ActionResult<{ listingId: string; alreadySplit: boolean; label: string }>> {
+  const parsed = splitSchema.safeParse(payload);
+  if (!parsed.success) return invalid(parsed.error);
+
+  let result: Awaited<ReturnType<typeof splitMerge>>;
+  try {
+    result = await splitMerge(parsed.data);
+  } catch (err) {
+    return failed("Split", err);
+  }
+  if (!result.ok) return { ok: false, message: result.message };
+
+  if (!result.alreadySplit) refresh();
+  return {
+    ok: true,
+    listingId: result.listingId,
+    alreadySplit: result.alreadySplit,
+    label: `${result.company} — ${result.title}`,
+  };
 }

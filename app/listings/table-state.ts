@@ -27,7 +27,7 @@ export interface TableRow extends Omit<ListingRow, "rank"> {
    *  have no position; they sort to the end. */
   rank: number | null;
   /** How far this listing moved at its last rank change: positive = moved up.
-   *  Null when it has never moved or has no rank. */
+   *  Null when there is nothing worth reporting — see `prepareRows`. */
   rankDelta: number | null;
   /** Lowercased "company title location" for substring search. Precomputed
    *  once because the search box filters on every keystroke. */
@@ -50,8 +50,17 @@ export function prepareRows(rows: readonly ListingRow[]): TableRow[] {
     ...row,
     rank: row.rank,
     // previousRank is where it moved FROM, so a smaller rank now means it rose.
+    //
+    // Suppressed unless the listing's own score moved. A rank is a position in
+    // a field of ~1,600, so a listing that did not change at all still gets
+    // shoved around by everything that did: on the real catalog 1,425 of 1,615
+    // ranked listings (88%) carried a rank change, nearly all of them cascade.
+    // An indicator that fires on 88% of rows tells the reader nothing, so the
+    // arrow is reserved for listings that actually moved under their own power.
     rankDelta:
-      row.rank !== null && row.previousRank !== null ? row.previousRank - row.rank : null,
+      row.rank !== null && row.previousRank !== null && row.scoreMoved
+        ? row.previousRank - row.rank
+        : null,
     haystack: `${row.company} ${row.title} ${row.location}`.toLowerCase(),
     ageTs: epoch(row.postedAt ?? row.firstSeen),
     deadlineTs: row.deadline ? epoch(row.deadline) : null,
@@ -573,9 +582,10 @@ export interface RankMovement {
 }
 
 /**
- * The rank-cell indicator. Nothing at all for a listing that never moved (0),
- * has no previous rank, or has no rank (disqualified): an arrow only appears
- * when there is real movement to report.
+ * The rank-cell indicator, rendered from the delta `prepareRows` already
+ * decided was worth reporting. Nothing at all for a listing that never moved
+ * (0), has no previous rank, has no rank (disqualified), or moved only because
+ * other listings did — `prepareRows` nulls that last case out.
  */
 export function rankMovement(delta: number | null | undefined): RankMovement | null {
   if (delta === null || delta === undefined || delta === 0 || !Number.isFinite(delta)) {
@@ -584,8 +594,8 @@ export function rankMovement(delta: number | null | undefined): RankMovement | n
   const n = Math.abs(Math.trunc(delta));
   if (n === 0) return null;
   return delta > 0
-    ? { text: `↑${n}`, direction: "up", label: `moved up ${n} since the last rank change` }
-    : { text: `↓${n}`, direction: "down", label: `moved down ${n} since the last rank change` };
+    ? { text: `↑${n}`, direction: "up", label: `moved up ${n} when its score last changed` }
+    : { text: `↓${n}`, direction: "down", label: `moved down ${n} when its score last changed` };
 }
 
 export interface DqBadge {

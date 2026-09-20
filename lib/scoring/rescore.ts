@@ -26,6 +26,7 @@ export interface OrchestrationSettings {
     maxPostingTextChars: number;
     maxRationaleChars: number;
     maxTokens: number;
+    temperature: number;
   };
 }
 
@@ -40,6 +41,7 @@ export function orchestrationSettings(config: ScoringConfig): OrchestrationSetti
       maxPostingTextChars: config.llm.maxPostingTextChars,
       maxRationaleChars: config.llm.maxRationaleChars,
       maxTokens: config.llm.maxTokens,
+      temperature: config.llm.temperature,
     },
   };
 }
@@ -480,10 +482,24 @@ export function qualifiedListingTable(): string {
  * Assigns each non-disqualified listing its global position by score, so every
  * reader agrees on rank instead of deriving it from whatever order they loaded.
  *
- * Both statements only touch rows whose rank actually changes (`IS DISTINCT
- * FROM`), which is what keeps `previousRank`/`rankChangedAt` meaningful: a
- * listing that holds its position across runs keeps the history of its last
- * real move. Returns how many listings moved.
+ * The first two statements only touch rows whose rank actually changes (`IS
+ * DISTINCT FROM`), which is what keeps `previousRank`/`rankChangedAt`
+ * meaningful: a listing that holds its position across runs keeps the history
+ * of its last real move.
+ *
+ * They also stamp `scoreMoved`, recording whether the listing's OWN score
+ * changed in the run that moved it. Nearly every rank move is a cascade — a
+ * listing sitting still while others cross it — and on a 2,900-row catalog that
+ * was ~88% of ranked rows, so an arrow drawn on every move told the reader
+ * nothing. Because it is written in the same statement as `previousRank`, it
+ * stays paired with the move it describes for as long as that move is on
+ * display.
+ *
+ * The third statement then rolls `previousScore` forward to the current score,
+ * so the next run compares against this one. It must run LAST: the first two
+ * read the value it overwrites.
+ *
+ * Returns how many listings moved.
  */
 export async function recomputeRanks(now: Date): Promise<number> {
   const table = qualifiedListingTable();
@@ -498,7 +514,10 @@ export async function recomputeRanks(now: Date): Promise<number> {
        WHERE NOT disqualified
      )
      UPDATE ${table} l
-     SET "previousRank" = l."rank", "rank" = r.rn, "rankChangedAt" = $1
+     SET "previousRank" = l."rank",
+         "rank" = r.rn,
+         "rankChangedAt" = $1,
+         "scoreMoved" = (l."finalScore" IS DISTINCT FROM l."previousScore")
      FROM ranked r
      WHERE l.id = r.id AND l."rank" IS DISTINCT FROM r.rn`,
     now,
@@ -508,9 +527,21 @@ export async function recomputeRanks(now: Date): Promise<number> {
   // so the detail panel can say what it fell from.
   const cleared = await prisma.$executeRawUnsafe(
     `UPDATE ${table}
-     SET "previousRank" = "rank", "rank" = NULL, "rankChangedAt" = $1
+     SET "previousRank" = "rank",
+         "rank" = NULL,
+         "rankChangedAt" = $1,
+         "scoreMoved" = ("finalScore" IS DISTINCT FROM "previousScore")
      WHERE disqualified AND "rank" IS NOT NULL`,
     now,
+  );
+
+  // Roll the baseline forward for EVERY listing, moved or not: a listing whose
+  // score drifts without changing position still has to compare against this
+  // run next time, or the next real move would be attributed to a stale score.
+  await prisma.$executeRawUnsafe(
+    `UPDATE ${table}
+     SET "previousScore" = "finalScore"
+     WHERE "previousScore" IS DISTINCT FROM "finalScore"`,
   );
 
   return moved + cleared;

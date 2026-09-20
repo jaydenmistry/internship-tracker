@@ -110,6 +110,51 @@ describe("decideMerge — hard identity guard", () => {
     expect(d.action).toBe("merge");
     expect(d.action === "merge" && d.targetId).toBe("proven");
   });
+
+  it("refuses two requisitions that differ only in the query string", () => {
+    // Regression, from the real catalog: three EquipmentShare postings share
+    // one path and differ only in ?gh_jid=. Comparing host+path alone called
+    // them the same listing and merged them, hiding two roles behind a third.
+    const d = decideMerge(
+      incoming({
+        url: "https://www.equipmentshare.com/careers/openings/?gh_jid=8188802",
+        requisitionId: null,
+        dedupKey: "equipmentshare|software engineer intern|columbia-mo",
+      }),
+      [
+        candidate({
+          id: "already-stored",
+          url: "https://www.equipmentshare.com/careers/openings/?gh_jid=8188474",
+          requisitionId: null,
+          dedupKey: "equipmentshare|software engineer intern|columbia-mo",
+        }),
+      ],
+    );
+    expect(d.action).toBe("create");
+    expect(d.reason).toMatch(/identity guard/);
+  });
+
+  it("still merges when the query differs only by a tracking param", () => {
+    // canonicalizeUrl strips utm_*/gh_src/ref before the comparison, so the
+    // stricter rule above must not split one listing arriving with campaign
+    // tags on its URL.
+    const d = decideMerge(
+      incoming({
+        url: "https://www.equipmentshare.com/careers/openings/?gh_jid=8188474&utm_source=simplify",
+        requisitionId: null,
+        dedupKey: "equipmentshare|software engineer intern|columbia-mo",
+      }),
+      [
+        candidate({
+          id: "already-stored",
+          url: "https://www.equipmentshare.com/careers/openings/?gh_jid=8188474&gh_src=abc",
+          requisitionId: null,
+          dedupKey: "equipmentshare|software engineer intern|columbia-mo",
+        }),
+      ],
+    );
+    expect(d.action).toBe("merge");
+  });
 });
 
 describe("decideMerge — inconclusive identities", () => {

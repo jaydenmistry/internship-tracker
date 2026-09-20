@@ -2,6 +2,8 @@ import { prisma } from "@/lib/db";
 import type { AppStatus } from "@/generated/prisma/enums";
 import { COMPONENT_NAMES, loadScoringConfig, type ComponentName } from "@/lib/scoring/config";
 import { buildVocabulary, extractKeywords, matchResume } from "@/lib/resume/match";
+import { getActiveResume } from "@/lib/resume/store";
+import { parseMergeAudit } from "@/lib/ingestion/merge-audit";
 
 /**
  * Read model for the detail panel: everything about one listing that the lean
@@ -36,6 +38,29 @@ export type ResumeMatchState =
   | { state: "no-resume"; postingKeywords: string[] }
   | { state: "matched"; hits: string[]; misses: string[]; resumeUploadedAt: string };
 
+/**
+ * One record another source contributed to this listing, as the merge recorded
+ * it. `Listing.mergedFrom` is a `Json[]` column, so it is read through
+ * `parseMergeAudit` (Zod) — anything unreadable is counted, never rendered.
+ */
+export interface MergedSource {
+  source: string;
+  sourceUid: string;
+  url: string;
+  /** Why dedup merged it — exact dedupKey, req id, or a fuzzy score. */
+  reason: string;
+  mergedAt: string;
+}
+
+/** The reverse audit: this listing was split back out of another one. */
+export interface SplitOrigin {
+  fromListingId: string;
+  source: string;
+  sourceUid: string;
+  reason: string;
+  splitAt: string;
+}
+
 export interface FetchStatusInfo {
   status: string | null;
   label: string;
@@ -60,6 +85,12 @@ export interface ListingDetail {
   terms: string[];
   category: string | null;
   sources: Array<{ source: string; url: string; active: boolean; lastSeen: string }>;
+  /** Records merged INTO this listing — each one splittable back out. */
+  merges: MergedSource[];
+  /** Merge entries the schema couldn't read; shown so they aren't silent. */
+  unreadableMerges: number;
+  /** Set when this listing is itself the result of a split. */
+  splitFrom: SplitOrigin[];
 
   score: number | null;
   ruleScore: number | null;
@@ -163,6 +194,8 @@ export async function loadListingDetail(id: string): Promise<ListingDetail | nul
 
   const { config } = loadScoringConfig();
 
+  const audit = parseMergeAudit(l.mergedFrom);
+
   // Mirrors the engine: weights <= 0 are excluded, contributions share one
   // denominator, so the column of contributions sums to the (pre-DQ) score.
   const breakdown = (l.scoreBreakdown ?? null) as Record<
@@ -201,11 +234,10 @@ export async function loadListingDetail(id: string): Promise<ListingDetail | nul
     resumeMatch = { state: "no-posting-text" };
   } else {
     const vocabulary = buildVocabulary(config);
-    const resume = await prisma.resume.findFirst({
-      where: { active: true },
-      orderBy: { uploadedAt: "desc" },
-      select: { text: true, uploadedAt: true },
-    });
+    // Through the store, not a second copy of the query: "which row is the
+    // active resume" must have exactly one definition, or the panel can match
+    // against a different resume than the upload page reports.
+    const resume = await getActiveResume();
     resumeMatch = resume
       ? {
           state: "matched",
@@ -234,6 +266,21 @@ export async function loadListingDetail(id: string): Promise<ListingDetail | nul
       url: s.url,
       active: s.active,
       lastSeen: s.lastSeen.toISOString(),
+    })),
+    merges: audit.merged.map(({ entry }) => ({
+      source: entry.source,
+      sourceUid: entry.sourceUid,
+      url: entry.url,
+      reason: entry.reason,
+      mergedAt: entry.mergedAt,
+    })),
+    unreadableMerges: audit.unreadable,
+    splitFrom: audit.splits.map((s) => ({
+      fromListingId: s.fromListingId,
+      source: s.source,
+      sourceUid: s.sourceUid,
+      reason: s.reason,
+      splitAt: s.splitAt,
     })),
     score: l.finalScore,
     ruleScore: l.ruleScore,

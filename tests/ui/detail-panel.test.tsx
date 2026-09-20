@@ -63,6 +63,79 @@ describe("Claude assessment", () => {
   });
 });
 
+/**
+ * The merge audit is the only place a wrong merge can be seen and undone, so
+ * it has to name what would be split apart and dispatch through the same
+ * command registry as every other row action.
+ */
+describe("merged-in sources", () => {
+  const merge = {
+    source: "intern-list",
+    sourceUid: "6aad91e7de327d3e210d33d9",
+    url: "https://jobright.ai/jobs/info/6aad91e7de327d3e210d33d9",
+    reason: "single exact dedupKey match, identities inconclusive",
+    mergedAt: "2026-09-08T06:00:00.000Z",
+  };
+
+  it("is absent when nothing was merged in", () => {
+    renderPanel({ merges: [], splitFrom: [], unreadableMerges: 0 });
+    expect(screen.queryByTestId("merged-sources")).toBeNull();
+  });
+
+  it("names each merged-in record, why it merged and when", () => {
+    renderPanel({ merges: [merge] });
+    const entry = screen.getByTestId("merged-source");
+    expect(entry.textContent).toContain("intern-list");
+    expect(entry.textContent).toContain("6aad91e7de327d3e210d33d9");
+    expect(entry.textContent).toContain("single exact dedupKey match");
+    expect(entry.textContent).toMatch(/merged .*8 Sep 2026/);
+    expect(within(entry).getByRole("link")).toHaveProperty(
+      "href",
+      "https://jobright.ai/jobs/info/6aad91e7de327d3e210d33d9",
+    );
+  });
+
+  it("dispatches the split through the row command registry", () => {
+    const { onCommand } = renderPanel({ merges: [merge] });
+    fireEvent.click(within(screen.getByTestId("merged-source")).getByRole("button"));
+    expect(onCommand).toHaveBeenCalledWith({
+      kind: "splitMerge",
+      source: "intern-list",
+      sourceUid: "6aad91e7de327d3e210d33d9",
+    });
+  });
+
+  it("never links a merged record's non-http url", () => {
+    renderPanel({ merges: [{ ...merge, url: "javascript:alert(1)" }] });
+    const entry = screen.getByTestId("merged-source");
+    expect(within(entry).queryByRole("link")).toBeNull();
+    expect(entry.textContent).toContain("no usable link");
+  });
+
+  it("shows that this listing is itself the result of a split", () => {
+    renderPanel({
+      merges: [],
+      splitFrom: [
+        {
+          fromListingId: "l9",
+          source: "intern-list",
+          sourceUid: "u9",
+          reason: "fuzzy candidate 0.91",
+          splitAt: "2026-09-19T09:30:00.000Z",
+        },
+      ],
+    });
+    expect(screen.getByTestId("split-origin").textContent).toMatch(/Split out of another listing/);
+  });
+
+  it("does not hide merge entries it could not read", () => {
+    renderPanel({ merges: [], unreadableMerges: 2 });
+    expect(screen.getByTestId("merged-sources").textContent).toMatch(
+      /2 merge entries could not be read/,
+    );
+  });
+});
+
 describe("resume keyword match", () => {
   it("no-posting-text: says there is nothing to compare", () => {
     renderPanel({ resumeMatch: { state: "no-posting-text" } });
@@ -72,11 +145,12 @@ describe("resume keyword match", () => {
     expect(node.querySelectorAll("[data-keyword]")).toHaveLength(0);
   });
 
-  it("no-resume: lists the posting's keywords and points at Phase 4", () => {
+  it("no-resume: lists the posting's keywords and links to the upload page", () => {
     renderPanel({ resumeMatch: { state: "no-resume", postingKeywords: ["Go", "Kubernetes"] } });
     const node = screen.getByTestId("resume-match");
     expect(node.textContent).toMatch(/No resume uploaded yet/);
-    expect(node.textContent).toMatch(/Phase 4/);
+    // The empty state has to say how to leave it, not just that it is empty.
+    expect(node.querySelector('a[href="/resume"]')).not.toBeNull();
     const kws = [...node.querySelectorAll("[data-keyword]")].map((n) => n.textContent);
     expect(kws).toEqual(["Go", "Kubernetes"]);
   });

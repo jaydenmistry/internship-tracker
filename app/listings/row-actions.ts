@@ -28,12 +28,21 @@ export type MutationCommand =
   | { kind: "toggleSaved" }
   | { kind: "toggleDismissed" };
 
+/** Where the detail panel should land when a command opens it. */
+export type DetailFocus = "merges";
+
 export type RowCommand =
   | MutationCommand
   | { kind: "openUrl" }
   | { kind: "copyUrl" }
   | { kind: "copyLabel" }
-  | { kind: "openDetail" };
+  | { kind: "openDetail"; focus?: DetailFocus }
+  /**
+   * Split one merged-in source record back out into its own listing. Not a
+   * mutation in the optimistic sense: it creates a row, so there is nothing
+   * sensible to patch ahead of the server — the table reloads instead.
+   */
+  | { kind: "splitMerge"; source: string; sourceUid: string };
 
 /** The fields a command reads. A TableRow satisfies it. */
 export type ActionRow = Pick<
@@ -140,6 +149,10 @@ export function revertOptimistic(
 
 export type SendResult = { ok: true } | { ok: false; message: string };
 
+export type SplitResult =
+  | { ok: true; listingId: string; alreadySplit: boolean; label: string }
+  | { ok: false; message: string };
+
 export interface RowActionDeps {
   getPatches: () => PatchMap;
   setPatches: (next: PatchMap) => void;
@@ -147,7 +160,11 @@ export interface RowActionDeps {
   notify: (toast: Toast) => void;
   /** Called once a mutation has been confirmed by the server. */
   onSettled?: (listingId: string) => void;
-  openDetail: (listingId: string) => void;
+  openDetail: (listingId: string, focus?: DetailFocus) => void;
+  /** Splits a merged-in record off this listing (see lib/ingestion/split.ts). */
+  splitMerge: (listingId: string, source: string, sourceUid: string) => Promise<SplitResult>;
+  /** A split landed: the table's rows and this listing's detail are both stale. */
+  onSplit?: (parentId: string, newListingId: string) => void;
   openWindow: (href: string) => void;
   writeClipboard: (text: string) => Promise<void>;
 }
@@ -176,8 +193,10 @@ export async function runRowCommand(
 
   switch (command.kind) {
     case "openDetail":
-      deps.openDetail(row.id);
+      deps.openDetail(row.id, command.focus);
       return true;
+    case "splitMerge":
+      return runSplit(row, command.source, command.sourceUid, deps);
     case "openUrl": {
       // Scraped URLs: anything that isn't plain http(s) never reaches window.open.
       const href = safeHttpUrl(row.url);
@@ -199,6 +218,39 @@ export async function runRowCommand(
     case "copyLabel":
       return copy(rowLabel(row), "Copied “Company — Role”", deps);
   }
+}
+
+/**
+ * A split either creates a listing or reports exactly why it refused. Both
+ * outcomes are user-visible: a silent failure here would leave the user
+ * believing a hidden role had been recovered when it had not.
+ */
+async function runSplit(
+  row: ActionRow,
+  source: string,
+  sourceUid: string,
+  deps: RowActionDeps,
+): Promise<boolean> {
+  let result: SplitResult;
+  try {
+    result = await deps.splitMerge(row.id, source, sourceUid);
+  } catch (err) {
+    result = { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+
+  if (!result.ok) {
+    deps.notify({ kind: "error", message: `Couldn't split: ${result.message}` });
+    return false;
+  }
+
+  deps.onSplit?.(row.id, result.listingId);
+  deps.notify({
+    kind: "ok",
+    message: result.alreadySplit
+      ? `Already split — ${result.label} is its own listing.`
+      : `Split out ${result.label} as its own listing.`,
+  });
+  return true;
 }
 
 async function copy(text: string, done: string, deps: RowActionDeps): Promise<boolean> {
