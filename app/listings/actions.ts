@@ -12,6 +12,7 @@ import {
   setListingSaved,
   setListingStatus,
 } from "@/lib/listings/mutations";
+import { requireSession } from "@/lib/auth-guard";
 
 /**
  * Row actions from the main table.
@@ -74,6 +75,10 @@ function failed(verb: string, err: unknown): { ok: false; message: string } {
 export async function setStatusAction(
   payload: unknown,
 ): Promise<ActionResult<{ status: AppStatus | null }>> {
+  // Every Server Action is a public POST endpoint. proxy.ts already blocks
+  // unauthenticated callers, but this does not rely on that: a matcher mistake
+  // must cost a redirect, not the catalog.
+  await requireSession();
   const parsed = statusSchema.safeParse(payload);
   if (!parsed.success) return invalid(parsed.error);
 
@@ -88,6 +93,10 @@ export async function setStatusAction(
 }
 
 export async function setSavedAction(payload: unknown): Promise<ActionResult> {
+  // Every Server Action is a public POST endpoint. proxy.ts already blocks
+  // unauthenticated callers, but this does not rely on that: a matcher mistake
+  // must cost a redirect, not the catalog.
+  await requireSession();
   const parsed = flagSchema.safeParse(payload);
   if (!parsed.success) return invalid(parsed.error);
 
@@ -100,6 +109,10 @@ export async function setSavedAction(payload: unknown): Promise<ActionResult> {
 }
 
 export async function setDismissedAction(payload: unknown): Promise<ActionResult> {
+  // Every Server Action is a public POST endpoint. proxy.ts already blocks
+  // unauthenticated callers, but this does not rely on that: a matcher mistake
+  // must cost a redirect, not the catalog.
+  await requireSession();
   const parsed = flagSchema.safeParse(payload);
   if (!parsed.success) return invalid(parsed.error);
 
@@ -118,6 +131,10 @@ export async function setDismissedAction(payload: unknown): Promise<ActionResult
 export async function loadDetailAction(
   payload: unknown,
 ): Promise<ActionResult<{ detail: ListingDetail | null }>> {
+  // Every Server Action is a public POST endpoint. proxy.ts already blocks
+  // unauthenticated callers, but this does not rely on that: a matcher mistake
+  // must cost a redirect, not the catalog.
+  await requireSession();
   const parsed = detailSchema.safeParse(payload);
   if (!parsed.success) return invalid(parsed.error);
 
@@ -129,6 +146,10 @@ export async function loadDetailAction(
 }
 
 export async function setNotesAction(payload: unknown): Promise<ActionResult> {
+  // Every Server Action is a public POST endpoint. proxy.ts already blocks
+  // unauthenticated callers, but this does not rely on that: a matcher mistake
+  // must cost a redirect, not the catalog.
+  await requireSession();
   const parsed = notesSchema.safeParse(payload);
   if (!parsed.success) return invalid(parsed.error);
 
@@ -152,6 +173,10 @@ export async function setNotesAction(payload: unknown): Promise<ActionResult> {
 export async function splitMergeAction(
   payload: unknown,
 ): Promise<ActionResult<{ listingId: string; alreadySplit: boolean; label: string }>> {
+  // Every Server Action is a public POST endpoint. proxy.ts already blocks
+  // unauthenticated callers, but this does not rely on that: a matcher mistake
+  // must cost a redirect, not the catalog.
+  await requireSession();
   const parsed = splitSchema.safeParse(payload);
   if (!parsed.success) return invalid(parsed.error);
 

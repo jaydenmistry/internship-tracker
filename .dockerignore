@@ -1,0 +1,42 @@
+# Keep the build context small and — more importantly — keep secrets and local
+# state out of it. Anything listed here can never end up in an image layer.
+
+.git
+.gitignore
+.github
+
+# Secrets. `.env*` is gitignored too; this is the second gate, so a developer
+# with a populated .env cannot accidentally bake it into a layer.
+.env
+.env.*
+!.env.example
+
+# Local build output and caches — the image rebuilds these itself.
+.next
+out
+build
+dist
+generated
+node_modules
+*.tsbuildinfo
+coverage
+
+# Local scratch, editor and OS noise.
+.scratch
+.claude
+.vscode
+.idea
+.DS_Store
+**/.DS_Store
+
+# Tests and fixtures are not needed to build or run the containers.
+tests
+vitest.config.ts
+
+# The user's resume is PII and is gitignored; never copy it into a layer.
+public/resume.pdf
+
+# Docs and agent instructions.
+docs
+*.md
+!README.md

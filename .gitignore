@@ -20,6 +20,9 @@
 # production
 /build
 
+# compiled worker bundle (scripts/build-worker.mjs); rebuilt by the image build
+/dist/
+
 # misc
 .DS_Store
 *.pem

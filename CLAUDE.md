@@ -15,12 +15,13 @@ The AGENTS.md block above is auto-written by `next dev` — leave it in place. I
 
 Self-hosted internship tracking + ranking app for a single user (UGA CS student applying to Summer 2027 SWE internships). Ingests listings from multiple sources on a schedule, dedups them, scores them 0–100 against the user's profile, tracks application status, sends alerts, and shows resume↔posting keyword matches. **Explicitly out of scope: auto-apply, form filling, storing credentials for job sites.**
 
-> **This file describes what is built, not what is planned.** Phases 1–4 are
-> done. Anything not yet built is called out as such, here and in
+> **This file describes what is built, not what is planned.** All five phases
+> are done. Anything not yet built is called out as such, here and in
 > `docs/ARCHITECTURE.md`; if you find a claim here that the code does not
 > support, the file is wrong — fix it rather than building to match it.
-> **Not built as of Phase 4: auth (`proxy.ts`), Docker/compose/Traefik, and
-> database backups — all Phase 5.**
+> **Written but never executed: the container images have never been built and
+> the stack has never run under Docker** (see `docs/DEPLOYMENT.md`, which opens
+> with that caveat and ends with a first-deploy checklist).
 
 ## Stack & commands
 
@@ -47,14 +48,21 @@ ends with a plan-vs-reality table listing what the original plan describes but
 isn't built yet.
 
 ```
-app/                    # UI only — no auth yet (Phase 5)
+proxy.ts                # the auth gate — runs on everything but /signin,
+                        #   /api/auth/*, /api/health
+app/
   listings/             # / table, detail panel, context menu, merge-split
   tracker/              # /tracker kanban/list + dashboard
   import/               # /import paste/CSV import
   resume/               # /resume PDF upload (text extracted once, at upload)
   alerts/               # /alerts thresholds + per-kind "Send now"
-  api/applications/export/  # GET applications CSV
+  signin/               # the ONLY page reachable without a session
+  api/auth/[...nextauth]/   # Authentik OIDC handshake
+  api/health/           # unauthenticated liveness probe for the healthcheck
+  api/applications/export/  # GET applications CSV (checks the session itself)
 lib/
+  auth.ts, auth.config.ts   # Auth.js instance + edge-safe config, allowlist
+  auth-guard.ts         # requireSession() — called by every Server Action
   db.ts                 # Prisma client singleton (passes ?schema= to the adapter)
   cycle.ts              # one full refresh: ingest → score → detail → score+LLM
   ingestion/            # adapters/, detail/, normalize, dedupe, pipeline
@@ -70,7 +78,11 @@ worker/index.ts         # node-cron: ingest cycle, digest, closing-soon; /refres
 prisma/schema.prisma
 config/scoring.json     # ALL weights/keywords/tiers/thresholds — no restart needed
 tests/                  # mirrors lib/; fixtures/ holds real captured payloads
-docs/ARCHITECTURE.md
+Dockerfile              # two targets: app (Next standalone) and worker
+docker-compose.yml      # app, worker, postgres, backup — nothing published
+docker/app-entrypoint.sh    # prisma migrate deploy, THEN serve
+scripts/backup.sh, restore.sh
+docs/ARCHITECTURE.md, docs/DEPLOYMENT.md
 ```
 
 ## Architecture decisions (settled — don't relitigate)
@@ -88,7 +100,9 @@ docs/ARCHITECTURE.md
 - **Worker vs app**: worker (node-cron) owns the scheduled cycle (ingestion + rescoring) and the scheduled alerts — HIGH_SCORE after each cycle, `DIGEST_CRON` and `CLOSING_SOON_CRON` on their own schedules. Every pattern goes through `cron.validate` first, so a typo disables one job instead of killing the container at boot, and an alert failure can never abort a cycle. **Backups are not built.** "Refresh now" is meant to be the app calling the worker's `POST /refresh` on the internal network (never exposed via Traefik) — the endpoint exists, but **no UI calls it yet**.
 - **Alerts record `AlertLog` only after a successful send.** Recording first would dedupe a failed alert away permanently; a failure on one channel must not stop the other. Every alert kind is manually triggerable from `/alerts` through the same code path the cron uses. Thresholds live in the `Setting` table (UI-editable); scoring weights never do.
 - **"Not Applied" is either no Application row, or a row with status `NOT_APPLIED` that exists only to hold notes written before applying.** Status changes never delete user notes: un-applying a listing whose application has notes keeps the row. Readers treat both the same (the table folds null into NOT_APPLIED; the tracker and dashboard exclude NOT_APPLIED rows). `Application.listingId` is optional: manual entries (own `companyName`/`roleTitle`/`location`) are first-class for roles found outside the sources — bulk imports mostly won't match a listing — and can later be linked to one while keeping their fields. Status history lives in `StatusEvent`.
-- **Auth — PLANNED, NOT BUILT (Phase 5).** The intent is Auth.js (next-auth v5) generic OIDC provider → Authentik, restricted to the single allowed subject/email from env. Until it exists, **everything is unauthenticated**: anyone who can reach the port can read the catalog, replace the stored resume, trigger real Discord/SMTP sends from `/alerts`, split listings, and download `/api/applications/export`. Phase 5 must cover `/api/*` and the Server Actions, not just pages.
+- **Auth is two layers, and both are load-bearing.** Auth.js (next-auth v5) → Authentik OIDC, restricted to `ALLOWED_EMAIL`. `proxy.ts` gates every path except `/signin`, `/api/auth/*` and `/api/health`; **separately**, every Server Action calls `requireSession()` as its first statement and `/api/applications/export` checks the session itself. The proxy runs outside render (Next documents it as edge-deployable), so it is the wrong thing to rely on alone — a matcher mistake should cost a redirect, not the catalog. `tests/auth/guard.test.ts` enumerates the action modules, so a new unguarded action fails the suite by existing.
+- **The allowlist fails closed.** An unset or blank `ALLOWED_EMAIL` admits *nobody*, rather than everyone who can authenticate against the Authentik tenant. It is re-checked on every token refresh, so changing it invalidates live sessions. `isPublicPath` matches exactly, never by prefix — `/api/healthz` must not ride in on `/api/health`.
+- **`public/` is deliberately NOT excluded from the proxy matcher.** Files there would otherwise be served to anonymous callers, and the user keeps a resume at `public/resume.pdf`.
 - **All external data is untrusted**: source payloads, CSV imports, PDF text, and LLM responses all pass Zod validation at the boundary; scraped text is sanitized before rendering.
 
 ## Subagents
@@ -101,6 +115,7 @@ docs/ARCHITECTURE.md
 2. ✅ Scoring engine + tests
 3. ✅ UI + application tracker
 4. ✅ Alerts + resume matching (+ merge-split)
-5. ⬜ Deployment (Docker, compose, Traefik, backups) — **and auth**
+5. ✅ Auth + deployment (Docker, compose, Traefik, backups) — **written, never
+   deployed**; see the first-deploy checklist in `docs/DEPLOYMENT.md`
 
 Secrets/config: every env var documented in `.env.example`; real values only in gitignored `.env*`.

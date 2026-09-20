@@ -1,6 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Emit .next/standalone: a self-contained server.js plus only the node_modules
+  // files the traced import graph actually needs. The runtime image copies that
+  // instead of a full production install, which is the difference between a
+  // ~200MB app image and a ~1GB one. See docs/DEPLOYMENT.md.
+  output: "standalone",
+
   experimental: {
     serverActions: {
       // Resume uploads go through a Server Action, whose request body defaults
