@@ -1,289 +1,465 @@
-# Deployment, backups and restore
+# Deploying the internship tracker
 
-Phase 5 infrastructure: how the containers are built, what Traefik routes, how
-migrations run, where database dumps land, and how to get one back.
+**None of this has ever been run.** There is no container runtime on the
+machine this was written on, so no image has been built and the stack has never
+started. Every step below is reasoned from the code and from your stack's
+conventions, not observed. [What is unverified](#what-is-unverified) at the
+bottom lists exactly where to look when something does not work.
 
-> **Status: written, never executed.** No part of this document has been run
-> against a real Docker daemon — there was no container runtime on the machine
-> where it was written. The first deploy is the first test. The
-> [First-deploy checklist](#first-deploy-checklist) lists what to watch.
+What *has* been verified against a real PostgreSQL 17 server: `prisma migrate
+deploy` applies all migrations from empty with no drift afterwards, the raw-SQL
+rank pass targets the right schema, `next build` produces standalone output with
+the Prisma WASM query compiler traced into it, and `backup.sh` / `restore.sh`
+round-trip a database. Discord alerts have really been delivered. Signing in has
+**never** been done end to end — it needs a live Authelia, which is you.
 
----
-
-## The four services
-
-| Service    | Image                    | Network(s)         | Exposed?                                   |
-| ---------- | ------------------------ | ------------------ | ------------------------------------------ |
-| `postgres` | `postgres:17-alpine`     | `private`          | No — no published port                     |
-| `app`      | built, `--target app`    | `private`, Traefik | **Yes**, `https://$APP_DOMAIN` via Traefik |
-| `worker`   | built, `--target worker` | `private`          | No — no port, no Traefik label             |
-| `backup`   | `postgres:17-alpine`     | `private`          | No                                         |
-
-All four have healthchecks: `pg_isready` for `postgres`, `GET /api/health` for
-`app`, `GET /healthz` for `worker`, and a dump-freshness check for `backup`.
-
-`app` is the only service on the Traefik network and the only one carrying
-`traefik.*` labels. That is what keeps the worker's `POST /refresh` — which is
-unauthenticated and kicks off a full ingestion cycle — reachable only as
-`http://worker:8081/refresh` from inside the compose network.
-
-### Why one image with two targets
-
-`app` and `worker` share everything under `lib/`. Building them from one
-`Dockerfile` with two final stages means they cannot drift apart on the scoring
-engine, the dedup rules, or the Prisma client.
-
-### How the worker runs in production
-
-`worker/index.ts` runs under `tsx` in development, but `tsx` is a
-devDependency — an `npm ci --omit=dev` runtime install does not have it, and
-promoting it would mean regenerating `package-lock.json`. So the image
-precompiles the worker instead: `scripts/build-worker.mjs` uses esbuild (already
-present, as a dependency of `tsx`) to bundle `worker/index.ts` and its
-first-party imports into a single `dist/worker.mjs`. Real runtime packages
-(`@prisma/client`, `cheerio`, `nodemailer`, …) stay external and are resolved
-from the production install; only `dotenv` is inlined, because it is the one
-devDependency the worker imports.
-
-The build fails loudly if the bundle ends up needing a package that is not in
-`dependencies` — better a red build than a container that crash-loops on
-`ERR_MODULE_NOT_FOUND`.
+- **Target host:** hp-envy
+- **Stack:** `~/docker/stacks/apps/compose.yml` (+ its `.env`)
+- **App directory on the host:** `${CONFIG_ROOT}/internship-tracker`
+- **Public URL:** `https://jobs.jmistry.com`
 
 ---
 
-## Migrations
+## Step 0 — put the code on the host
 
-`prisma migrate deploy` runs in `docker/app-entrypoint.sh`, before `server.js`
-starts. If it fails the entrypoint exits non-zero, so the container stops rather
-than serving against a schema its client does not match; Docker's restart policy
-retries it.
+The stack builds the image from the repo directory, exactly as `portfolio`
+does, so the repo has to live under `CONFIG_ROOT`.
 
-The `worker` service waits on `app: condition: service_healthy`, and `app` only
-reports healthy once migrations have finished and `/api/health` answers. That
-ordering is the only thing preventing an ingestion cycle against an unmigrated
-schema.
+```bash
+git clone <this-repo> ~/docker/config/internship-tracker
+```
 
-The Prisma CLI is a devDependency, so it is not in the app's production install.
-`scripts/stage-prisma-cli.mjs` computes its dependency closure from the
-installed `package.json` files and stages it into the image, where it is merged
-into the traced `node_modules`. Hand-listing those packages in the `Dockerfile`
-would rot the first time Prisma changed a dependency.
+If `CONFIG_ROOT` is not `~/docker/config`, clone to `$CONFIG_ROOT/internship-tracker`
+instead — the path must match, because `compose.yml` refers to it by variable.
 
-> ### Read this before the first production deploy
->
-> The development database was built with `prisma db push`, not with migrations,
-> so it has **no `_prisma_migrations` table** and `migrate deploy` has never run
-> against it. A fresh production database is the first real exercise of the
-> migration history.
->
-> The history in `prisma/migrations/` was checked to be complete from empty —
-> every model, enum and scalar field in `schema.prisma` appears in the migration
-> SQL — but "the SQL mentions it" is not "the SQL applies cleanly". Watch the
-> first `app` container's logs.
->
-> If you ever point this at the **existing** development database, `migrate
-> deploy` will try to create tables that already exist and fail. That database
-> has to be baselined first (`prisma migrate resolve --applied <name>` for each
-> migration, oldest first), or dumped and restored into a clean one.
+Create the directories the bind mounts expect. Docker would create them as
+**root** on first run, which breaks the backup sidecar:
+
+```bash
+mkdir -p ~/docker/config/internship-tracker/{db,backups}
+```
+
+`config/` and `scripts/` already exist — they are part of the repo.
 
 ---
 
-## Configuration that changes without a redeploy
+## Step 1 — register the OIDC client in Authelia
 
-`./config` is bind-mounted read-only into both `app` and `worker` at
-`/app/config`. Edit `config/scoring.json` on the host and the next scoring run
-picks it up — the file is re-read and re-hashed every run, and a changed hash is
-what marks scores stale. No restart, no rebuild.
+This is the step that will cost you an hour if you get it wrong, because every
+mistake surfaces as the same unhelpful word: *Configuration*.
 
-It is mounted as a **directory**, not as a single file, on purpose: a
-single-file bind mount pins an inode, so any editor that writes-and-renames
-(vim, VS Code, most of them) would leave the containers reading the old contents
-forever.
+### 1a. Generate the client secret
 
-Alert thresholds are not here at all — they live in the `Setting` table and are
-edited from `/alerts`. Everything else is an environment variable and needs the
-container recreated; see `.env.example`, where each variable is tagged.
+Authelia stores a **hash**; the app needs the **plaintext**. You need both, and
+you only get to see the plaintext once.
+
+```bash
+docker run --rm authelia/authelia:latest authelia crypto hash generate pbkdf2 --variant sha512 --random --random.length 72 --random.charset rfc3986
+```
+
+It prints two lines:
+
+- `Random Password: ...` → this is the **plaintext**. Put it in the stack `.env`
+  as `TRACKER_OIDC_SECRET`.
+- `Digest: $pbkdf2-sha512$...` → this is the **hash**. Put it in Authelia's
+  `configuration.yml` as `client_secret`.
+
+If you are running Authelia as a container already, use that container instead
+of pulling a fresh one:
+
+```bash
+docker exec -it authelia authelia crypto hash generate pbkdf2 --variant sha512 --random --random.length 72 --random.charset rfc3986
+```
+
+### 1b. Add the client to Authelia's `configuration.yml`
+
+Under `identity_providers.oidc.clients`, add:
+
+```yaml
+identity_providers:
+  oidc:
+    clients:
+      - client_id: internship-tracker
+        client_name: Internship Tracker
+        # The DIGEST from step 1a, not the plaintext.
+        client_secret: '$pbkdf2-sha512$310000$...'
+        public: false
+        authorization_policy: two_factor
+        consent_mode: implicit
+        redirect_uris:
+          - https://jobs.jmistry.com/api/auth/callback/oidc
+        scopes:
+          - openid
+          - profile
+          - email
+        grant_types:
+          - authorization_code
+        response_types:
+          - code
+        token_endpoint_auth_method: client_secret_post
+```
+
+**The redirect URI must be this exact string:**
+
+```
+https://jobs.jmistry.com/api/auth/callback/oidc
+```
+
+Authelia compares redirect URIs byte for byte. No trailing slash, `https` not
+`http`, and the last path segment is `oidc` — that is the provider's internal
+id, deliberately named after the protocol rather than after Authelia so that
+swapping identity providers later does not require re-registering the client.
+
+Notes on the choices above:
+
+- **`consent_mode: implicit`** skips the "do you allow this app?" screen. This
+  is a single-user app you own; the consent screen adds a click and tells you
+  nothing. Use `explicit` instead if you want the prompt.
+- **`authorization_policy: two_factor`** requires your second factor. Drop to
+  `one_factor` only if you have a reason.
+- **`email` scope is not optional.** The app's allowlist is an email
+  comparison. Without the scope, Authelia returns a token with no email claim,
+  the allowlist refuses it, and you get *"That account is not the one this
+  tracker is configured for"* — while looking at your own account.
+- If your Authelia enforces a **claims policy**, make sure the `email` claim is
+  actually released to this client.
+
+Restart Authelia and confirm the secret parsed:
+
+```bash
+docker logs authelia --tail 50
+```
+
+### 1c. Confirm discovery works
+
+```bash
+curl -s https://auth.jmistry.com/.well-known/openid-configuration | head -c 400
+```
+
+That must return JSON. Whatever origin makes this work is exactly what goes in
+`TRACKER_OIDC_ISSUER` — **no trailing slash, no path**.
 
 ---
 
-## Backups
+## Step 2 — add the variables to the stack `.env`
 
-### Where dumps land
+Append the contents of [`deploy/env.tracker.example`](../deploy/env.tracker.example)
+to `~/docker/stacks/apps/.env` and fill in every one marked REQUIRED:
 
-In the named Docker volume **`backups`**, mounted at `/backups` in the `backup`
-container. Filenames are date-stamped UTC:
+| Variable | | Notes |
+|---|---|---|
+| `TRACKER_HOST` | REQUIRED | `jobs.jmistry.com` |
+| `TRACKER_DB_USER` / `_PASSWORD` / `_NAME` | REQUIRED | First boot only — see step 6 |
+| `TRACKER_AUTH_SECRET` | REQUIRED | `openssl rand -base64 32` |
+| `TRACKER_OIDC_ISSUER` | REQUIRED | Root origin, no trailing slash |
+| `TRACKER_OIDC_ID` | REQUIRED | Must equal `client_id` |
+| `TRACKER_OIDC_SECRET` | REQUIRED | The **plaintext** from step 1a |
+| `TRACKER_ALLOWED_EMAIL` | REQUIRED | Blank admits **nobody** |
+| `TRACKER_USER_AGENT_CONTACT` | REQUIRED | Scraper contact address |
+| `TRACKER_ANTHROPIC_API_KEY` | optional | Unset = deterministic scoring only |
+| `TRACKER_DISCORD_WEBHOOK_URL` | optional | Unset = channel reports itself off |
+| `TRACKER_SMTP_*` | optional | Never tested against a real server |
+| `TRACKER_*_CRON`, `TRACKER_BACKUP_*` | optional | Defaults are sensible |
 
-```
-/backups/internship_tracker-20260920T031500Z.dump
-```
-
-They are `pg_dump -Fc` archives — Postgres' compressed custom format, restorable
-whole or selectively with `pg_restore`.
-
-To find the volume on the host (Dokploy sets its own compose project name, so
-the prefix may not be `internship-tracker_`):
-
-```bash
-docker volume ls | grep backups
-docker volume inspect <name> --format '{{ .Mountpoint }}'
-```
-
-To list them without touching the host filesystem:
-
-```bash
-docker compose run --rm --entrypoint sh backup /scripts/restore.sh --list
-```
-
-(`--entrypoint sh` is needed because the `backup` service's own entrypoint is
-`sh -c`, which swallows the arguments you pass it.)
-
-### How they are taken
-
-The `backup` service runs `scripts/backup.sh` in a loop: once at container
-start, then every `BACKUP_INTERVAL_SECONDS` (default daily). It uses the same
-`postgres:17-alpine` image as the server, because `pg_dump` refuses to dump from
-a server newer than itself — pinning both to one tag means a Postgres upgrade
-cannot silently break backups.
-
-Two details worth knowing:
-
-- Each dump is written as `.partial-*.dump` and renamed only after `pg_restore
-  --list` confirms it is readable, so a dump killed halfway through is never
-  mistaken for a usable backup.
-- Retention deletes dumps older than `BACKUP_RETENTION_DAYS`, but always keeps
-  the newest `BACKUP_KEEP_MIN` regardless of age. A fortnight of downtime cannot
-  prune the volume to nothing.
-- The service has a healthcheck that goes **unhealthy once no dump has been
-  written for two whole intervals**. Nothing depends on the `backup` service, so
-  this is a signal in `docker compose ps` rather than something that takes the
-  stack down — but it is the only symptom a silently-wedged backup loop has.
-
-A backup is only real once you have restored it. Do the drill below at least
-once, before you need it.
+`CONFIG_ROOT`, `TZ`, `APPS_NET` and `TRAEFIK_NET` are already in that file and
+are reused. Do not redefine them.
 
 ---
 
-## Restoring
+## Step 3 — add the services to the stack
 
-`pg_restore` here is **destructive**: it drops and recreates every object in the
-target database. Nothing in this procedure is reversible, so read it through
-first.
+Copy the four service blocks from
+[`deploy/compose.tracker.yml`](../deploy/compose.tracker.yml) into
+`~/docker/stacks/apps/compose.yml`, under its existing `services:` key, at the
+same indentation as `portfolio`.
 
-### 1. Stop the writers
+Do **not** copy the `services:` line itself or the `networks:` block at the
+bottom of that file — your compose.yml already has both.
 
-```bash
-docker compose stop app worker
-```
+The four services are `tracker-db`, `tracker-app`, `tracker-worker` and
+`tracker-backup`. They are named `tracker-*` because your stack already has a
+service called `app` (Nextcloud) and one called `db` (nextcloud-db).
 
-Leave `postgres` running. A write landing mid-restore is lost, and can leave a
-half-applied schema that looks fine until the next query.
-
-### 2. Pick a dump
-
-```bash
-docker compose run --rm --entrypoint sh backup /scripts/restore.sh --list
-```
-
-Newest first. `.partial-*` files are refused by the restore script.
-
-### 3. Restore it
+Check it parses before starting anything:
 
 ```bash
-docker compose run --rm --entrypoint sh backup \
-  /scripts/restore.sh /backups/internship_tracker-20260920T031500Z.dump --confirm
+cd ~/docker/stacks/apps && docker compose config > /dev/null && echo OK
 ```
 
-Without `--confirm` the script prints what it *would* do and exits 1. It also
-verifies the archive is readable **before** dropping anything — a restore that
-destroys the live data and then discovers the dump is corrupt is the worst
-possible outcome.
+That command also resolves every `${VAR}`, so it is the fastest way to catch a
+missing one.
 
-### 4. Bring the app back
+---
+
+## Step 4 — bring it up
 
 ```bash
-docker compose up -d app worker
+cd ~/docker/stacks/apps && docker compose up -d --build tracker-db tracker-app tracker-worker tracker-backup
 ```
 
-`app` re-runs `prisma migrate deploy` on start. If the dump predates a
-migration, that is where it gets applied.
+The first build takes several minutes (it installs dependencies twice — once
+with dev dependencies to build, once without for the runtime — and runs
+`next build`).
+
+Start order is enforced by healthchecks: `tracker-db` must be healthy before
+`tracker-app` starts, and `tracker-app` must be healthy before `tracker-worker`
+does. **`tracker-app` applies the database migrations on startup** (it is the
+only container with `RUN_MIGRATIONS=1`; the worker shares the same image and
+must not race it).
+
+---
+
+## Step 5 — verify, in this order
+
+Do these in sequence. Each one rules out everything below it.
+
+**1. The containers are up and healthy.**
+
+```bash
+docker compose ps
+```
+
+All four `healthy`. `tracker-backup` will show `starting` for the first couple
+of minutes — it is healthy only once a dump exists, and the first one is not
+taken until a full interval has passed (24h by default). To stop waiting, take
+one by hand — see step 7.
+
+**2. Migrations actually applied.**
+
+```bash
+docker compose logs tracker-app | grep entrypoint
+```
+
+Expect `applying pending migrations` then `migrations applied`. If the
+container is restart-looping, this is where it says why.
+
+**3. The app answers, inside the network.**
+
+```bash
+docker compose exec tracker-app node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>r.text()).then(console.log)"
+```
+
+Expect `{"ok":true}`. `/api/health` is the one unauthenticated route.
+
+**4. Traefik routes it and TLS is issued.**
+
+```bash
+curl -sI https://jobs.jmistry.com/api/health | head -3
+```
+
+Expect `HTTP/2 200`. A 404 here is Traefik, not the app — check that
+`traefik.docker.network` matches and that `tracker-app` is on `traefik_net`.
+
+**5. The gate is closed.**
+
+```bash
+curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" -H "Accept: text/html" https://jobs.jmistry.com/
+curl -s -o /dev/null -w "%{http_code}\n" https://jobs.jmistry.com/api/applications/export
+```
+
+Expect `307 https://jobs.jmistry.com/signin` and `401`. If either returns 200,
+**stop and fix it before going further** — that is the whole catalog, your
+applications and your resume, readable by anyone.
+
+**6. Sign in.** Open `https://jobs.jmistry.com` in a browser. You should land on
+`/signin`, get redirected to Authelia, and come back signed in. If the page
+instead lists missing environment variables, it is telling you exactly which
+ones — go back to step 2.
+
+**7. The worker is scheduled.**
+
+```bash
+docker compose logs tracker-worker | head -20
+```
+
+Expect `listening on :8081` and the cron schedules. An invalid cron expression
+disables that one job and logs it, rather than killing the container.
+
+**8. A real ingest cycle.** Either wait for `TRACKER_INGEST_CRON`, or trigger
+one now from inside the network:
+
+```bash
+docker compose exec tracker-worker node -e "fetch('http://127.0.0.1:8081/refresh',{method:'POST'}).then(r=>r.text()).then(console.log)"
+```
+
+This takes a few minutes and makes outbound requests. Watch it with
+`docker compose logs -f tracker-worker`.
+
+---
+
+## Step 6 — if sign-in fails
+
+Work down this list; it is ordered by how often each one is the cause.
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `/signin` lists missing variables | Those are literally unset in the container | Check the stack `.env`, then `docker compose up -d` to recreate — editing `.env` alone does nothing to a running container |
+| "Sign-in failed" / `error=Configuration` | Discovery unreachable, or issuer wrong | `curl https://auth.jmistry.com/.well-known/openid-configuration`. Remove any trailing slash from `TRACKER_OIDC_ISSUER` |
+| Authelia says **invalid redirect_uri** | Byte mismatch | It must be exactly `https://jobs.jmistry.com/api/auth/callback/oidc`. Check for a trailing slash, `http`, or a stale hostname |
+| Authelia says **invalid client secret** | `.env` has the hash, or Authelia has the plaintext | `.env` gets the plaintext; `configuration.yml` gets the `$pbkdf2-sha512$...` digest. They are not interchangeable |
+| **"That account is not the one this tracker is configured for"** | The email claim did not arrive, or does not match | Confirm `email` is in the client's `scopes` and released by any claims policy; confirm `TRACKER_ALLOWED_EMAIL` matches your Authelia email exactly (case is ignored, whitespace is trimmed) |
+| Redirect loop between app and Authelia | Cookie not surviving | `AUTH_URL` must be the `https://` origin with no trailing slash, and Traefik must terminate TLS |
+| Signed in, then signed out again immediately | `TRACKER_AUTH_SECRET` changed, or differs between restarts | Set it to a fixed value in `.env` |
+
+Useful detail:
+
+```bash
+docker compose logs tracker-app --tail 100 | grep -i auth
+docker logs authelia --tail 100
+```
+
+---
+
+## Step 7 — backups
+
+**Where dumps land:** `${CONFIG_ROOT}/internship-tracker/backups`, on the host,
+as `internship_tracker-<UTC timestamp>.dump` — custom-format `pg_dump` output.
+
+`tracker-backup` takes one every `TRACKER_BACKUP_INTERVAL_SECONDS` (24h
+default). Each dump is written under a `.partial-` name and renamed only after
+`pg_restore --list` confirms it is readable, so a dump interrupted halfway is
+never mistaken for a usable backup. Retention deletes dumps older than
+`TRACKER_BACKUP_RETENTION_DAYS` (14) but always keeps at least
+`TRACKER_BACKUP_KEEP_MIN` (7), so a fortnight of downtime cannot empty the
+directory.
+
+### Take one right now
+
+```bash
+cd ~/docker/stacks/apps && docker compose exec tracker-backup sh /scripts/backup.sh
+```
+
+### List what you have
+
+```bash
+cd ~/docker/stacks/apps && docker compose run --rm --entrypoint sh tracker-backup /scripts/restore.sh --list
+```
+
+`--entrypoint sh` matters: the service's entrypoint is `sh -c`, which would
+swallow the arguments.
+
+### Restore one
+
+**This is destructive — it drops and recreates every object in the database.**
+Stop the app and worker first, or a write landing mid-restore is lost and can
+leave a half-applied schema.
+
+```bash
+cd ~/docker/stacks/apps && docker compose stop tracker-app tracker-worker
+```
+
+```bash
+cd ~/docker/stacks/apps && docker compose run --rm --entrypoint sh tracker-backup /scripts/restore.sh /backups/internship_tracker-20260920T193410Z.dump --confirm
+```
+
+Without `--confirm` it prints what it would do and stops. Then:
+
+```bash
+cd ~/docker/stacks/apps && docker compose start tracker-app tracker-worker
+```
 
 ### Verifying a restore
 
-Do not trust "no errors" — check the data.
-
-**Row counts.** A restored catalog should look like the one you dumped:
-
 ```bash
-docker compose exec postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c '
-  SELECT
-    (SELECT count(*) FROM "Listing")     AS listings,
-    (SELECT count(*) FROM "Company")     AS companies,
-    (SELECT count(*) FROM "Application") AS applications,
-    (SELECT count(*) FROM "IngestRun")   AS ingest_runs;'
+cd ~/docker/stacks/apps && docker compose exec tracker-db psql -U tracker -d internship_tracker -c 'select (select count(*) from "Listing") as listings, (select count(*) from "Application") as applications, (select count(*) from _prisma_migrations) as migrations'
 ```
 
-**Migration state.** Every migration applied, none failed:
+Listings in the thousands, and the migration count matching the number of
+directories in `prisma/migrations/`. If migrations is 0, you restored into the
+wrong database.
+
+### Testing a restore without destroying anything
+
+Point `PGDATABASE` at a scratch database instead:
 
 ```bash
-docker compose exec postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c '
-  SELECT migration_name, finished_at, rolled_back_at
-  FROM _prisma_migrations ORDER BY started_at;'
+cd ~/docker/stacks/apps && docker compose exec tracker-db createdb -U tracker restore_test
 ```
-
-**The app agrees.** `/api/health` checks database connectivity, and the listings
-table is the broadest read path in the app:
 
 ```bash
-docker compose ps            # app healthy, worker healthy
-docker compose logs app --tail=50
+cd ~/docker/stacks/apps && docker compose run --rm --entrypoint sh -e PGDATABASE=restore_test tracker-backup /scripts/restore.sh /backups/<file>.dump --confirm
 ```
-
-Then open `https://$APP_DOMAIN` and confirm the listings table populates, ranks
-are present, and `/tracker` shows your applications.
-
-### Rehearsing a restore without risking the live database
-
-Restore into a scratch database instead, by overriding `PGDATABASE`:
-
-```bash
-docker compose exec postgres createdb -U "$POSTGRES_USER" restore_drill
-docker compose run --rm -e PGDATABASE=restore_drill --entrypoint sh backup \
-  /scripts/restore.sh /backups/<file>.dump --confirm
-docker compose exec postgres psql -U "$POSTGRES_USER" -d restore_drill \
-  -c 'SELECT count(*) FROM "Listing";'
-docker compose exec postgres dropdb -U "$POSTGRES_USER" restore_drill
-```
-
-This is the only way to find out whether your backups actually work that does
-not involve finding out the hard way.
 
 ---
 
-## First-deploy checklist
+## Changing the database password later
 
-Nothing below has been executed. In rough order of likelihood of biting:
+`TRACKER_DB_PASSWORD` initialises Postgres on **first boot only**. Editing it
+afterwards changes what the app *sends*, not what the server *expects*, and the
+app then cannot connect. To actually change it:
 
-1. **`next build` reaching the network.** `app/layout.tsx` uses
-   `next/font/google`, which downloads font files at build time. The build host
-   needs outbound internet.
-2. **Prisma client runtime tracing.** The app image relies on Next's
-   `output: "standalone"` tracer to pull `@prisma/client`'s WASM query compiler
-   into the traced `node_modules`. If the app starts and then fails on a missing
-   `query_compiler_fast_bg.postgresql.*`, force it in with
-   `outputFileTracingIncludes` in `next.config.ts`.
-3. **The first `migrate deploy`.** See the warning above. Watch
-   `docker compose logs app` on the first boot.
-4. **Traefik entrypoint and certresolver names.** `TRAEFIK_ENTRYPOINT` and
-   `TRAEFIK_CERT_RESOLVER` must already exist in the Traefik static config;
-   Dokploy's defaults are `websecure` and `letsencrypt`. A wrong name shows up
-   as a 404 from Traefik, not as an error in this stack.
-5. **`TRAEFIK_NETWORK` must already exist.** It is declared `external: true`,
-   so compose will not create it.
-6. **`/api/health` must be unauthenticated.** The app's healthcheck calls it
-   from inside the container. If auth ever covers it, the container is marked
-   unhealthy forever and the worker never starts.
-7. **Image size.** The app image carries the staged Prisma CLI so it can run
-   migrations — roughly 245MB of tooling on top of the standalone output. If
-   that ever matters, the clean fix is to move `prisma` and `tsx` into
-   `dependencies`, regenerate `package-lock.json`, and drop
-   `scripts/stage-prisma-cli.mjs` in favour of `npm ci --omit=dev`.
+```bash
+cd ~/docker/stacks/apps && docker compose exec tracker-db psql -U tracker -d internship_tracker -c "ALTER USER tracker WITH PASSWORD 'new-password'"
+```
+
+Then update `.env` and `docker compose up -d tracker-app tracker-worker`.
+
+---
+
+## Optional: Traefik forward-auth in front
+
+The app has **its own session** — Authelia OIDC, one allowed address, enforced
+both in `proxy.ts` and again inside every Server Action. It is not relying on
+anything in front of it, and you do not need forward-auth for it to be safe.
+
+If you want Authelia in front as a second layer anyway, add its middleware to
+the router:
+
+```yaml
+      - "traefik.http.routers.internship-tracker.middlewares=authelia@docker"
+```
+
+(Use whatever name your existing Authelia middleware has.)
+
+Two consequences before you do:
+
+- **You will sign in twice** on a cold session — once at the forward-auth
+  prompt, once at the app's own OIDC redirect. Setting the app client's
+  `consent_mode: implicit` (step 1b) makes the second one invisible.
+- **`/api/health` would be gated too**, and Docker's healthcheck runs inside
+  the container rather than through Traefik, so the healthcheck itself is
+  unaffected. But any external uptime monitor hitting that URL would start
+  seeing redirects.
+
+---
+
+## What is unverified
+
+Nothing here has been built or run. In rough order of how likely each is to be
+the thing that bites:
+
+1. **The image has never been built.** Not one `docker build`. Every stage and
+   `COPY --from` is reasoned about, not observed.
+2. **One image, two commands.** The runtime installs full production
+   dependencies *and* overlays Next's standalone output, so the worker has its
+   whole closure rather than only what Next traced for the app. Both trees come
+   from one lockfile, so overlapping packages are identical — but the merge has
+   never been observed. If the worker dies on a missing module, that is this.
+3. **The staged Prisma CLI merged into standalone's `node_modules`** relies on
+   `COPY` merging into an existing directory. Never observed.
+4. **Image size is an estimate.** Shipping one image for both containers means
+   the worker carries Next and the app carries the worker bundle. Fine on a
+   home server; if it matters, the Dockerfile splits back into two targets
+   easily.
+5. **`docker compose config` has never run against your real file.** Variable
+   interpolation was simulated, not executed.
+6. **Traefik was never exercised.** Router name, `websecure`, `cf`, and
+   `traefik.docker.network` are copied from your `portfolio` service's form,
+   not confirmed. A wrong entrypoint surfaces as a Traefik 404, not an error in
+   this stack.
+7. **The healthchecks use `node -e fetch`, not `wget`** as `portfolio` does,
+   because the runtime image is `node:22-bookworm-slim` and ships neither
+   `wget` nor `curl`. The form is copied from your `openclaw-gateway` service.
+8. **The bind-mounted Postgres data directory.** The official image chowns it
+   on first init while running as root, the same way your `nextcloud-db`
+   MariaDB mount works — but Postgres is stricter about permissions than
+   MariaDB, and this specific mount has not been tested.
+9. **busybox `find -mmin`** in `scripts/backup-healthcheck.sh`. Both exit
+   paths were tested here, but on macOS `find`, not busybox. The backup
+   sidecar runs as root (the entrypoint is overridden), so the dumps it writes
+   into the bind mount are root-owned — which is fine for restoring through
+   the same container, but means you will need `sudo` to delete one by hand.
+10. **Sign-in has never completed.** Only the refusal path is verified.
+11. **SMTP has never contacted a real server.** Discord has.
+12. **The build host needs outbound internet** — `next/font/google` downloads
+    fonts at build time.

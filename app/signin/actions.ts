@@ -17,7 +17,7 @@ const NextPath = z
 
 export async function startSignIn(formData: FormData): Promise<void> {
   const parsed = NextPath.safeParse(formData.get("next") ?? "/");
-  await signIn("authentik", { redirectTo: parsed.success ? parsed.data : "/" });
+  await signIn("oidc", { redirectTo: parsed.success ? parsed.data : "/" });
 }
 
 export async function endSession(): Promise<void> {

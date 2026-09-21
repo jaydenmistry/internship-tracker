@@ -1,5 +1,4 @@
 import type { NextAuthConfig } from "next-auth";
-import Authentik from "next-auth/providers/authentik";
 
 /**
  * Auth configuration, kept free of Node-only imports.
@@ -16,7 +15,7 @@ import Authentik from "next-auth/providers/authentik";
  * table, no roles, and no sign-up — one identity, from the environment.
  *
  * **Fails closed.** An unset or blank `ALLOWED_EMAIL` denies everyone rather
- * than admitting anyone who can authenticate against the Authentik tenant. A
+ * than admitting anyone who can authenticate against the identity provider. A
  * misconfigured deployment that locks the owner out is recoverable; one that
  * silently admits every user of the identity provider is not.
  */
@@ -46,16 +45,40 @@ export function isPublicPath(pathname: string): boolean {
   return pathname === "/api/auth" || pathname.startsWith("/api/auth/");
 }
 
+/**
+ * The identity provider, declared generically rather than through one of
+ * Auth.js's named presets.
+ *
+ * Authelia, Authentik, Keycloak and friends are all plain OIDC providers: they
+ * differ in what their issuer URL looks like and nothing else that matters
+ * here. Discovery does the rest, so swapping between them is three environment
+ * variables, not a code change.
+ *
+ * `id` is deliberately the neutral "oidc" and NOT the vendor's name, because it
+ * is baked into the callback URL — `/api/auth/callback/oidc`. Authelia matches
+ * redirect URIs exactly, byte for byte, so naming the provider after today's
+ * IdP would mean re-registering the client on the day it is swapped.
+ */
+const OIDC_PROVIDER: NextAuthConfig["providers"][number] = {
+  id: "oidc",
+  name: "Authelia",
+  type: "oidc",
+  // Authelia's issuer is its ROOT origin — https://auth.example.com — with no
+  // path and no trailing slash. (Authentik's, by contrast, carries an
+  // /application/o/<slug> path; that difference is the whole migration.)
+  issuer: process.env.AUTH_OIDC_ISSUER,
+  clientId: process.env.AUTH_OIDC_ID,
+  clientSecret: process.env.AUTH_OIDC_SECRET,
+  // `email` is not optional here: the allowlist is an email comparison, and
+  // without the scope Authelia returns a token with no email claim, which
+  // `isAllowedEmail` correctly refuses — presenting as "you are not the
+  // configured user" for the configured user.
+  authorization: { params: { scope: "openid profile email" } },
+  checks: ["pkce", "state"],
+};
+
 export const authConfig = {
-  providers: [
-    Authentik({
-      clientId: process.env.AUTH_AUTHENTIK_ID,
-      clientSecret: process.env.AUTH_AUTHENTIK_SECRET,
-      // Authentik wants the application slug and no trailing slash, e.g.
-      // https://auth.example.com/application/o/internship-tracker
-      issuer: process.env.AUTH_AUTHENTIK_ISSUER,
-    }),
-  ],
+  providers: [OIDC_PROVIDER],
   // JWT, not database sessions: there is one user, and it keeps proxy.ts free
   // of a database round trip on every request.
   session: { strategy: "jwt" },
@@ -83,6 +106,6 @@ export const authConfig = {
     signIn: "/signin",
     error: "/signin",
   },
-  // Authentik is the only identity source; trust the host behind Traefik.
+  // The IdP is the only identity source; trust the host behind Traefik.
   trustHost: true,
 } satisfies NextAuthConfig;
