@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Geist, Geist_Mono } from "next/font/google";
-import { auth } from "@/lib/auth";
-import { endSession } from "./signin/actions";
+import { headers } from "next/headers";
+import { identityFromHeaders } from "@/lib/auth";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -29,10 +29,9 @@ const NAV = [
 ] as const;
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
-  // Only used to decide whether the nav and the sign-out control are worth
-  // rendering — proxy.ts and each action's own guard do the actual gating.
-  const session = await auth();
-  const signedIn = Boolean(session?.user);
+  // Display only. proxy.ts and each action's own guard do the actual gating;
+  // by the time this renders, the request has already been through both.
+  const identity = identityFromHeaders(await headers());
 
   return (
     <html
@@ -48,32 +47,32 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
           <span className="mr-3 font-mono text-[11px] font-semibold tracking-wide text-dim uppercase">
             internship-tracker
           </span>
-          {/* Signed out, the only reachable page is /signin — linking the rest
-              would just bounce off the gate. */}
-          {signedIn && (
-            <>
-              <nav className="flex items-center gap-1">
-                {NAV.map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className="rounded px-2 py-1 text-[12px] text-dim transition-colors hover:bg-raised hover:text-ink"
-                  >
-                    {item.label}
-                  </Link>
-                ))}
-              </nav>
-              <form action={endSession} className="ml-auto flex items-center gap-2">
-                <span className="font-mono text-[11px] text-faint">{session?.user?.email}</span>
-                <button
-                  type="submit"
-                  className="rounded px-2 py-1 text-[12px] text-dim transition-colors hover:bg-raised hover:text-ink"
-                >
-                  Sign out
-                </button>
-              </form>
-            </>
-          )}
+          <nav className="flex items-center gap-1">
+            {NAV.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="rounded px-2 py-1 text-[12px] text-dim transition-colors hover:bg-raised hover:text-ink"
+              >
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+          {/* Authelia owns the session, so signing out is its business, not
+              this app's — there is nothing here to sign out OF. The link goes
+              to whatever AUTH_LOGOUT_URL names, and is simply omitted when
+              that is unset rather than rendering a dead control. */}
+          <div className="ml-auto flex items-center gap-2">
+            {identity && <span className="font-mono text-[11px] text-faint">{identity}</span>}
+            {process.env.AUTH_LOGOUT_URL && (
+              <a
+                href={process.env.AUTH_LOGOUT_URL}
+                className="rounded px-2 py-1 text-[12px] text-dim transition-colors hover:bg-raised hover:text-ink"
+              >
+                Sign out
+              </a>
+            )}
+          </div>
         </header>
         <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</main>
       </body>

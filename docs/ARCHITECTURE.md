@@ -385,53 +385,48 @@ session that started it — if the app shows `ECONNREFUSED`, run
 
 ## Auth
 
-Auth.js (next-auth v5) against Authelia over OIDC, restricted to one address.
-There is no user table, no roles and no sign-up: identity comes from the
-identity provider, authorization is a single string comparison.
+Authelia, as a Traefik **forward-auth middleware** — not as an OIDC provider.
+There is no login flow in this app, no session of its own, and no `/signin`
+page. Authelia authenticates the request before it arrives and forwards
+`Remote-Email` / `Remote-User`; `lib/auth.ts` reads those and compares against
+`ALLOWED_USER`.
 
-The provider is declared **generically** rather than through one of Auth.js's
-vendor presets, because Authelia, Authentik and Keycloak differ only in what
-their issuer URL looks like — discovery does the rest, so swapping is three
-environment variables. Its id is the protocol-neutral `oidc`, never the
-vendor's name: that id is baked into the callback URL
-`/api/auth/callback/oidc`, and Authelia matches redirect URIs byte for byte, so
-a vendor-named id would force a client re-registration the day it is swapped.
+**The headers are trusted, and the network is what makes that safe.** Anything
+that can open a socket to `internship-tracker:3000` can set `Remote-Email`
+itself and is then indistinguishable from the owner. So
+`deploy/compose.tracker.yml` puts the app on `traefik_net` plus an internal
+`tracker_net`, and deliberately **not** on the shared `apps_net` that the rest
+of the host stack uses. That isolation is a security control, not tidiness.
 
-The `email` scope is requested explicitly. The allowlist is an email
-comparison, so without that claim a correct login is refused as the wrong
-user — the least obvious failure this design has.
-
-**Two layers, both load-bearing.**
+**Two layers all the same.**
 
 | Layer | Where | What it does |
 |---|---|---|
-| Gate | `proxy.ts` | Runs on every path except `/signin`, `/api/auth/*` and `/api/health`. A browser navigation gets `307 → /signin`; anything else gets `401 JSON`, because redirecting a `fetch` to an HTML page only produces a confusing parse error at the caller. |
+| Gate | `proxy.ts` | Runs on every path except `/api/health`. No identity header ⇒ 401; wrong identity ⇒ 403. No redirect: Authelia owns the login flow, so there is nowhere to send anyone. |
 | Guard | `lib/auth-guard.ts` | `requireSession()` is the first statement of all 14 Server Actions, and `/api/applications/export` calls it too. |
 
-The second layer is not belt-and-braces paranoia. Next documents the proxy as
-running separately from render code and, in optimized deployments, at the edge —
-so it is the wrong thing to be the *only* check. A mistake in that negative-match
-regex should cost a redirect, not the catalog.
+The second layer is not paranoia. Next documents the proxy as running
+separately from render and, in optimized deployments, at the edge — so it is
+the wrong thing to be the only check. A mistake in that negative-match regex
+should cost a 401, not the catalog.
 
-**It fails closed.** `isAllowedEmail` returns false when `ALLOWED_EMAIL` is
-unset or blank, so a half-configured deployment admits nobody rather than
-everyone who can authenticate against the identity provider. It is applied in the
-`signIn` callback (a rejected identity never receives a cookie), re-applied in
-the `jwt` callback (so changing the variable invalidates live sessions), and
-again in `requireSession`.
+**It fails closed.** `isAllowedUser` returns false when `ALLOWED_USER` is unset
+or blank, so a half-configured deployment admits nobody rather than everyone
+Authelia happens to authenticate. `isPublicPath` matches exactly, never by
+prefix — `startsWith("/api/health")` would open `/api/healthz`.
 
-**`isPublicPath` matches exactly, never by prefix.** `startsWith("/api/health")`
-would open `/api/healthz`; `tests/auth/guard.test.ts` pins that.
+**`public/` and `_next/image` are inside the matcher.** Static files there
+would otherwise be served to anonymous callers, and a resume lives at
+`public/resume.pdf`. The image optimizer serves any local path it is given, so
+excluding it would reopen the same hole.
 
-**`public/` is deliberately inside the matcher.** Static files there would
-otherwise be served to anonymous callers, and a resume lives at
-`public/resume.pdf`. Only `_next/static`, `_next/image` and `favicon.ico` are
-excluded — gating those would block the gate's own stylesheets.
-
-**Verified from the deny side only.** Every route, the CSV export, a Server
-Action POST and `public/resume.pdf` were confirmed to refuse an anonymous caller
-against a running server. Completing a sign-in needs a live Authelia and has
-never been done.
+**Verified.** `tests/auth/guard.test.ts` covers both directions — no header
+refused, an authenticated stranger refused, the owner admitted via either
+header — and discovers `app/**/actions.ts` rather than listing them, so a new
+unguarded action fails by existing (confirmed by planting one). The gate itself
+was probed against a production build with traversal, case and encoding
+variations. What has **never** been exercised is a live Authelia forwarding
+real headers.
 
 ---
 
@@ -470,11 +465,8 @@ that are read on every call. `.env.example` documents them all.
 | Variable | Read by | Purpose |
 |---|---|---|
 | `DATABASE_URL` | app, worker, Prisma CLI | Must include `?schema=` |
-| `AUTH_SECRET` | app | Signs the session cookie. A real secret. |
-| `AUTH_URL` | app | Public origin, used to build the OAuth redirect URI |
-| `AUTH_OIDC_ISSUER` | app | Authelia's ROOT origin — no path, no trailing slash |
-| `AUTH_OIDC_ID` / `_SECRET` | app | Client id, and the **plaintext** secret (Authelia stores its hash) |
-| `ALLOWED_EMAIL` | app | The one address allowed in. Unset ⇒ nobody gets in |
+| `ALLOWED_USER` | app | The one identity allowed in, matched against `Remote-Email` then `Remote-User`. Unset ⇒ nobody gets in |
+| `AUTH_LOGOUT_URL` | app | Optional. Authelia's logout URL for the header link; unset ⇒ no link |
 | `SHADOW_DATABASE_URL` | Prisma CLI only | `migrate dev/diff` locally |
 | `INGEST_CRON` | worker | Cycle schedule |
 | `WORKER_PORT` | worker | Internal `/refresh` + `/healthz` |
@@ -564,7 +556,7 @@ What `CLAUDE.md`'s original plan describes, against what exists after Phase 3:
 | Planned | Actual |
 |---|---|
 | Docker containers: app, worker, postgres | Written as services to append to the hp-envy host stack (`deploy/compose.tracker.yml`), **never built or run** — there is no container runtime on the development machine. One image serves both app and worker, differing only by command. Every stage, `COPY --from`, healthcheck and Traefik label is reasoned about, not observed. `docs/DEPLOYMENT.md` lists each unverified assumption. |
-| OIDC auth via `proxy.ts` | Built, two layers: the proxy gate plus a `requireSession()` call at the top of all 14 Server Actions and in the CSV export route. The **deny** path is verified live against a running server — every page, `/api/applications/export`, a Server Action POST and `public/resume.pdf` all refuse an anonymous caller (307 to `/signin` for navigations, 401 JSON otherwise), and `/signin` + `/api/health` are the only things that answer. The **allow** path is NOT verified: completing a sign-in needs a live Authelia, which this machine has none of. |
+| OIDC auth via `proxy.ts` | Built differently: **Authelia forward-auth**, not an OIDC client. The plan assumed the app would run its own OIDC flow; it instead trusts the `Remote-*` headers a Traefik middleware forwards, which needs no client registration and no change to Authelia's `configuration.yml`. The trade is that the app's security now depends on network isolation — `tracker-app` is off the shared `apps_net` so only Traefik can reach it. Both directions are unit-tested and the gate was probed against a production build; a live Authelia has never been wired up. |
 | `scripts/backup.sh` | Written, plus `scripts/restore.sh` and a `backup` sidecar in compose (`pg_dump` on a schedule, retention by age with a minimum-kept floor, dumps verified with `pg_restore --list` before being renamed into place). **Never executed** — no container runtime here. Restore procedure is in `docs/DEPLOYMENT.md`. |
 | `lib/alerts/`, Discord + SMTP | Built. **Discord has now delivered real messages** against a live webhook: the send succeeded, `AlertLog` recorded it, and an immediate repeat reported the listing as already sent rather than re-sending it. **SMTP is still unexercised** — no real server has ever been contacted. |
 | Resume PDF upload | Built. Upload, extraction and the matched panel state were driven end to end through the real Server Action over real multipart. |

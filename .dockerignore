@@ -40,3 +40,9 @@ public/resume.pdf
 docs
 *.md
 !README.md
+
+# The stack bind-mounts live data next to the repo; never ship it in a layer.
+# The compose fragment keeps these OUTSIDE the build context, so this is a
+# second line of defence rather than the only one.
+db/
+backups/
