@@ -11,7 +11,7 @@ deploy` applies all migrations from empty with no drift afterwards, the raw-SQL
 rank pass targets the right schema, and `backup.sh` / `restore.sh` round-trip a
 database. `next build` produces standalone output with the Prisma WASM query
 compiler traced into it. Discord alerts have really been delivered. And the
-**redirect URI in step 1b is confirmed, not assumed** — a running server with
+**redirect URI in step 1c is confirmed, not assumed** — a running server with
 this exact configuration advertises
 `https://jobs.jmistry.com/api/auth/callback/oidc` as its callback.
 
@@ -53,7 +53,49 @@ mkdir -p ~/docker/config/internship-tracker/{db,backups}
 This is the step that will cost you an hour if you get it wrong, because every
 mistake surfaces as the same unhelpful word: *Configuration*.
 
-### 1a. Generate the client secret
+### 1a. Enable the OIDC provider (once per Authelia, not per app)
+
+**Skip this only if `configuration.yml` already has an `identity_providers:`
+section.** If it does not, Authelia is not an OIDC provider yet and registering
+a client alone does nothing — it needs a signing key and an HMAC secret first.
+
+Generate the signing key (writes `private.pem` and `public.pem`):
+
+```bash
+docker exec -it authelia authelia crypto pair rsa generate --bits 4096 --directory /config/oidc
+```
+
+Generate an HMAC secret:
+
+```bash
+openssl rand -hex 32
+```
+
+Then add to `configuration.yml`, at the top level:
+
+```yaml
+identity_providers:
+  oidc:
+    hmac_secret: '<the openssl rand -hex 32 output>'
+    jwks:
+      - key_id: 'main'
+        algorithm: 'RS256'
+        use: 'sig'
+        key: |
+          -----BEGIN PRIVATE KEY-----
+          <contents of /config/oidc/private.pem, indented to here>
+          -----END PRIVATE KEY-----
+```
+
+The PEM has to be indented under `key: |`. To get it right without hand-editing:
+
+```bash
+docker exec authelia sed 's/^/          /' /config/oidc/private.pem
+```
+
+Paste that output directly beneath `key: |`.
+
+### 1b. Generate the client secret
 
 Authelia stores a **hash**; the app needs the **plaintext**. You need both, and
 you only get to see the plaintext once.
@@ -76,7 +118,7 @@ of pulling a fresh one:
 docker exec -it authelia authelia crypto hash generate pbkdf2 --variant sha512 --random --random.length 72 --random.charset rfc3986
 ```
 
-### 1b. Add the client to Authelia's `configuration.yml`
+### 1c. Add the client to Authelia's `configuration.yml`
 
 Under `identity_providers.oidc.clients`, add:
 
@@ -86,10 +128,10 @@ identity_providers:
     clients:
       - client_id: internship-tracker
         client_name: Internship Tracker
-        # The DIGEST from step 1a, not the plaintext.
+        # The DIGEST from step 1b, not the plaintext.
         client_secret: '$pbkdf2-sha512$310000$...'
         public: false
-        authorization_policy: two_factor
+        authorization_policy: one_factor
         consent_mode: implicit
         redirect_uris:
           - https://jobs.jmistry.com/api/auth/callback/oidc
@@ -104,6 +146,11 @@ identity_providers:
         # Must match what the app sends. Both sides are pinned to this
         # explicitly — see lib/auth.config.ts.
         token_endpoint_auth_method: client_secret_basic
+        # The app sends PKCE unconditionally (checks: ["pkce","state"] in
+        # lib/auth.config.ts), so requiring it here costs nothing and closes
+        # the authorization-code interception window.
+        require_pkce: true
+        pkce_challenge_method: 'S256'
 ```
 
 **The redirect URI must be this exact string:**
@@ -122,14 +169,21 @@ Notes on the choices above:
 - **`consent_mode: implicit`** skips the "do you allow this app?" screen. This
   is a single-user app you own; the consent screen adds a click and tells you
   nothing. Use `explicit` instead if you want the prompt.
-- **`authorization_policy: two_factor`** requires your second factor. Drop to
-  `one_factor` only if you have a reason.
+- **`authorization_policy`** should match the rest of your Authelia. If your
+  `default_policy` is `one_factor` and you have no second factor enrolled,
+  setting `two_factor` here forces an enrolment mid-deploy. Raise it once you
+  are signed in and it works.
 - **`email` scope is not optional.** The app's allowlist is an email
   comparison. Without the scope, Authelia returns a token with no email claim,
   the allowlist refuses it, and you get *"That account is not the one this
   tracker is configured for"* — while looking at your own account.
 - If your Authelia enforces a **claims policy**, make sure the `email` claim is
   actually released to this client.
+- **With the `file` authentication backend**, the email claim comes from the
+  `email:` field of your user in `users.yml`. If that field is missing or
+  differs from `TRACKER_ALLOWED_EMAIL`, you will authenticate successfully and
+  then be refused by the app as the wrong person. Check it before deploying:
+  `docker exec authelia grep -A4 '<your-username>' /config/users.yml`
 
 Restart Authelia and confirm the secret parsed:
 
@@ -137,7 +191,7 @@ Restart Authelia and confirm the secret parsed:
 docker logs authelia --tail 50
 ```
 
-### 1c. Confirm discovery works
+### 1d. Confirm discovery works
 
 ```bash
 curl -s https://auth.jmistry.com/.well-known/openid-configuration | head -c 400
@@ -160,7 +214,7 @@ to `~/docker/stacks/apps/.env` and fill in every one marked REQUIRED:
 | `TRACKER_AUTH_SECRET` | REQUIRED | `openssl rand -base64 32` |
 | `TRACKER_OIDC_ISSUER` | REQUIRED | Root origin, no trailing slash |
 | `TRACKER_OIDC_ID` | REQUIRED | Must equal `client_id` |
-| `TRACKER_OIDC_SECRET` | REQUIRED | The **plaintext** from step 1a |
+| `TRACKER_OIDC_SECRET` | REQUIRED | The **plaintext** from step 1b |
 | `TRACKER_ALLOWED_EMAIL` | REQUIRED | Blank admits **nobody** |
 | `TRACKER_USER_AGENT_CONTACT` | REQUIRED | Scraper contact address |
 | `TRACKER_ANTHROPIC_API_KEY` | optional | Unset = deterministic scoring only |
