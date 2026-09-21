@@ -6,12 +6,17 @@ started. Every step below is reasoned from the code and from your stack's
 conventions, not observed. [What is unverified](#what-is-unverified) at the
 bottom lists exactly where to look when something does not work.
 
-What *has* been verified against a real PostgreSQL 17 server: `prisma migrate
+What *has* been verified: against a real PostgreSQL 17 server, `prisma migrate
 deploy` applies all migrations from empty with no drift afterwards, the raw-SQL
-rank pass targets the right schema, `next build` produces standalone output with
-the Prisma WASM query compiler traced into it, and `backup.sh` / `restore.sh`
-round-trip a database. Discord alerts have really been delivered. Signing in has
-**never** been done end to end — it needs a live Authelia, which is you.
+rank pass targets the right schema, and `backup.sh` / `restore.sh` round-trip a
+database. `next build` produces standalone output with the Prisma WASM query
+compiler traced into it. Discord alerts have really been delivered. And the
+**redirect URI in step 1b is confirmed, not assumed** — a running server with
+this exact configuration advertises
+`https://jobs.jmistry.com/api/auth/callback/oidc` as its callback.
+
+Signing in has **never** been done end to end — it needs a live Authelia, which
+is you.
 
 - **Target host:** hp-envy
 - **Stack:** `~/docker/stacks/apps/compose.yml` (+ its `.env`)
@@ -300,6 +305,7 @@ Work down this list; it is ordered by how often each one is the cause.
 | **"That account is not the one this tracker is configured for"** | The email claim did not arrive, or does not match | Confirm `email` is in the client's `scopes` and released by any claims policy; confirm `TRACKER_ALLOWED_EMAIL` matches your Authelia email exactly (case is ignored, whitespace is trimmed) |
 | Redirect loop between app and Authelia | Cookie not surviving | `AUTH_URL` must be the `https://` origin with no trailing slash, and Traefik must terminate TLS |
 | Signed in, then signed out again immediately | `TRACKER_AUTH_SECRET` changed, or differs between restarts | Set it to a fixed value in `.env` |
+| Authelia says **invalid redirect_uri**, and the URI it reports has an unexpected prefix | `TRACKER_HOST` was given as a URL with a path, so `AUTH_URL` carries one | next-auth derives its base path from `AUTH_URL`'s pathname: a path there moves the callback from `/api/auth/callback/oidc` to `/<that path>/callback/oidc`. `TRACKER_HOST` must be a bare hostname — `jobs.jmistry.com`, not `https://jobs.jmistry.com/anything` |
 
 Useful detail:
 
