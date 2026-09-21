@@ -58,7 +58,7 @@ flowchart LR
 ```
 
 **The containers are defined but unbuilt.** `Dockerfile` and
-`docker-compose.yml` describe app, worker, postgres and a backup sidecar, and
+`deploy/compose.tracker.yml` describe app, worker, postgres and a backup sidecar, and
 none of them has ever been built or started — there is no container runtime on
 the development machine. Today everything runs as local processes: `npm run dev`
 (app), `npm run worker` (worker), and `npx prisma dev` (Postgres). The subgraph
@@ -385,9 +385,21 @@ session that started it — if the app shows `ECONNREFUSED`, run
 
 ## Auth
 
-Auth.js (next-auth v5) against Authentik over OIDC, restricted to one address.
-There is no user table, no roles and no sign-up: identity comes from Authentik,
-authorization is a single string comparison.
+Auth.js (next-auth v5) against Authelia over OIDC, restricted to one address.
+There is no user table, no roles and no sign-up: identity comes from the
+identity provider, authorization is a single string comparison.
+
+The provider is declared **generically** rather than through one of Auth.js's
+vendor presets, because Authelia, Authentik and Keycloak differ only in what
+their issuer URL looks like — discovery does the rest, so swapping is three
+environment variables. Its id is the protocol-neutral `oidc`, never the
+vendor's name: that id is baked into the callback URL
+`/api/auth/callback/oidc`, and Authelia matches redirect URIs byte for byte, so
+a vendor-named id would force a client re-registration the day it is swapped.
+
+The `email` scope is requested explicitly. The allowlist is an email
+comparison, so without that claim a correct login is refused as the wrong
+user — the least obvious failure this design has.
 
 **Two layers, both load-bearing.**
 
@@ -403,7 +415,7 @@ regex should cost a redirect, not the catalog.
 
 **It fails closed.** `isAllowedEmail` returns false when `ALLOWED_EMAIL` is
 unset or blank, so a half-configured deployment admits nobody rather than
-everyone who can authenticate against the Authentik tenant. It is applied in the
+everyone who can authenticate against the identity provider. It is applied in the
 `signIn` callback (a rejected identity never receives a cookie), re-applied in
 the `jwt` callback (so changing the variable invalidates live sessions), and
 again in `requireSession`.
@@ -418,8 +430,8 @@ excluded — gating those would block the gate's own stylesheets.
 
 **Verified from the deny side only.** Every route, the CSV export, a Server
 Action POST and `public/resume.pdf` were confirmed to refuse an anonymous caller
-against a running server. Completing a sign-in needs a live Authentik tenant and
-has never been done.
+against a running server. Completing a sign-in needs a live Authelia and has
+never been done.
 
 ---
 
@@ -460,8 +472,8 @@ that are read on every call. `.env.example` documents them all.
 | `DATABASE_URL` | app, worker, Prisma CLI | Must include `?schema=` |
 | `AUTH_SECRET` | app | Signs the session cookie. A real secret. |
 | `AUTH_URL` | app | Public origin, used to build the OAuth redirect URI |
-| `AUTH_AUTHENTIK_ISSUER` | app | Issuer URL **without** a trailing slash |
-| `AUTH_AUTHENTIK_ID` / `_SECRET` | app | OAuth client credentials |
+| `AUTH_OIDC_ISSUER` | app | Authelia's ROOT origin — no path, no trailing slash |
+| `AUTH_OIDC_ID` / `_SECRET` | app | Client id, and the **plaintext** secret (Authelia stores its hash) |
 | `ALLOWED_EMAIL` | app | The one address allowed in. Unset ⇒ nobody gets in |
 | `SHADOW_DATABASE_URL` | Prisma CLI only | `migrate dev/diff` locally |
 | `INGEST_CRON` | worker | Cycle schedule |
@@ -551,8 +563,8 @@ What `CLAUDE.md`'s original plan describes, against what exists after Phase 3:
 
 | Planned | Actual |
 |---|---|
-| Docker containers: app, worker, postgres | Written (`Dockerfile`, `docker-compose.yml`), **never built or run** — there is no container runtime on the development machine. Every stage, `COPY --from`, healthcheck and Traefik label is reasoned about, not observed. `docs/DEPLOYMENT.md` lists each unverified assumption. |
-| OIDC auth via `proxy.ts` | Built, two layers: the proxy gate plus a `requireSession()` call at the top of all 14 Server Actions and in the CSV export route. The **deny** path is verified live against a running server — every page, `/api/applications/export`, a Server Action POST and `public/resume.pdf` all refuse an anonymous caller (307 to `/signin` for navigations, 401 JSON otherwise), and `/signin` + `/api/health` are the only things that answer. The **allow** path is NOT verified: completing a sign-in needs a live Authentik tenant, which this machine has none of. |
+| Docker containers: app, worker, postgres | Written as services to append to the hp-envy host stack (`deploy/compose.tracker.yml`), **never built or run** — there is no container runtime on the development machine. One image serves both app and worker, differing only by command. Every stage, `COPY --from`, healthcheck and Traefik label is reasoned about, not observed. `docs/DEPLOYMENT.md` lists each unverified assumption. |
+| OIDC auth via `proxy.ts` | Built, two layers: the proxy gate plus a `requireSession()` call at the top of all 14 Server Actions and in the CSV export route. The **deny** path is verified live against a running server — every page, `/api/applications/export`, a Server Action POST and `public/resume.pdf` all refuse an anonymous caller (307 to `/signin` for navigations, 401 JSON otherwise), and `/signin` + `/api/health` are the only things that answer. The **allow** path is NOT verified: completing a sign-in needs a live Authelia, which this machine has none of. |
 | `scripts/backup.sh` | Written, plus `scripts/restore.sh` and a `backup` sidecar in compose (`pg_dump` on a schedule, retention by age with a minimum-kept floor, dumps verified with `pg_restore --list` before being renamed into place). **Never executed** — no container runtime here. Restore procedure is in `docs/DEPLOYMENT.md`. |
 | `lib/alerts/`, Discord + SMTP | Built. **Discord has now delivered real messages** against a live webhook: the send succeeded, `AlertLog` recorded it, and an immediate repeat reported the listing as already sent rather than re-sending it. **SMTP is still unexercised** — no real server has ever been contacted. |
 | Resume PDF upload | Built. Upload, extraction and the matched panel state were driven end to end through the real Server Action over real multipart. |

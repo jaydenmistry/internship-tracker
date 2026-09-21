@@ -17,9 +17,9 @@ export const dynamic = "force-dynamic";
 function missingConfig(): string[] {
   const required = [
     "AUTH_SECRET",
-    "AUTH_AUTHENTIK_ISSUER",
-    "AUTH_AUTHENTIK_ID",
-    "AUTH_AUTHENTIK_SECRET",
+    "AUTH_OIDC_ISSUER",
+    "AUTH_OIDC_ID",
+    "AUTH_OIDC_SECRET",
     "ALLOWED_EMAIL",
   ];
   return required.filter((name) => (process.env[name] ?? "").trim() === "");
@@ -29,7 +29,7 @@ const ERRORS: Record<string, string> = {
   AccessDenied:
     "That account is not the one this tracker is configured for. Only the address in ALLOWED_EMAIL can sign in.",
   Configuration:
-    "The server rejected the sign-in configuration. Check the Authentik client ID, secret and issuer.",
+    "The server rejected the sign-in configuration. Check the OIDC client ID, secret and issuer.",
   Verification: "That sign-in link is no longer valid. Try again.",
 };
 
@@ -48,7 +48,7 @@ export default async function SignInPage({ searchParams }: PageProps<"/signin">)
       <div className="w-full max-w-md rounded border border-line bg-panel p-6">
         <h1 className="text-[15px] font-semibold text-ink">Internship Tracker</h1>
         <p className="mt-1 text-[12px] text-dim">
-          This tracker is for one account. Sign in with Authentik to continue.
+          This tracker is for one account. Sign in with Authelia to continue.
         </p>
 
         {error && (
@@ -82,7 +82,7 @@ export default async function SignInPage({ searchParams }: PageProps<"/signin">)
               type="submit"
               className="w-full rounded bg-accent px-3 py-2 text-[13px] font-medium text-canvas transition-opacity hover:opacity-90"
             >
-              Sign in with Authentik
+              Sign in with Authelia
             </button>
           </form>
         )}

@@ -1,0 +1,207 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# Internship tracker — services for ~/docker/stacks/apps/compose.yml
+#
+# HOW TO USE THIS FILE: copy the four service blocks below (tracker-db,
+# tracker-app, tracker-worker, tracker-backup) into your stack's compose.yml,
+# under its existing top-level `services:` key, at the same indentation as
+# `portfolio`. Do NOT copy the `services:` line itself, and do NOT copy the
+# `networks:` block at the bottom — your file already has both. They are here
+# only so this file is valid YAML that can be linted on its own.
+#
+# Naming, deliberately: your stack already has a service called `app`
+# (Nextcloud) and one called `db` (nextcloud-db). These are `tracker-*` so
+# nothing collides, now or when you add the next Postgres-backed app. The
+# database's DNS name on apps_net is `tracker-db` — that name, not `postgres`,
+# is what DATABASE_URL points at.
+#
+# No `ports:` on anything: Traefik handles ingress, and the worker's HTTP port
+# must never be reachable from the LAN (POST /refresh is unauthenticated and
+# starts a full ingest cycle).
+# ═══════════════════════════════════════════════════════════════════════════
+
+services:
+
+  tracker-db:
+    image: postgres:17-alpine
+    container_name: internship-tracker-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${TRACKER_DB_USER}
+      - POSTGRES_PASSWORD=${TRACKER_DB_PASSWORD}
+      - POSTGRES_DB=${TRACKER_DB_NAME}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG_ROOT}/internship-tracker/db:/var/lib/postgresql/data
+    healthcheck:
+      test: pg_isready -U ${TRACKER_DB_USER} -d ${TRACKER_DB_NAME} || exit 1
+      interval: 30s
+      retries: 5
+      start_period: 30s
+      timeout: 5s
+    networks:
+      - apps_net
+
+  tracker-app:
+    build: ${CONFIG_ROOT}/internship-tracker/.
+    image: internship-tracker:local
+    container_name: internship-tracker
+    restart: unless-stopped
+    depends_on:
+      tracker-db:
+        condition: service_healthy
+    environment:
+      - TZ=${TZ}
+      # This container, and only this one, applies pending migrations before it
+      # serves. The worker shares the image and must not race it.
+      - RUN_MIGRATIONS=1
+      - DATABASE_URL=postgresql://${TRACKER_DB_USER}:${TRACKER_DB_PASSWORD}@tracker-db:5432/${TRACKER_DB_NAME}?schema=public
+      - AUTH_SECRET=${TRACKER_AUTH_SECRET}
+      - AUTH_URL=https://${TRACKER_HOST}
+      - AUTH_OIDC_ISSUER=${TRACKER_OIDC_ISSUER}
+      - AUTH_OIDC_ID=${TRACKER_OIDC_ID}
+      - AUTH_OIDC_SECRET=${TRACKER_OIDC_SECRET}
+      - ALLOWED_EMAIL=${TRACKER_ALLOWED_EMAIL}
+      - ANTHROPIC_API_KEY=${TRACKER_ANTHROPIC_API_KEY:-}
+      - DISCORD_WEBHOOK_URL=${TRACKER_DISCORD_WEBHOOK_URL:-}
+      - SMTP_HOST=${TRACKER_SMTP_HOST:-}
+      - SMTP_PORT=${TRACKER_SMTP_PORT:-587}
+      - SMTP_USER=${TRACKER_SMTP_USER:-}
+      - SMTP_PASS=${TRACKER_SMTP_PASS:-}
+      - SMTP_FROM=${TRACKER_SMTP_FROM:-}
+      - SMTP_TO=${TRACKER_SMTP_TO:-}
+      - ALERT_TIMEZONE=${TZ}
+    volumes:
+      # The scoring config, bind-mounted as a DIRECTORY, not a single file: a
+      # single-file mount pins an inode, so any write-and-rename editor (vim,
+      # VS Code) would leave the container reading the old contents forever —
+      # quietly defeating the point of editing weights without a rebuild.
+      - ${CONFIG_ROOT}/internship-tracker/config:/app/config
+    healthcheck:
+      # node, not wget/curl: the image is node:22-bookworm-slim, which ships
+      # neither. Same form as the openclaw-gateway healthcheck.
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 60s
+      retries: 5
+      start_period: 60s
+      timeout: 5s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.internship-tracker.rule=Host(`${TRACKER_HOST}`)"
+      - "traefik.http.routers.internship-tracker.entrypoints=websecure"
+      - "traefik.http.routers.internship-tracker.tls=true"
+      - "traefik.http.routers.internship-tracker.tls.certresolver=cf"
+      - "traefik.http.services.internship-tracker.loadbalancer.server.port=3000"
+      - "traefik.docker.network=${TRAEFIK_NET}"
+    networks:
+      - apps_net
+      - traefik_net
+
+  tracker-worker:
+    # Same image as tracker-app, different command. `depends_on` on the app
+    # being healthy is what guarantees migrations have already run.
+    image: internship-tracker:local
+    container_name: internship-tracker-worker
+    restart: unless-stopped
+    depends_on:
+      tracker-app:
+        condition: service_healthy
+    command: ["node", "--enable-source-maps", "dist/worker.mjs"]
+    environment:
+      - TZ=${TZ}
+      - DATABASE_URL=postgresql://${TRACKER_DB_USER}:${TRACKER_DB_PASSWORD}@tracker-db:5432/${TRACKER_DB_NAME}?schema=public
+      - WORKER_PORT=8081
+      - INGEST_CRON=${TRACKER_INGEST_CRON:-0 6 * * *}
+      - DIGEST_CRON=${TRACKER_DIGEST_CRON:-0 7 * * *}
+      - CLOSING_SOON_CRON=${TRACKER_CLOSING_SOON_CRON:-0 8 * * *}
+      - ALERT_TIMEZONE=${TZ}
+      - USER_AGENT_CONTACT=${TRACKER_USER_AGENT_CONTACT}
+      - ANTHROPIC_API_KEY=${TRACKER_ANTHROPIC_API_KEY:-}
+      - DISCORD_WEBHOOK_URL=${TRACKER_DISCORD_WEBHOOK_URL:-}
+      - SMTP_HOST=${TRACKER_SMTP_HOST:-}
+      - SMTP_PORT=${TRACKER_SMTP_PORT:-587}
+      - SMTP_USER=${TRACKER_SMTP_USER:-}
+      - SMTP_PASS=${TRACKER_SMTP_PASS:-}
+      - SMTP_FROM=${TRACKER_SMTP_FROM:-}
+      - SMTP_TO=${TRACKER_SMTP_TO:-}
+    volumes:
+      - ${CONFIG_ROOT}/internship-tracker/config:/app/config
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8081/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 60s
+      retries: 5
+      start_period: 30s
+      timeout: 5s
+    networks:
+      - apps_net
+
+  tracker-backup:
+    # pg_dump refuses to dump from a server newer than itself, so the dump tool
+    # comes from the same image tag as the server — a Postgres upgrade can't
+    # silently break backups.
+    image: postgres:17-alpine
+    container_name: internship-tracker-backup
+    restart: unless-stopped
+    depends_on:
+      tracker-db:
+        condition: service_healthy
+    environment:
+      - TZ=${TZ}
+      - PGHOST=tracker-db
+      - PGPORT=5432
+      - PGUSER=${TRACKER_DB_USER}
+      - PGPASSWORD=${TRACKER_DB_PASSWORD}
+      - PGDATABASE=${TRACKER_DB_NAME}
+      - BACKUP_DIR=/backups
+      - BACKUP_RETENTION_DAYS=${TRACKER_BACKUP_RETENTION_DAYS:-14}
+      - BACKUP_KEEP_MIN=${TRACKER_BACKUP_KEEP_MIN:-7}
+      - BACKUP_INTERVAL_SECONDS=${TRACKER_BACKUP_INTERVAL_SECONDS:-86400}
+    volumes:
+      - ${CONFIG_ROOT}/internship-tracker/backups:/backups
+      - ${CONFIG_ROOT}/internship-tracker/scripts:/scripts:ro
+    entrypoint: ["/bin/sh", "-c"]
+    # Sleeps FIRST so a restart loop cannot spam dumps, then dumps on every
+    # interval. A failed dump logs and waits rather than exiting, so one bad
+    # night does not take the service down and stop all later backups.
+    # Every shell variable below is written `$$VAR`: compose expands a single
+    # `$` itself at parse time, which would substitute the HOST's environment
+    # (where these are undefined) and leave the loop sleeping on an empty
+    # string.
+    command:
+      - |
+        echo "[backup] interval $${BACKUP_INTERVAL_SECONDS}s -> $${BACKUP_DIR}"
+        while true; do
+          sleep "$${BACKUP_INTERVAL_SECONDS}"
+          sh /scripts/backup.sh || echo "[backup] run failed; will retry next interval"
+        done
+    healthcheck:
+      # Healthy while a dump newer than two intervals exists, so a silently
+      # broken backup shows up in `docker ps` instead of being discovered
+      # during a restore. In a script, not inline: see the comment at the top
+      # of scripts/backup-healthcheck.sh.
+      test: sh /scripts/backup-healthcheck.sh || exit 1
+      interval: 300s
+      retries: 3
+      start_period: 120s
+      timeout: 10s
+    networks:
+      - apps_net
+
+# ── Everything below already exists in your compose.yml — do not duplicate ──
+networks:
+  apps_net:
+    name: ${APPS_NET}
+  traefik_net:
+    external: true
+    name: ${TRAEFIK_NET}
