@@ -10,13 +10,12 @@ What *has* been verified: against a real PostgreSQL 17 server, `prisma migrate
 deploy` applies all migrations from empty with no drift afterwards, the raw-SQL
 rank pass targets the right schema, and `backup.sh` / `restore.sh` round-trip a
 database. `next build` produces standalone output with the Prisma WASM query
-compiler traced into it. Discord alerts have really been delivered. And the
-**redirect URI in step 1c is confirmed, not assumed** — a running server with
-this exact configuration advertises
-`https://jobs.jmistry.com/api/auth/callback/oidc` as its callback.
+compiler traced into it. Discord alerts have really been delivered.
 
-Signing in has **never** been done end to end — it needs a live Authelia, which
-is you.
+Authentication has **never** been exercised against a live Authelia — that part
+is yours. What is verified is the app's side of it: with no identity header a
+request is refused, with the wrong one it is refused, and with the right one it
+is admitted (`tests/auth/guard.test.ts`).
 
 - **Target host:** hp-envy
 - **Stack:** `~/docker/stacks/apps/compose.yml` (+ its `.env`)
@@ -37,168 +36,72 @@ git clone <this-repo> ~/docker/config/internship-tracker
 If `CONFIG_ROOT` is not `~/docker/config`, clone to `$CONFIG_ROOT/internship-tracker`
 instead — the path must match, because `compose.yml` refers to it by variable.
 
-Create the directories the bind mounts expect. Docker would create them as
-**root** on first run, which breaks the backup sidecar:
+Create the directories the bind mounts expect. Note they sit in
+`internship-tracker-data`, **beside** the repo and not inside it: the repo
+directory is the Docker build context, so a live Postgres data directory in
+there would be tarred up and sent to the daemon on every rebuild — and could
+end up in an image layer.
 
 ```bash
-mkdir -p ~/docker/config/internship-tracker/{db,backups}
+mkdir -p ~/docker/config/internship-tracker-data/{db,backups}
 ```
 
-`config/` and `scripts/` already exist — they are part of the repo.
+`config/` and `scripts/` are inside the repo already — they are part of it.
 
 ---
 
-## Step 1 — register the OIDC client in Authelia
+## Step 1 — point Authelia at it (labels only)
 
-This is the step that will cost you an hour if you get it wrong, because every
-mistake surfaces as the same unhelpful word: *Configuration*.
+**You do not need to touch Authelia's `configuration.yml`.** This app uses
+Authelia as a Traefik **forward-auth middleware**, not as an OIDC provider, so
+there is no client to register and no signing key to generate. The middleware
+label in `deploy/compose.tracker.yml` does the work.
 
-### 1a. Enable the OIDC provider (once per Authelia, not per app)
+Two things to check before you deploy.
 
-**Skip this only if `configuration.yml` already has an `identity_providers:`
-section.** If it does not, Authelia is not an OIDC provider yet and registering
-a client alone does nothing — it needs a signing key and an HMAC secret first.
-
-Generate the signing key (writes `private.pem` and `public.pem`):
+### 1a. Find your middleware's name
 
 ```bash
-docker exec -it authelia authelia crypto pair rsa generate --bits 4096 --directory /config/oidc
+docker inspect authelia | grep -o 'traefik.http.middlewares[^"]*'
 ```
 
-Generate an HMAC secret:
+You want the part before `.forwardauth`, plus its provider suffix — usually
+`authelia@docker`, sometimes `authelia@file` if it is defined in Traefik's
+dynamic config instead. That exact string goes in `TRACKER_AUTH_MIDDLEWARE`.
+
+If nothing comes back, the middleware is defined in Traefik's file provider —
+look in your Traefik dynamic config for `forwardAuth`.
+
+### 1b. Check it forwards an identity header
+
+The app identifies you from `Remote-Email`, falling back to `Remote-User`. Your
+middleware must forward at least one:
 
 ```bash
-openssl rand -hex 32
+docker inspect authelia | grep -o 'authResponseHeaders[^"]*'
 ```
 
-Then add to `configuration.yml`, at the top level:
+You are looking for `Remote-User`, `Remote-Groups`, `Remote-Name`,
+`Remote-Email` — the standard set. If `Remote-Email` is absent but
+`Remote-User` is there, that is fine: set `TRACKER_ALLOWED_USER` to your
+**username** rather than your email address.
+
+If neither is forwarded, add them to the middleware definition. That is a
+Traefik middleware change, not a `configuration.yml` change.
+
+### 1c. Access control
+
+Your `default_policy: one_factor` already covers `jobs.jmistry.com`, so nothing
+is required here. If you want a stronger policy for this app specifically, add
+a rule **above** your catch-all:
 
 ```yaml
-identity_providers:
-  oidc:
-    hmac_secret: '<the openssl rand -hex 32 output>'
-    jwks:
-      - key_id: 'main'
-        algorithm: 'RS256'
-        use: 'sig'
-        key: |
-          -----BEGIN PRIVATE KEY-----
-          <contents of /config/oidc/private.pem, indented to here>
-          -----END PRIVATE KEY-----
+    - domain: jobs.jmistry.com
+      policy: two_factor
 ```
 
-The PEM has to be indented under `key: |`. To get it right without hand-editing:
-
-```bash
-docker exec authelia sed 's/^/          /' /config/oidc/private.pem
-```
-
-Paste that output directly beneath `key: |`.
-
-### 1b. Generate the client secret
-
-Authelia stores a **hash**; the app needs the **plaintext**. You need both, and
-you only get to see the plaintext once.
-
-```bash
-docker run --rm authelia/authelia:latest authelia crypto hash generate pbkdf2 --variant sha512 --random --random.length 72 --random.charset rfc3986
-```
-
-It prints two lines:
-
-- `Random Password: ...` → this is the **plaintext**. Put it in the stack `.env`
-  as `TRACKER_OIDC_SECRET`.
-- `Digest: $pbkdf2-sha512$...` → this is the **hash**. Put it in Authelia's
-  `configuration.yml` as `client_secret`.
-
-If you are running Authelia as a container already, use that container instead
-of pulling a fresh one:
-
-```bash
-docker exec -it authelia authelia crypto hash generate pbkdf2 --variant sha512 --random --random.length 72 --random.charset rfc3986
-```
-
-### 1c. Add the client to Authelia's `configuration.yml`
-
-Under `identity_providers.oidc.clients`, add:
-
-```yaml
-identity_providers:
-  oidc:
-    clients:
-      - client_id: internship-tracker
-        client_name: Internship Tracker
-        # The DIGEST from step 1b, not the plaintext.
-        client_secret: '$pbkdf2-sha512$310000$...'
-        public: false
-        authorization_policy: one_factor
-        consent_mode: implicit
-        redirect_uris:
-          - https://jobs.jmistry.com/api/auth/callback/oidc
-        scopes:
-          - openid
-          - profile
-          - email
-        grant_types:
-          - authorization_code
-        response_types:
-          - code
-        # Must match what the app sends. Both sides are pinned to this
-        # explicitly — see lib/auth.config.ts.
-        token_endpoint_auth_method: client_secret_basic
-        # The app sends PKCE unconditionally (checks: ["pkce","state"] in
-        # lib/auth.config.ts), so requiring it here costs nothing and closes
-        # the authorization-code interception window.
-        require_pkce: true
-        pkce_challenge_method: 'S256'
-```
-
-**The redirect URI must be this exact string:**
-
-```
-https://jobs.jmistry.com/api/auth/callback/oidc
-```
-
-Authelia compares redirect URIs byte for byte. No trailing slash, `https` not
-`http`, and the last path segment is `oidc` — that is the provider's internal
-id, deliberately named after the protocol rather than after Authelia so that
-swapping identity providers later does not require re-registering the client.
-
-Notes on the choices above:
-
-- **`consent_mode: implicit`** skips the "do you allow this app?" screen. This
-  is a single-user app you own; the consent screen adds a click and tells you
-  nothing. Use `explicit` instead if you want the prompt.
-- **`authorization_policy`** should match the rest of your Authelia. If your
-  `default_policy` is `one_factor` and you have no second factor enrolled,
-  setting `two_factor` here forces an enrolment mid-deploy. Raise it once you
-  are signed in and it works.
-- **`email` scope is not optional.** The app's allowlist is an email
-  comparison. Without the scope, Authelia returns a token with no email claim,
-  the allowlist refuses it, and you get *"That account is not the one this
-  tracker is configured for"* — while looking at your own account.
-- If your Authelia enforces a **claims policy**, make sure the `email` claim is
-  actually released to this client.
-- **With the `file` authentication backend**, the email claim comes from the
-  `email:` field of your user in `users.yml`. If that field is missing or
-  differs from `TRACKER_ALLOWED_EMAIL`, you will authenticate successfully and
-  then be refused by the app as the wrong person. Check it before deploying:
-  `docker exec authelia grep -A4 '<your-username>' /config/users.yml`
-
-Restart Authelia and confirm the secret parsed:
-
-```bash
-docker logs authelia --tail 50
-```
-
-### 1d. Confirm discovery works
-
-```bash
-curl -s https://auth.jmistry.com/.well-known/openid-configuration | head -c 400
-```
-
-That must return JSON. Whatever origin makes this work is exactly what goes in
-`TRACKER_OIDC_ISSUER` — **no trailing slash, no path**.
+That is the one optional `configuration.yml` edit, and it is a hardening
+choice, not a prerequisite.
 
 ---
 
@@ -210,13 +113,11 @@ to `~/docker/stacks/apps/.env` and fill in every one marked REQUIRED:
 | Variable | | Notes |
 |---|---|---|
 | `TRACKER_HOST` | REQUIRED | `jobs.jmistry.com` |
-| `TRACKER_DB_USER` / `_PASSWORD` / `_NAME` | REQUIRED | First boot only — see step 6 |
-| `TRACKER_AUTH_SECRET` | REQUIRED | `openssl rand -base64 32` |
-| `TRACKER_OIDC_ISSUER` | REQUIRED | Root origin, no trailing slash |
-| `TRACKER_OIDC_ID` | REQUIRED | Must equal `client_id` |
-| `TRACKER_OIDC_SECRET` | REQUIRED | The **plaintext** from step 1b |
-| `TRACKER_ALLOWED_EMAIL` | REQUIRED | Blank admits **nobody** |
+| `TRACKER_AUTH_MIDDLEWARE` | REQUIRED | From step 1a, e.g. `authelia@docker` |
+| `TRACKER_ALLOWED_USER` | REQUIRED | Your `Remote-Email`, or username. Blank admits **nobody** |
+| `TRACKER_DB_USER` / `_PASSWORD` / `_NAME` | REQUIRED | First boot only. Use `openssl rand -hex 32`: the value goes into `DATABASE_URL`, and base64's `/` would truncate it |
 | `TRACKER_USER_AGENT_CONTACT` | REQUIRED | Scraper contact address |
+| `TRACKER_AUTH_LOGOUT_URL` | optional | Authelia's logout URL, for the header link |
 | `TRACKER_ANTHROPIC_API_KEY` | optional | Unset = deterministic scoring only |
 | `TRACKER_DISCORD_WEBHOOK_URL` | optional | Unset = channel reports itself off |
 | `TRACKER_SMTP_*` | optional | Never tested against a real server |
@@ -234,8 +135,14 @@ Copy the four service blocks from
 `~/docker/stacks/apps/compose.yml`, under its existing `services:` key, at the
 same indentation as `portfolio`.
 
-Do **not** copy the `services:` line itself or the `networks:` block at the
-bottom of that file — your compose.yml already has both.
+Do **not** copy the `services:` line itself. From the `networks:` block at the
+bottom, copy **only the `tracker_net` entry** into your existing `networks:`
+block — `apps_net` and `traefik_net` are already there.
+
+`tracker_net` matters: the app trusts the identity headers Traefik forwards, and
+that is only safe while Traefik is the only thing that can reach it. These four
+services stay off `apps_net` so that nextcloud, portfolio, openclaw and factorio
+cannot talk to the app directly and simply assert whatever identity they like.
 
 The four services are `tracker-db`, `tracker-app`, `tracker-worker` and
 `tracker-backup`. They are named `tracker-*` because your stack already has a
@@ -280,10 +187,12 @@ Do these in sequence. Each one rules out everything below it.
 docker compose ps
 ```
 
-All four `healthy`. `tracker-backup` will show `starting` for the first couple
-of minutes — it is healthy only once a dump exists, and the first one is not
-taken until a full interval has passed (24h by default). To stop waiting, take
-one by hand — see step 7.
+All four `healthy`. `tracker-backup` takes its first dump immediately on
+start (then sleeps for the interval), so it should go healthy within a minute
+or two rather than after a day. If it is still `starting` or has gone
+`unhealthy`, the dump is failing — check `docker compose logs tracker-backup`,
+which will usually be a permissions problem on the bind-mounted `backups`
+directory.
 
 **2. Migrations actually applied.**
 
@@ -314,18 +223,31 @@ Expect `HTTP/2 200`. A 404 here is Traefik, not the app — check that
 **5. The gate is closed.**
 
 ```bash
-curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" -H "Accept: text/html" https://jobs.jmistry.com/
+curl -s -o /dev/null -w "%{http_code}\n" https://jobs.jmistry.com/
 curl -s -o /dev/null -w "%{http_code}\n" https://jobs.jmistry.com/api/applications/export
 ```
 
-Expect `307 https://jobs.jmistry.com/signin` and `401`. If either returns 200,
-**stop and fix it before going further** — that is the whole catalog, your
-applications and your resume, readable by anyone.
+Both should be a redirect to Authelia (302/307) — that is the middleware doing
+its job before the app ever sees the request. If either returns **200**, stop
+and fix it: the middleware label is not applied, and the catalog, your
+applications and your resume are readable by anyone.
 
-**6. Sign in.** Open `https://jobs.jmistry.com` in a browser. You should land on
-`/signin`, get redirected to Authelia, and come back signed in. If the page
-instead lists missing environment variables, it is telling you exactly which
-ones — go back to step 2.
+Then confirm the app refuses a forged identity — this is the check that proves
+the network isolation is real. From another container on the stack:
+
+```bash
+docker compose exec portfolio wget -qO- --header='Remote-Email: you@example.com' http://internship-tracker:3000/ 2>&1 | head -3
+```
+
+That must **fail to resolve or connect**. If it returns HTML, `tracker-app` is
+still reachable off `tracker_net` and the header trust is unsafe — recheck the
+`networks:` on all four services.
+
+**6. Sign in.** Open `https://jobs.jmistry.com` in a browser. Authelia should
+prompt, and after authenticating you land on the listings table with your
+identity shown top-right. If you get a bare JSON `403` instead, Authelia
+authenticated you but `TRACKER_ALLOWED_USER` does not match what it forwarded —
+see step 6 below.
 
 **7. The worker is scheduled.**
 
@@ -350,28 +272,26 @@ This takes a few minutes and makes outbound requests. Watch it with
 
 ## Step 6 — if sign-in fails
 
-Work down this list; it is ordered by how often each one is the cause.
-
 | Symptom | Cause | Fix |
 |---|---|---|
-| `/signin` lists missing variables | Those are literally unset in the container | Check the stack `.env`, then `docker compose up -d` to recreate — editing `.env` alone does nothing to a running container |
-| "Sign-in failed" / `error=Configuration` | Discovery unreachable, or issuer wrong | `curl https://auth.jmistry.com/.well-known/openid-configuration`. Remove any trailing slash from `TRACKER_OIDC_ISSUER` |
-| Authelia says **invalid redirect_uri** | Byte mismatch | It must be exactly `https://jobs.jmistry.com/api/auth/callback/oidc`. Check for a trailing slash, `http`, or a stale hostname |
-| Authelia says **invalid client secret** | `.env` has the hash, or Authelia has the plaintext | `.env` gets the plaintext; `configuration.yml` gets the `$pbkdf2-sha512$...` digest. They are not interchangeable |
-| Authelia accepts the login, then the app errors and dumps you back at `/signin` | `token_endpoint_auth_method` differs between the two sides | Both must say `client_secret_basic`. The app pins it in `lib/auth.config.ts`; the client registration must match. This one fails *after* a successful login, so it does not look like an auth problem |
-| **"That account is not the one this tracker is configured for"** | The email claim did not arrive, or does not match | Confirm `email` is in the client's `scopes` and released by any claims policy; confirm `TRACKER_ALLOWED_EMAIL` matches your Authelia email exactly (case is ignored, whitespace is trimmed) |
-| Redirect loop between app and Authelia | Cookie not surviving | `AUTH_URL` must be the `https://` origin with no trailing slash, and Traefik must terminate TLS |
-| Signed in, then signed out again immediately | `TRACKER_AUTH_SECRET` changed, or differs between restarts | Set it to a fixed value in `.env` |
-| Authelia says **invalid redirect_uri**, and the URI it reports has an unexpected prefix | `TRACKER_HOST` was given as a URL with a path, so `AUTH_URL` carries one | next-auth derives its base path from `AUTH_URL`'s pathname: a path there moves the callback from `/api/auth/callback/oidc` to `/<that path>/callback/oidc`. `TRACKER_HOST` must be a bare hostname — `jobs.jmistry.com`, not `https://jobs.jmistry.com/anything` |
+| The page loads with **no Authelia prompt at all** | The middleware label is not applied | Check `TRACKER_AUTH_MIDDLEWARE` matches step 1a exactly, including the `@docker` / `@file` suffix. A wrong name makes Traefik skip the middleware silently |
+| Traefik returns **500** on every request | The middleware name does not resolve | Same cause, different Traefik version. `docker logs traefik --tail 50` will name it |
+| Authelia authenticates, then the app returns **`{"error":"this account is not the one…"}`** with 403 | `TRACKER_ALLOWED_USER` does not match the forwarded identity | See what is actually being forwarded, below. Set the variable to exactly that, then `docker compose up -d tracker-app` |
+| The app returns **`{"error":"authentication required"}`** with 401 | No identity header arrived | The middleware is not forwarding one — check `authResponseHeaders` (step 1b) |
+| Everything 401s including your own browser | `TRACKER_ALLOWED_USER` is blank | It fails closed on purpose. An unset allowlist admits nobody |
 
-Useful detail:
+To see exactly what Authelia is forwarding, ask the app to echo it back — it
+logs nothing sensitive because the header IS the identity:
 
 ```bash
-docker compose logs tracker-app --tail 100 | grep -i auth
-docker logs authelia --tail 100
+docker compose logs tracker-app --tail 50
 ```
 
----
+Or check Authelia directly:
+
+```bash
+docker logs authelia --tail 50
+```
 
 ## Step 7 — backups
 
@@ -459,30 +379,57 @@ Then update `.env` and `docker compose up -d tracker-app tracker-worker`.
 
 ---
 
-## Optional: Traefik forward-auth in front
+## Optional: isolate the tracker on its own network
 
-The app has **its own session** — Authelia OIDC, one allowed address, enforced
-both in `proxy.ts` and again inside every Server Action. It is not relying on
-anything in front of it, and you do not need forward-auth for it to be safe.
+As written, all four services sit on `apps_net`, matching the rest of your
+stack. That means `tracker-db:5432` and the worker's `:8081` are reachable
+from every other container on that network — nextcloud, portfolio,
+`openclaw-*`, factorio. Nothing is exposed to the LAN or the internet, but
+`POST http://tracker-worker:8081/refresh` is unauthenticated and starts a full
+outbound ingest cycle, so any container on `apps_net` can trigger it.
 
-If you want Authelia in front as a second layer anyway, add its middleware to
-the router:
+If you would rather they could not, give the tracker its own network. In the
+`networks:` block at the bottom of your compose.yml:
 
 ```yaml
-      - "traefik.http.routers.internship-tracker.middlewares=authelia@docker"
+  tracker_net:
+    name: tracker_net
+    internal: true
 ```
 
-(Use whatever name your existing Authelia middleware has.)
+Then on all four tracker services, replace `- apps_net` with `- tracker_net`.
+Keep `- traefik_net` on `tracker-app` — that is how Traefik reaches it, and it
+is the only service that needs reaching.
 
-Two consequences before you do:
+Nothing else in the stack refers to the tracker, so nothing breaks. The one
+thing you give up is being able to reach `tracker-db` from another container
+on `apps_net`, which nothing does today.
 
-- **You will sign in twice** on a cold session — once at the forward-auth
-  prompt, once at the app's own OIDC redirect. Setting the app client's
-  `consent_mode: implicit` (step 1b) makes the second one invisible.
-- **`/api/health` would be gated too**, and Docker's healthcheck runs inside
-  the container rather than through Traefik, so the healthcheck itself is
-  unaffected. But any external uptime monitor hitting that URL would start
-  seeing redirects.
+---
+
+## The security model, in one paragraph
+
+Authelia authenticates every request as a Traefik middleware and forwards
+`Remote-Email` / `Remote-User`. The app trusts those headers and checks them
+against `ALLOWED_USER`. It has **no session of its own** and no login page —
+there is nothing here to sign out of, which is why the header's "Sign out" link
+just points at Authelia.
+
+Trusting a request header is only safe while the request cannot come from
+anywhere but Traefik. That is what `tracker_net` is for: `tracker-app` is on
+`traefik_net` and an internal `tracker_net`, and **not** on the shared
+`apps_net`. Anything that can open a socket to `internship-tracker:3000`
+directly can assert any identity it likes. So:
+
+- never add `ports:` to `tracker-app`
+- never put it back on `apps_net`
+- if you later expose it through a second reverse proxy, that proxy must strip
+  client-supplied `Remote-*` headers, exactly as Traefik's forward-auth does
+
+The app still re-checks the header inside every Server Action
+(`lib/auth-guard.ts`), so a mistake in the proxy matcher costs a 401 rather
+than the catalog. Step 5 has a command that proves the isolation from a
+neighbouring container — run it once.
 
 ---
 
@@ -493,11 +440,14 @@ the thing that bites:
 
 1. **The image has never been built.** Not one `docker build`. Every stage and
    `COPY --from` is reasoned about, not observed.
-2. **One image, two commands.** The runtime installs full production
-   dependencies *and* overlays Next's standalone output, so the worker has its
-   whole closure rather than only what Next traced for the app. Both trees come
-   from one lockfile, so overlapping packages are identical — but the merge has
-   never been observed. If the worker dies on a missing module, that is this.
+2. ~~**One image, two commands.**~~ **Retired.** The worker bundle's external
+   set was resolved from its actual esbuild metafile — `@anthropic-ai/sdk`,
+   `@prisma/adapter-pg`, `@prisma/client`, `cheerio`, `node-cron`,
+   `nodemailer`, `robots-parser`, `zod` — and every one is in `dependencies`,
+   so the production-only install the runtime copies first does contain them.
+   The Prisma query compiler resolves as a package path, not a file-relative
+   `.wasm`, so the bundle finds it. What remains unobserved is only the
+   `COPY`-merge of the two `node_modules` trees (item 3).
 3. **The staged Prisma CLI merged into standalone's `node_modules`** relies on
    `COPY` merging into an existing directory. Never observed.
 4. **Image size is an estimate.** Shipping one image for both containers means
@@ -522,7 +472,15 @@ the thing that bites:
    sidecar runs as root (the entrypoint is overridden), so the dumps it writes
    into the bind mount are root-owned — which is fine for restoring through
    the same container, but means you will need `sudo` to delete one by hand.
-10. **Sign-in has never completed.** Only the refusal path is verified.
+10. **Nothing has been tested against a live Authelia.** The app's own side is
+    covered by `tests/auth/guard.test.ts` — no header refused, wrong identity
+    refused, right identity admitted via either header — and the gate was
+    probed hard against a production build (`..` and `%2e%2e` traversal through
+    the matcher's exclusions, case-varied paths, trailing slashes, an RSC
+    request, a bare POST; Next normalises the path before the proxy sees it, so
+    none slipped past, and `public/` files refused with them). What is
+    unverified is the middleware wiring: whether your Authelia forwards the
+    header this app reads, and under the name you configured.
 11. **SMTP has never contacted a real server.** Discord has.
 12. **The build host needs outbound internet** — `next/font/google` downloads
     fonts at build time.

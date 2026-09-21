@@ -25,7 +25,7 @@ Self-hosted internship tracking + ranking app for a single user (UGA CS student 
 
 ## Stack & commands
 
-Next.js 16 App Router + TypeScript + React 19 + Tailwind v4 (CSS-based config in `app/globals.css`, no tailwind.config) · Prisma + Postgres · separate worker container (node-cron) · Deployed as services appended to a host Docker stack behind Traefik · OIDC auth against Authelia (single user, config in env).
+Next.js 16 App Router + TypeScript + React 19 + Tailwind v4 (CSS-based config in `app/globals.css`, no tailwind.config) · Prisma + Postgres · separate worker container (node-cron) · Deployed as services appended to a host Docker stack behind Traefik · Authelia forward-auth via a Traefik middleware (single user, config in env).
 
 - `npm run dev` — dev server at localhost:3000
 - `npm run build` / `npm start` — production build/serve
@@ -48,20 +48,17 @@ ends with a plan-vs-reality table listing what the original plan describes but
 isn't built yet.
 
 ```
-proxy.ts                # the auth gate — runs on everything but /signin,
-                        #   /api/auth/*, /api/health
+proxy.ts                # the auth gate — runs on everything but /api/health
 app/
   listings/             # / table, detail panel, context menu, merge-split
   tracker/              # /tracker kanban/list + dashboard
   import/               # /import paste/CSV import
   resume/               # /resume PDF upload (text extracted once, at upload)
   alerts/               # /alerts thresholds + per-kind "Send now"
-  signin/               # the ONLY page reachable without a session
-  api/auth/[...nextauth]/   # Authelia OIDC handshake (generic provider, id "oidc")
   api/health/           # unauthenticated liveness probe for the healthcheck
   api/applications/export/  # GET applications CSV (checks the session itself)
 lib/
-  auth.ts, auth.config.ts   # Auth.js instance + edge-safe config, allowlist
+  auth.ts               # identity from Authelia's forward-auth headers
   auth-guard.ts         # requireSession() — called by every Server Action
   db.ts                 # Prisma client singleton (passes ?schema= to the adapter)
   cycle.ts              # one full refresh: ingest → score → detail → score+LLM
@@ -101,9 +98,10 @@ docs/ARCHITECTURE.md, docs/DEPLOYMENT.md
 - **Worker vs app**: worker (node-cron) owns the scheduled cycle (ingestion + rescoring) and the scheduled alerts — HIGH_SCORE after each cycle, `DIGEST_CRON` and `CLOSING_SOON_CRON` on their own schedules. Every pattern goes through `cron.validate` first, so a typo disables one job instead of killing the container at boot, and an alert failure can never abort a cycle. **Backups are not built.** "Refresh now" is meant to be the app calling the worker's `POST /refresh` on the internal network (never exposed via Traefik) — the endpoint exists, but **no UI calls it yet**.
 - **Alerts record `AlertLog` only after a successful send.** Recording first would dedupe a failed alert away permanently; a failure on one channel must not stop the other. Every alert kind is manually triggerable from `/alerts` through the same code path the cron uses. Thresholds live in the `Setting` table (UI-editable); scoring weights never do.
 - **"Not Applied" is either no Application row, or a row with status `NOT_APPLIED` that exists only to hold notes written before applying.** Status changes never delete user notes: un-applying a listing whose application has notes keeps the row. Readers treat both the same (the table folds null into NOT_APPLIED; the tracker and dashboard exclude NOT_APPLIED rows). `Application.listingId` is optional: manual entries (own `companyName`/`roleTitle`/`location`) are first-class for roles found outside the sources — bulk imports mostly won't match a listing — and can later be linked to one while keeping their fields. Status history lives in `StatusEvent`.
-- **Auth is two layers, and both are load-bearing.** Auth.js (next-auth v5) → Authelia OIDC, restricted to `ALLOWED_EMAIL`. The provider is declared **generically** (`lib/auth.config.ts`), and its id is the protocol-neutral `oidc`, never the vendor's name — that id is baked into the callback URL `/api/auth/callback/oidc`, and Authelia matches redirect URIs byte for byte, so naming it after today's IdP would force a client re-registration on the day it is swapped. The `email` scope is requested explicitly: the allowlist is an email comparison, and without the claim a correct login is refused as the wrong user. `proxy.ts` gates every path except `/signin`, `/api/auth/*` and `/api/health`; **separately**, every Server Action calls `requireSession()` as its first statement and `/api/applications/export` checks the session itself. The proxy runs outside render (Next documents it as edge-deployable), so it is the wrong thing to rely on alone — a matcher mistake should cost a redirect, not the catalog. `tests/auth/guard.test.ts` enumerates the action modules, so a new unguarded action fails the suite by existing.
-- **The allowlist fails closed.** An unset or blank `ALLOWED_EMAIL` admits *nobody*, rather than everyone who can authenticate against the Authentik tenant. It is re-checked on every token refresh, so changing it invalidates live sessions. `isPublicPath` matches exactly, never by prefix — `/api/healthz` must not ride in on `/api/health`.
-- **`public/` is deliberately NOT excluded from the proxy matcher.** Files there would otherwise be served to anonymous callers, and the user keeps a resume at `public/resume.pdf`.
+- **Auth is Authelia forward-auth, and the network is part of it.** Authelia authenticates every request as a Traefik middleware and forwards `Remote-Email`/`Remote-User`; the app reads those and checks them against `ALLOWED_USER`. There is no login flow, no session and no `/signin` page here — Authelia owns all of that. **These headers are trusted, which is only safe because nothing but Traefik can reach the container**: `deploy/compose.tracker.yml` keeps the app on `traefik_net` + an internal `tracker_net` and off the shared `apps_net`. Putting it back on a shared network, or publishing its port, hands anyone who can reach it a valid login. Do not do either.
+- **Two layers all the same.** `proxy.ts` gates every path but `/api/health`; **separately**, every Server Action calls `requireSession()` as its first statement and `/api/applications/export` checks too. The proxy runs outside render, so a matcher mistake should cost a 401, not the catalog. `tests/auth/guard.test.ts` **discovers** `app/**/actions.ts` rather than listing them, so a new unguarded action fails the suite by existing — verified by planting one.
+- **The allowlist fails closed.** An unset or blank `ALLOWED_USER` admits *nobody*. Authelia's own access control is usually broader than this app wants (a `default_policy` covering every domain admits every user), so this is the narrowing step, not a duplicate of it. `isPublicPath` matches exactly, never by prefix.
+- **`public/` is deliberately NOT excluded from the proxy matcher**, and neither is `_next/image`. Files there would otherwise be served to anonymous callers, and a resume lives at `public/resume.pdf`.
 - **All external data is untrusted**: source payloads, CSV imports, PDF text, and LLM responses all pass Zod validation at the boundary; scraped text is sanitized before rendering.
 
 ## Subagents
@@ -117,7 +115,8 @@ docs/ARCHITECTURE.md, docs/DEPLOYMENT.md
 3. ✅ UI + application tracker
 4. ✅ Alerts + resume matching (+ merge-split)
 5. ✅ Auth + deployment (Docker, compose, Traefik, backups) — **written, never
-   deployed**. Targets the hp-envy host stack at `~/docker/stacks/apps/`, not
-   Dokploy; see the ordered checklist in `docs/DEPLOYMENT.md`
+   deployed**. Targets the hp-envy host stack at `~/docker/stacks/apps/`;
+   Authelia forward-auth, no OIDC client and no `configuration.yml` changes.
+   See the ordered checklist in `docs/DEPLOYMENT.md`
 
 Secrets/config: every env var documented in `.env.example`; real values only in gitignored `.env*`.

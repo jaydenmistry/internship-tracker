@@ -17,6 +17,18 @@
 # No `ports:` on anything: Traefik handles ingress, and the worker's HTTP port
 # must never be reachable from the LAN (POST /refresh is unauthenticated and
 # starts a full ingest cycle).
+#
+# ── WHY THESE ARE NOT ON apps_net ──────────────────────────────────────────
+# Authelia authenticates via Traefik forward-auth and the app trusts the
+# `Remote-Email` / `Remote-User` headers Traefik forwards. Any container that
+# can open a socket to tracker-app:3000 DIRECTLY can set those headers itself
+# and is then indistinguishable from you.
+#
+# So these four sit on their own internal `tracker_net` instead of the shared
+# `apps_net`, and only tracker-app additionally joins `traefik_net`. That makes
+# Traefik the only possible source of a request, which is what makes trusting
+# the headers safe. Moving them onto apps_net hands every other container in
+# the stack — nextcloud, portfolio, openclaw, factorio — a valid login.
 # ═══════════════════════════════════════════════════════════════════════════
 
 services:
@@ -31,7 +43,10 @@ services:
       - POSTGRES_DB=${TRACKER_DB_NAME}
       - TZ=${TZ}
     volumes:
-      - ${CONFIG_ROOT}/internship-tracker/db:/var/lib/postgresql/data
+      # NOT under .../internship-tracker: that directory is the Docker build
+      # context, so a live PGDATA inside it would be tarred up and sent to the
+      # daemon on every rebuild — and could land in an image layer.
+      - ${CONFIG_ROOT}/internship-tracker-data/db:/var/lib/postgresql/data
     healthcheck:
       test: pg_isready -U ${TRACKER_DB_USER} -d ${TRACKER_DB_NAME} || exit 1
       interval: 30s
@@ -39,7 +54,7 @@ services:
       start_period: 30s
       timeout: 5s
     networks:
-      - apps_net
+      - tracker_net
 
   tracker-app:
     build: ${CONFIG_ROOT}/internship-tracker/.
@@ -55,12 +70,12 @@ services:
       # serves. The worker shares the image and must not race it.
       - RUN_MIGRATIONS=1
       - DATABASE_URL=postgresql://${TRACKER_DB_USER}:${TRACKER_DB_PASSWORD}@tracker-db:5432/${TRACKER_DB_NAME}?schema=public
-      - AUTH_SECRET=${TRACKER_AUTH_SECRET}
-      - AUTH_URL=https://${TRACKER_HOST}
-      - AUTH_OIDC_ISSUER=${TRACKER_OIDC_ISSUER}
-      - AUTH_OIDC_ID=${TRACKER_OIDC_ID}
-      - AUTH_OIDC_SECRET=${TRACKER_OIDC_SECRET}
-      - ALLOWED_EMAIL=${TRACKER_ALLOWED_EMAIL}
+      # The one identity allowed in, matched against Remote-Email or
+      # Remote-User. Blank admits NOBODY — it fails closed.
+      - ALLOWED_USER=${TRACKER_ALLOWED_USER}
+      # Optional: where the "Sign out" link points. Authelia owns the session,
+      # so this is its logout URL. Omit and the link is simply not rendered.
+      - AUTH_LOGOUT_URL=${TRACKER_AUTH_LOGOUT_URL:-}
       - ANTHROPIC_API_KEY=${TRACKER_ANTHROPIC_API_KEY:-}
       - DISCORD_WEBHOOK_URL=${TRACKER_DISCORD_WEBHOOK_URL:-}
       - SMTP_HOST=${TRACKER_SMTP_HOST:-}
@@ -97,15 +112,23 @@ services:
       - "traefik.http.routers.internship-tracker.tls=true"
       - "traefik.http.routers.internship-tracker.tls.certresolver=cf"
       - "traefik.http.services.internship-tracker.loadbalancer.server.port=3000"
+      # Authelia forward-auth. THIS is what authenticates every request; the
+      # app only reads the headers it results in. Find the middleware's real
+      # name with:  docker inspect authelia | grep -o 'traefik.http.middlewares[^=]*'
+      - "traefik.http.routers.internship-tracker.middlewares=${TRACKER_AUTH_MIDDLEWARE}"
       - "traefik.docker.network=${TRAEFIK_NET}"
     networks:
-      - apps_net
+      - tracker_net
       - traefik_net
 
   tracker-worker:
     # Same image as tracker-app, different command. `depends_on` on the app
     # being healthy is what guarantees migrations have already run.
     image: internship-tracker:local
+    # This tag is built by tracker-app, never published. Without this,
+    # compose's pull phase can race the build and fail with
+    # "pull access denied for internship-tracker".
+    pull_policy: never
     container_name: internship-tracker-worker
     restart: unless-stopped
     depends_on:
@@ -144,7 +167,7 @@ services:
       start_period: 30s
       timeout: 5s
     networks:
-      - apps_net
+      - tracker_net
 
   tracker-backup:
     # pg_dump refuses to dump from a server newer than itself, so the dump tool
@@ -168,12 +191,16 @@ services:
       - BACKUP_KEEP_MIN=${TRACKER_BACKUP_KEEP_MIN:-7}
       - BACKUP_INTERVAL_SECONDS=${TRACKER_BACKUP_INTERVAL_SECONDS:-86400}
     volumes:
-      - ${CONFIG_ROOT}/internship-tracker/backups:/backups
+      # Outside the build context, for the same reason as the database.
+      - ${CONFIG_ROOT}/internship-tracker-data/backups:/backups
       - ${CONFIG_ROOT}/internship-tracker/scripts:/scripts:ro
     entrypoint: ["/bin/sh", "-c"]
-    # Sleeps FIRST so a restart loop cannot spam dumps, then dumps on every
-    # interval. A failed dump logs and waits rather than exiting, so one bad
-    # night does not take the service down and stop all later backups.
+    # Dumps FIRST, then sleeps. Sleeping first would leave the healthcheck
+    # red for a whole interval on a fresh stack — 24h of `unhealthy` on the
+    # very first deploy, which looks exactly like a broken backup. A restart
+    # loop cannot spam bad dumps: each is written `.partial-` and renamed
+    # only after pg_restore --list can read it. A failed dump logs and waits
+    # rather than exiting, so one bad night does not stop all later backups.
     # Every shell variable below is written `$$VAR`: compose expands a single
     # `$` itself at parse time, which would substitute the HOST's environment
     # (where these are undefined) and leave the loop sleeping on an empty
@@ -182,8 +209,8 @@ services:
       - |
         echo "[backup] interval $${BACKUP_INTERVAL_SECONDS}s -> $${BACKUP_DIR}"
         while true; do
-          sleep "$${BACKUP_INTERVAL_SECONDS}"
           sh /scripts/backup.sh || echo "[backup] run failed; will retry next interval"
+          sleep "$${BACKUP_INTERVAL_SECONDS}"
         done
     healthcheck:
       # Healthy while a dump newer than two intervals exists, so a silently
@@ -196,10 +223,18 @@ services:
       start_period: 120s
       timeout: 10s
     networks:
-      - apps_net
+      - tracker_net
 
-# ── Everything below already exists in your compose.yml — do not duplicate ──
+# ── networks ───────────────────────────────────────────────────────────────
+# `apps_net` and `traefik_net` already exist in your compose.yml — do NOT
+# duplicate those two. `tracker_net` is new: add just that one entry to your
+# existing `networks:` block.
 networks:
+  tracker_net:
+    name: tracker_net
+    # internal: no route off this bridge at all. The app reaches the internet
+    # through traefik_net; the database and worker never need to.
+    internal: true
   apps_net:
     name: ${APPS_NET}
   traefik_net:

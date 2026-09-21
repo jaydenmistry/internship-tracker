@@ -1,53 +1,45 @@
-import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { isPublicPath } from "@/lib/auth.config";
+import { NextResponse, type NextRequest } from "next/server";
+import { identityFromHeaders, isAllowedUser, isPublicPath } from "@/lib/auth";
 
 /**
- * The outer gate: nothing is reachable without a session except the sign-in
- * handshake and the container healthcheck.
+ * The outer gate: every request must arrive carrying an identity that Authelia
+ * asserted and that matches `ALLOWED_USER`.
  *
- * This is the FIRST of two layers, not the only one. Next's proxy is documented
- * as running separately from render code and, in optimized deployments, at the
- * edge — so it is the wrong and only place to enforce authorization. Every
- * Server Action re-checks the session itself through `lib/auth-guard.ts`, and
- * every route handler does the same. A bug in the matcher below should cost a
- * redirect, not the whole catalog.
+ * This is the FIRST of two layers, not the only one. Every Server Action
+ * re-checks the same headers through `lib/auth-guard.ts`, and
+ * `/api/applications/export` does too. A bug in the matcher below should cost
+ * a 401, not the whole catalog.
  *
- * A browser navigation gets a redirect to /signin; anything else (a Server
- * Action POST, a fetch, an API call) gets a bare 401, because redirecting a
- * non-navigation request to an HTML page just produces a confusing parse error
- * at the caller.
+ * A request with no identity header has not been through Authelia at all —
+ * which, if the deployment is correct, means it did not come through Traefik.
+ * It gets a flat 401 rather than a redirect: Authelia owns the login flow, and
+ * this app has no page to send anyone to.
  */
-export default auth((req) => {
-  const { pathname, search } = req.nextUrl;
+export default function proxy(req: NextRequest) {
+  if (isPublicPath(req.nextUrl.pathname)) return NextResponse.next();
 
-  if (isPublicPath(pathname)) return NextResponse.next();
-  if (req.auth) return NextResponse.next();
+  const identity = identityFromHeaders(req.headers);
+  if (isAllowedUser(identity)) return NextResponse.next();
 
-  const wantsHtml = req.headers.get("accept")?.includes("text/html") ?? false;
-  const isNavigation = req.method === "GET" && wantsHtml;
-
-  if (!isNavigation) {
-    return NextResponse.json({ error: "authentication required" }, { status: 401 });
-  }
-
-  const signin = new URL("/signin", req.nextUrl.origin);
-  // Where to return to after signing in. Only the path is carried, never an
-  // absolute URL — an attacker-supplied absolute `callbackUrl` is how open
-  // redirects happen.
-  if (pathname !== "/") signin.searchParams.set("next", `${pathname}${search}`);
-  return NextResponse.redirect(signin);
-});
+  return NextResponse.json(
+    {
+      error: identity
+        ? "this account is not the one this tracker is configured for"
+        : "authentication required",
+    },
+    { status: identity ? 403 : 401 },
+  );
+}
 
 export const config = {
   /**
    * Everything except Next's own static output and the favicon.
    *
-   * Without a matcher, proxy runs on every request including `_next/static`,
-   * which would make the gate block its own stylesheets. `public/` files are
-   * NOT excluded on purpose: anything dropped in there would otherwise be
-   * served to anonymous callers, and this app has had a resume sitting in that
-   * directory before.
+   * `public/` is NOT excluded, on purpose: files there would otherwise be
+   * served to anonymous callers, and a resume lives at `public/resume.pdf`.
+   * `_next/image` is not excluded either — the optimizer serves any local path
+   * it is given, so excluding it would put every image in `public/` outside
+   * the gate.
    */
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!_next/static|favicon.ico).*)"],
 };
