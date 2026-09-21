@@ -75,6 +75,13 @@ const OIDC_PROVIDER: NextAuthConfig["providers"][number] = {
   // configured user" for the configured user.
   authorization: { params: { scope: "openid profile email" } },
   checks: ["pkce", "state"],
+  // Pinned rather than left to the default on either side. Auth.js currently
+  // treats "unset" as client_secret_basic, but carries a TODO to make it
+  // client_secret_post in its next major — and the client's registration in
+  // Authelia has to name the SAME method. A mismatch is invisible until the
+  // token exchange, i.e. it fails immediately after a *successful* login,
+  // which reads as "the login worked and then the app broke".
+  client: { token_endpoint_auth_method: "client_secret_basic" },
 };
 
 export const authConfig = {

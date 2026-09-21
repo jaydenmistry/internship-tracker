@@ -101,7 +101,9 @@ identity_providers:
           - authorization_code
         response_types:
           - code
-        token_endpoint_auth_method: client_secret_post
+        # Must match what the app sends. Both sides are pinned to this
+        # explicitly — see lib/auth.config.ts.
+        token_endpoint_auth_method: client_secret_basic
 ```
 
 **The redirect URI must be this exact string:**
@@ -302,6 +304,7 @@ Work down this list; it is ordered by how often each one is the cause.
 | "Sign-in failed" / `error=Configuration` | Discovery unreachable, or issuer wrong | `curl https://auth.jmistry.com/.well-known/openid-configuration`. Remove any trailing slash from `TRACKER_OIDC_ISSUER` |
 | Authelia says **invalid redirect_uri** | Byte mismatch | It must be exactly `https://jobs.jmistry.com/api/auth/callback/oidc`. Check for a trailing slash, `http`, or a stale hostname |
 | Authelia says **invalid client secret** | `.env` has the hash, or Authelia has the plaintext | `.env` gets the plaintext; `configuration.yml` gets the `$pbkdf2-sha512$...` digest. They are not interchangeable |
+| Authelia accepts the login, then the app errors and dumps you back at `/signin` | `token_endpoint_auth_method` differs between the two sides | Both must say `client_secret_basic`. The app pins it in `lib/auth.config.ts`; the client registration must match. This one fails *after* a successful login, so it does not look like an auth problem |
 | **"That account is not the one this tracker is configured for"** | The email claim did not arrive, or does not match | Confirm `email` is in the client's `scopes` and released by any claims policy; confirm `TRACKER_ALLOWED_EMAIL` matches your Authelia email exactly (case is ignored, whitespace is trimmed) |
 | Redirect loop between app and Authelia | Cookie not surviving | `AUTH_URL` must be the `https://` origin with no trailing slash, and Traefik must terminate TLS |
 | Signed in, then signed out again immediately | `TRACKER_AUTH_SECRET` changed, or differs between restarts | Set it to a fixed value in `.env` |
