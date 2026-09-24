@@ -3,6 +3,8 @@ import type { AppStatus } from "@/generated/prisma/enums";
 import { recordStatus } from "@/lib/applications/commit";
 import { TRACKER_STATUSES } from "@/lib/applications/statuses";
 import { primaryLocation } from "@/lib/listings/location";
+import { normalizeCompany } from "@/lib/ingestion/normalize";
+import { loadContactCountsByCompany } from "@/lib/networking/contacts";
 
 /**
  * Read/write model for the tracker views (kanban/list + dashboard).
@@ -53,6 +55,13 @@ export interface TrackerApplication {
   score: number | null;
   rank: number | null;
   likelyClosed: boolean;
+  /** Contacts at this application's company (by normalized name, so manual
+   *  applications match too). */
+  contactCount: number;
+  /** The normalized company name the count was keyed on; null when zero.
+   *  The badge links /network?companyKey= with it, so the page shows exactly
+   *  the people counted — not a text search on the display name. */
+  contactCompanyKey: string | null;
 }
 
 export async function loadTrackerApplications(): Promise<TrackerApplication[]> {
@@ -68,15 +77,21 @@ export async function loadTrackerApplications(): Promise<TrackerApplication[]> {
           finalScore: true,
           rank: true,
           likelyClosed: true,
-          company: { select: { name: true } },
+          company: { select: { name: true, normalizedName: true } },
         },
       },
       events: { orderBy: { occurredAt: "desc" }, take: 1, select: { occurredAt: true } },
     },
     orderBy: { updatedAt: "desc" },
   });
+  const contactCounts = await loadContactCountsByCompany();
+  const companyKey = (a: (typeof apps)[number]) =>
+    a.listing?.company.normalizedName ?? (a.companyName ? normalizeCompany(a.companyName) : null);
 
-  return apps.map((a) => ({
+  return apps.map((a) => {
+    const key = companyKey(a);
+    const contactCount = (key && contactCounts.get(key)) || 0;
+    return {
     id: a.id,
     listingId: a.listingId,
     company: a.listing?.company.name ?? a.companyName ?? "(unknown company)",
@@ -94,7 +109,10 @@ export async function loadTrackerApplications(): Promise<TrackerApplication[]> {
     score: a.listing?.finalScore ?? null,
     rank: a.listing?.rank ?? null,
     likelyClosed: a.listing?.likelyClosed ?? false,
-  }));
+    contactCount,
+    contactCompanyKey: contactCount > 0 ? key : null,
+    };
+  });
 }
 
 export interface DashboardStats {

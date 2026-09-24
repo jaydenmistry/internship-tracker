@@ -56,13 +56,18 @@ function renderNasty(overrides: Partial<ListingDetail> = {}) {
   return screen.getByLabelText("Listing detail");
 }
 
+/** A same-origin path. `//host` and `/\host` are other sites to a browser. */
+const SAME_ORIGIN = /^\/(?![/\\])/;
+
 function assertInert(node: HTMLElement) {
   expect(node.querySelector("script")).toBeNull();
   expect(node.querySelector("img")).toBeNull();
   expect(node.querySelector("b")).toBeNull();
   expect(node.querySelector("strong")).toBeNull();
   for (const a of node.querySelectorAll("a")) {
-    expect(a.getAttribute("href")).toMatch(/^https?:\/\//);
+    // http(s), or a same-origin path like /network/… — never `//host` or a
+    // scheme like javascript:.
+    expect(a.getAttribute("href")).toMatch(/^(https?:\/\/|\/(?![/\\]))/);
   }
   expect((window as unknown as { __pwned?: boolean }).__pwned).toBeUndefined();
 }
@@ -109,13 +114,18 @@ describe("detail panel renders untrusted text as text", () => {
 
   it("renders no link at all for a javascript: apply URL", () => {
     const panel = renderNasty({ url: "javascript:alert(1)" });
-    expect(panel.querySelectorAll("a")).toHaveLength(0);
+    // Only the app's own relative links (e.g. "People at … + add") remain.
+    const external = [...panel.querySelectorAll("a")].filter((a) => !SAME_ORIGIN.test(a.getAttribute("href") ?? ""));
+    expect(external).toHaveLength(0);
     expect(screen.getByText(/No usable apply link/)).toBeTruthy();
   });
 
   it("renders an http(s) apply link with noopener noreferrer", () => {
     renderNasty({ url: "https://jobs.example.com/42" });
-    const link = screen.getByRole("link");
+    const [link, ...others] = screen
+      .getAllByRole("link")
+      .filter((a) => !SAME_ORIGIN.test(a.getAttribute("href") ?? ""));
+    expect(others).toHaveLength(0);
     expect(link.getAttribute("href")).toBe("https://jobs.example.com/42");
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");
     expect(link.getAttribute("target")).toBe("_blank");

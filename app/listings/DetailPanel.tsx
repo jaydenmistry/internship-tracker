@@ -1,9 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { AppStatus } from "@/generated/prisma/enums";
 import Badge from "@/components/Badge";
 import type { ComponentDetail, ListingDetail, ResumeMatchState } from "@/lib/listings/detail";
+import { CONTACT_STATUS_LABELS, CONTACT_STATUS_TONE, KIND_LABELS } from "@/lib/networking/schema";
+import { addContactHref } from "@/app/network/state";
 import { NOTES_MAX, type DetailFocus, type RowCommand, type SendResult } from "./row-actions";
 import {
   absoluteDate,
@@ -125,6 +128,7 @@ export default function DetailPanel({
           <>
             <Facts detail={detail} now={now} />
             {detail.disqualified && <Disqualified detail={detail} />}
+            <PeopleSection detail={detail} />
             <MergedSources detail={detail} focus={focus} onCommand={onCommand} />
             <Breakdown detail={detail} />
             <LlmSection detail={detail} />
@@ -520,6 +524,55 @@ function KeywordList({ words, tone }: { words: string[]; tone: "hit" | "miss" | 
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * "People at {Company}": everyone you've added at this listing's company.
+ * Contacts attach by Company row, so this fills in on its own when a listing
+ * is ingested for a company you already know someone at.
+ */
+function PeopleSection({ detail }: { detail: ListingDetail }) {
+  const add = (
+    <Link href={addContactHref(detail.company)} className="text-accent hover:underline">
+      + add
+    </Link>
+  );
+  return (
+    <Section title={`People at ${detail.company}`} aside={add}>
+      {detail.people.length === 0 ? (
+        <p className="text-[12px] text-faint" data-testid="people-empty">
+          No contacts here yet.
+        </p>
+      ) : (
+        <ul className="space-y-1 text-[12px]" data-testid="people">
+          {detail.people.map((p) => (
+            <li key={p.id} className="flex min-w-0 items-baseline gap-2">
+              <Link
+                href={`/network/${p.id}`}
+                className="shrink-0 font-medium text-ink hover:underline decoration-faint underline-offset-2"
+              >
+                {p.name}
+              </Link>
+              <span className="min-w-0 truncate text-dim" title={p.title ?? undefined}>
+                {p.title ?? KIND_LABELS[p.kind]}
+              </span>
+              <span className={`ml-auto shrink-0 ${CONTACT_STATUS_TONE[p.status]}`}>
+                {CONTACT_STATUS_LABELS[p.status]}
+              </span>
+              {p.doNotContact && (
+                <Badge tone="warn" title="Marked do-not-contact">
+                  dnc
+                </Badge>
+              )}
+              <span className="w-[4.5rem] shrink-0 text-right font-mono text-faint tabular-nums" title="Last message">
+                {p.lastMessageAt ? absoluteDay(new Date(p.lastMessageAt).getTime()) : "—"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Section>
   );
 }
 

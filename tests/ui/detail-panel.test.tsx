@@ -322,3 +322,36 @@ describe("load states", () => {
     expect(screen.getByRole("alert").textContent).toMatch(/boom/);
   });
 });
+
+describe("People at {Company}", () => {
+  it("offers an add link with the company prefilled when nobody is known", () => {
+    renderPanel({ company: "AT&T", people: [] });
+    const section = screen.getByLabelText("People at AT&T");
+    expect(within(section).getByTestId("people-empty")).toBeTruthy();
+    expect(within(section).getByRole("link", { name: "+ add" }).getAttribute("href")).toBe(
+      "/network?add=1&company=AT%26T",
+    );
+  });
+
+  it("lists each person with status, links to their page, and renders names as text", () => {
+    renderPanel({
+      people: [
+        {
+          id: "c1",
+          name: "<img src=x onerror=alert(1)>",
+          title: "Recruiter",
+          kind: "RECRUITER",
+          status: "AWAITING_REPLY",
+          doNotContact: true,
+          lastMessageAt: "2026-09-15T12:00:00.000Z",
+        },
+      ],
+    });
+    const list = screen.getByTestId("people");
+    const link = within(list).getByRole("link", { name: "<img src=x onerror=alert(1)>" });
+    expect(link.getAttribute("href")).toBe("/network/c1");
+    expect(list.querySelector("img")).toBeNull();
+    expect(list.textContent).toMatch(/awaiting reply/);
+    expect(list.textContent).toMatch(/dnc/);
+  });
+});

@@ -93,6 +93,11 @@ erDiagram
   Listing |o--o| Application : "tracked as"
   Application ||--o{ StatusEvent : "timeline"
   Listing |o..o{ AlertLog : "listingId (no FK)"
+  Company |o--o{ Contact : "people at"
+  Contact ||--o{ OutreachMessage : "messages"
+  Listing |o--o{ OutreachMessage : "about"
+  Application |o--o{ OutreachMessage : "about"
+  Contact |o--o{ Application : "referred"
 
   Company {
     string normalizedName UK
@@ -158,6 +163,22 @@ erDiagram
     string dedupeKey UK
     enum kind
     enum channel
+  }
+  Contact {
+    string name
+    enum kind
+    enum status "derived"
+    datetime nextFollowUpAt "derived"
+    enum manualStatus
+    boolean doNotContact
+  }
+  OutreachMessage {
+    enum direction
+    enum channel
+    enum type
+    string body
+    string draftBody
+    datetime sentAt
   }
 ```
 
@@ -265,6 +286,24 @@ malformed. Scoring weights live in `config/scoring.json` and never here.
 of the key, so the same alert to Discord and email is two rows). **Written only
 after a successful send**: recording first would dedupe a failed alert away
 permanently.
+
+**Contact** / **OutreachMessage** — networking (`docs/NETWORKING_PLAN.md`; phase
+1 of 4 is built: contacts, not messages or follow-ups yet).
+- Entered by hand only. The app never sends mail and never talks to LinkedIn.
+- A contact's company is a real `Company` row, found or created by
+  `resolveCompany()` with ingestion's own `normalizeCompany`, so a listing
+  ingested later attaches to the same row and the listing panel's "People at
+  {Company}" fills in with no linking step. The normalizer can't fold synonyms
+  ("Facebook" vs "Meta"), which is why the form autocompletes existing names.
+- `status`, `nextFollowUpAt` and `followUpsSent` are **derived** — written only
+  by the follow-up engine (phase 2, not built). Editing a contact's details
+  never touches them. `manualStatus`/`manualStatusAt`/`followUpOverrideAt` are
+  the user's inputs to that engine.
+- Deleting a contact is a real delete (third-party personal data): messages
+  cascade, `Application.referredByContactId` is set null. `doNotContact` is
+  the keep-the-record option.
+- Tracker cards count contacts by **normalized company name**, not company id,
+  so a manual application (typed company, no listing) still finds them.
 
 ---
 
@@ -506,6 +545,7 @@ app/                       Next.js App Router (UI only; no auth yet)
   import/                  /import — paste/CSV import with match review
   resume/                  /resume — PDF upload; text extracted once, at upload
   alerts/                  /alerts — thresholds, per-kind "Send now", recent sends
+  network/                 /network — contacts table + add form; [id]/ contact page
   api/applications/export/ GET → applications CSV (round-trips via /import)
   layout.tsx, globals.css  shell, nav, dark theme tokens (Tailwind v4, CSS config)
 components/                small shared UI primitives
@@ -530,6 +570,7 @@ lib/
   listings/                table read model, detail read model, row mutations
   applications/            import parse/match, commit, tracker + dashboard, CSV
   resume/                  extract (unpdf), store, vocabulary + posting↔resume match
+  networking/              contact input schema (pure), contacts read/write model
   alerts/
     settings.ts            threshold schema + defaults (pure)
     config.ts              Setting-table read/write; re-exports settings.ts

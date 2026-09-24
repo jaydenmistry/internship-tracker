@@ -35,6 +35,8 @@ function app(overrides: Partial<TrackerApplication> = {}): TrackerApplication {
     score: 72,
     rank: 5,
     likelyClosed: false,
+    contactCount: 0,
+    contactCompanyKey: null,
     ...overrides,
   };
 }
@@ -175,5 +177,21 @@ describe("failure handling", () => {
     await waitFor(() => expect(screen.getByRole("region", { name: "applied: 1" })).toBeTruthy());
     expect(screen.getByRole("region", { name: "OA: 0" })).toBeTruthy();
     expect(screen.getByRole("alert").textContent).toContain("Reverted");
+  });
+});
+
+describe("contacts badge", () => {
+  it("links a card to the people at that company, and is absent with nobody known", () => {
+    render(
+      <TrackerView
+        apps={[app({ id: "a1", company: "AT&T, Inc.", contactCount: 2, contactCompanyKey: "at t" }), app({ id: "a2", company: "Ramp", contactCount: 0 })]}
+        view="kanban"
+        nowIso={NOW}
+      />,
+    );
+    const [first, second] = screen.getAllByTestId("tracker-card");
+    const link = within(first).getByRole("link", { name: "2 contacts" });
+    expect(link.getAttribute("href")).toBe("/network?companyKey=at%20t");
+    expect(within(second).queryByText(/contact/)).toBeNull();
   });
 });
