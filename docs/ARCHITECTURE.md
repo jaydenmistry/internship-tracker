@@ -222,7 +222,7 @@ plain string with no foreign key.
 - `(listingId, textHash)` is unique. Only the assessment matching the listing's
   **current** `postingTextHash` applies; older ones are ignored, never re-billed.
 - The adjustment is clamped to `±llm.maxAdjustment` (15) regardless of what the
-  model returns. None exist yet — `ANTHROPIC_API_KEY` has never been set.
+  model returns. None exist yet — `SCORING_ANTHROPIC_API_KEY` has never been set.
 
 **Application** — the user's tracking record.
 - `listingId` is optional and unique: a listing has at most one application,
@@ -475,7 +475,7 @@ that are read on every call. `.env.example` documents them all.
 | `DETAIL_REFETCH_DAYS` | worker | Re-fetch posting pages after N days |
 | `DETAIL_MAX_PER_RUN` | worker | Posting fetches per cycle (default 250) |
 | `SCORING_CONFIG_PATH` | worker, app | Location of `scoring.json` |
-| `ANTHROPIC_API_KEY` | worker | Stage 2; unset = cache only |
+| `SCORING_ANTHROPIC_API_KEY` | worker, app | Stage 2; unset = cache only. Passed to the SDK explicitly. A plain `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is **fatal at boot** in both processes (`lib/env-guard.ts`, via `instrumentation.ts` and `worker/index.ts`) |
 | `LLM_MAX_CALLS_PER_RUN` | worker | Claude spend cap (malformed ⇒ default, never "no cap") |
 | `LLM_MAX_CANDIDATES_PER_RUN` | worker | Bounds the stage-2 candidate query |
 | `RESCORE_MAX_AGE_HOURS` | worker | Max-age reclaim window |

@@ -206,24 +206,33 @@ describe("assessPosting — untrusted output is rejected", () => {
 });
 
 describe("createAnthropicClient", () => {
-  const original = process.env.ANTHROPIC_API_KEY;
-
   beforeEach(() => {
+    vi.stubEnv("SCORING_ANTHROPIC_API_KEY", "");
     vi.stubEnv("ANTHROPIC_API_KEY", "");
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
-    if (original === undefined) delete process.env.ANTHROPIC_API_KEY;
-    else process.env.ANTHROPIC_API_KEY = original;
   });
 
-  it("throws when ANTHROPIC_API_KEY is unset", () => {
-    expect(() => createAnthropicClient()).toThrow(/ANTHROPIC_API_KEY/);
+  it("throws when SCORING_ANTHROPIC_API_KEY is unset", () => {
+    expect(() => createAnthropicClient()).toThrow(/SCORING_ANTHROPIC_API_KEY/);
+  });
+
+  it("ignores the ambient ANTHROPIC_API_KEY", () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-ambient");
+    expect(() => createAnthropicClient()).toThrow(/SCORING_ANTHROPIC_API_KEY/);
+  });
+
+  it("passes the scoring key to the SDK explicitly", () => {
+    vi.stubEnv("SCORING_ANTHROPIC_API_KEY", "sk-ant-scoring");
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-ambient");
+    const client = createAnthropicClient() as unknown as { apiKey: string | null };
+    expect(client.apiKey).toBe("sk-ant-scoring");
   });
 
   it("builds a client with a messages.create method when the key is set", () => {
-    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-test");
+    vi.stubEnv("SCORING_ANTHROPIC_API_KEY", "sk-ant-test");
     const client = createAnthropicClient();
     expect(typeof client.messages.create).toBe("function");
   });
