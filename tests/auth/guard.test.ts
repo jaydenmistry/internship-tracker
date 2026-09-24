@@ -132,7 +132,11 @@ describe("every Server Action refuses an unauthenticated caller", () => {
           `${name} resolved instead of refusing an unauthenticated call`,
         ).rejects.toThrow(/not signed in/i);
       }
-    });
+      // The first import of an action module evaluates its whole server graph
+      // (Prisma, scoring, ingestion). On a slow filesystem — WSL on /mnt/c —
+      // that alone takes 6–8s, past vitest's 5s default, while the assertions
+      // themselves are instant.
+    }, 60_000);
   }
 
   it("refuses an identity Authelia asserted that is not the allowed one", async () => {

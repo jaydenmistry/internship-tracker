@@ -25,6 +25,8 @@ function app(overrides: Partial<TrackerApplication> = {}): TrackerApplication {
     score: 75,
     rank: 4,
     likelyClosed: false,
+    contactCount: 0,
+    contactCompanyKey: null,
     ...overrides,
   };
 }

@@ -52,6 +52,7 @@ export function detailFixture(overrides: Partial<ListingDetail> = {}): ListingDe
     dismissed: false,
     application: null,
     resumeMatch: { state: "no-resume", postingKeywords: ["TypeScript", "React", "Go"] },
+    people: [],
     ...overrides,
   };
 }

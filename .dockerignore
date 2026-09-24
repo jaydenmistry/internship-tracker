@@ -7,8 +7,9 @@
 
 # Secrets. `.env*` is gitignored too; this is the second gate, so a developer
 # with a populated .env cannot accidentally bake it into a layer.
-.env
-.env.*
+# `.env*`, not `.env` + `.env.*`: an editor backup like `.env~` matches
+# neither of those and would otherwise land in the build stage.
+.env*
 !.env.example
 
 # Local build output and caches — the image rebuilds these itself.

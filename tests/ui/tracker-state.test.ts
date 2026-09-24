@@ -28,6 +28,8 @@ function trackerApp(overrides: Partial<TrackerApplication> = {}): TrackerApplica
     score: 72,
     rank: 5,
     likelyClosed: false,
+    contactCount: 0,
+    contactCompanyKey: null,
     ...overrides,
   };
 }

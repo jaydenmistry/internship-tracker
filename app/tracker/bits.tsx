@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import Badge from "@/components/Badge";
 import type { AppStatus } from "@/generated/prisma/enums";
 import type { TrackerApplication } from "@/lib/applications/tracker";
@@ -46,6 +47,16 @@ export function Markers({ app }: { app: TrackerApplication }) {
         <Badge tone="warn" title="The listing has disappeared from every source; it is likely closed">
           closed?
         </Badge>
+      )}
+      {app.contactCount > 0 && app.contactCompanyKey && (
+        <Link href={`/network?companyKey=${encodeURIComponent(app.contactCompanyKey)}`} className="shrink-0">
+          <Badge
+            tone="accent"
+            title={`You know ${app.contactCount} ${app.contactCount === 1 ? "person" : "people"} at ${app.company}`}
+          >
+            {app.contactCount} {app.contactCount === 1 ? "contact" : "contacts"}
+          </Badge>
+        </Link>
       )}
     </>
   );

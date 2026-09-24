@@ -37,6 +37,9 @@ yarn-error.log*
 .env*
 !.env.example
 
+# editor backup files (e.g. a stale copy of a doc saved as NOTES.md~)
+*~
+
 # prisma generated client
 /generated/
 

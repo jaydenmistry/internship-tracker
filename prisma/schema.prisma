@@ -40,6 +40,9 @@ model Company {
   faangPlus      Boolean   @default(false) // from Simplify README 🔥 set
   tierOverride   Int? // manual tier (1–4); beats faangPlus
   listings       Listing[]
+  /// A company can exist for contacts alone (no listings yet). Ingestion
+  /// upserts by normalizedName, so later listings attach to the same row.
+  contacts       Contact[]
 }
 
 /// One canonical row per deduped listing. Rows are never deleted; a listing
@@ -100,8 +103,8 @@ model Listing {
   /// every reader agrees on it. Null for disqualified listings, which have no
   /// meaningful position. `previousRank` is the value from the run before, kept
   /// so the UI can show movement; equal ranks mean the listing did not move.
-  rank         Int?
-  previousRank Int?
+  rank          Int?
+  previousRank  Int?
   /// When rank last CHANGED (not when it was last recomputed), so "moved
   /// yesterday" stays true through subsequent no-op runs.
   rankChangedAt DateTime?
@@ -114,11 +117,12 @@ model Listing {
   /// arrow that fires on those carries no information — the UI shows movement
   /// only when this is true. Written alongside `previousRank`, so it stays
   /// paired with the move it describes.
-  scoreMoved   Boolean  @default(false)
+  scoreMoved    Boolean   @default(false)
 
   sources     ListingSource[]
   application Application?
   assessments LlmAssessment[]
+  outreach    OutreachMessage[]
 
   @@index([dedupKey])
   @@index([companyId])
@@ -180,20 +184,26 @@ model LlmAssessment {
 /// (roles found outside the sources) are first-class and can be linked to a
 /// listing later while keeping their own fields.
 model Application {
-  id            String        @id @default(cuid())
-  listingId     String?       @unique
-  listing       Listing?      @relation(fields: [listingId], references: [id], onDelete: SetNull)
-  companyName   String? // manual-entry fields; retained after linking
-  roleTitle     String?
-  location      String?
-  status        AppStatus
-  appliedAt     DateTime?
-  requisitionId String?
-  applyUrl      String? // direct URL if it differs from the listing URL
-  notes         String?
-  events        StatusEvent[]
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id                  String            @id @default(cuid())
+  listingId           String?           @unique
+  listing             Listing?          @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  companyName         String? // manual-entry fields; retained after linking
+  roleTitle           String?
+  location            String?
+  status              AppStatus
+  appliedAt           DateTime?
+  requisitionId       String?
+  applyUrl            String? // direct URL if it differs from the listing URL
+  notes               String?
+  events              StatusEvent[]
+  /// Who referred you for this role, when someone did.
+  referredByContactId String?
+  referredBy          Contact?          @relation("ReferredBy", fields: [referredByContactId], references: [id], onDelete: SetNull)
+  outreach            OutreachMessage[]
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@index([referredByContactId])
 }
 
 model StatusEvent {
@@ -231,4 +241,110 @@ model AlertLog {
   listingId String?
   dedupeKey String       @unique // e.g. "HIGH_SCORE:<listingId>"
   sentAt    DateTime     @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Networking — see docs/NETWORKING_PLAN.md. Contacts are entered by hand; the
+// app never sends mail or talks to LinkedIn. Messages are logged after YOU
+// send them.
+// ---------------------------------------------------------------------------
+
+enum ContactKind {
+  RECRUITER
+  ENGINEER
+  HIRING_MANAGER
+  ALUMNI
+  OTHER
+}
+
+enum ContactStatus {
+  NOT_CONTACTED
+  PENDING_CONNECTION // LinkedIn connection note sent, not yet accepted
+  AWAITING_REPLY
+  REPLIED
+  CHATTED // had a call / coffee chat (manual, or implied by a MEETING)
+  REFERRED // they referred you somewhere (manual)
+  COLD // cadence exhausted, no reply
+}
+
+enum OutreachDirection {
+  OUT
+  IN
+}
+
+enum OutreachChannel {
+  EMAIL
+  LINKEDIN
+  IN_PERSON
+  OTHER
+}
+
+enum OutreachType {
+  COLD
+  CONNECT_NOTE
+  ACCEPTED // inbound: they accepted a LinkedIn connection request
+  MEETING // outbound: met in person (career fair, coffee chat)
+  FOLLOW_UP
+  THANK_YOU
+  REFERRAL_ASK
+  REPLY // an inbound message, or a free-form outbound reply
+}
+
+/// A person you know, or want to know, at a company. Never deleted
+/// automatically; a manual delete is a real delete and cascades to messages.
+model Contact {
+  id           String      @id @default(cuid())
+  name         String
+  companyId    String?
+  company      Company?    @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  title        String?
+  kind         ContactKind @default(OTHER)
+  email        String?
+  linkedinUrl  String?
+  howMet       String? // "UGA career fair 9/2026", "alumni directory"
+  notes        String?
+  doNotContact Boolean     @default(false)
+
+  // User-set inputs to computeFollowUpState().
+  manualStatus       ContactStatus? // only CHATTED or REFERRED
+  manualStatusAt     DateTime?
+  followUpOverrideAt DateTime? // snooze; cleared when a message is logged
+
+  // Derived by computeFollowUpState() — never written anywhere else.
+  status         ContactStatus @default(NOT_CONTACTED)
+  nextFollowUpAt DateTime?
+  followUpsSent  Int           @default(0)
+
+  messages  OutreachMessage[]
+  referrals Application[]     @relation("ReferredBy")
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  @@index([companyId])
+  @@index([nextFollowUpAt])
+  @@index([status])
+}
+
+/// One message in or out, logged by hand. `body` is what was actually sent;
+/// `draftBody` is Claude's original, kept only to learn your edits from.
+model OutreachMessage {
+  id            String            @id @default(cuid())
+  contactId     String
+  contact       Contact           @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  direction     OutreachDirection
+  channel       OutreachChannel
+  type          OutreachType
+  subject       String?
+  body          String // may be empty for ACCEPTED/MEETING
+  draftBody     String?
+  sentAt        DateTime
+  listingId     String?
+  listing       Listing?          @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  applicationId String?
+  application   Application?      @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  createdAt     DateTime          @default(now())
+
+  @@index([contactId, sentAt])
+  @@index([listingId])
+  @@index([applicationId])
 }

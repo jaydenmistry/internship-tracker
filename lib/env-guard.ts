@@ -17,6 +17,26 @@ export function ambientAnthropicCredentials(env: Readonly<Record<string, string 
   return FORBIDDEN_AMBIENT_VARS.filter((name) => (env[name] ?? "").trim() !== "");
 }
 
+/**
+ * Stage-2 scoring is optional, so a missing key must not stop either process —
+ * but it silently turns every new posting into rule-only scoring, which is
+ * easy to miss. Especially right after the rename from ANTHROPIC_API_KEY, when
+ * an un-renamed .env is the likeliest cause. Returns whether it logged.
+ */
+export function reportMissingScoringKey(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  log: (message: string) => void = console.error,
+  processName = "app",
+): boolean {
+  if ((env.SCORING_ANTHROPIC_API_KEY ?? "").trim() !== "") return false;
+  log(
+    `[${processName}] SCORING_ANTHROPIC_API_KEY is not set — stage-2 Claude scoring is DISABLED ` +
+      `(rule-based scores only; cached assessments still apply). If this deployment used ` +
+      `ANTHROPIC_API_KEY before, rename it (host .env: TRACKER_SCORING_ANTHROPIC_API_KEY).`,
+  );
+  return true;
+}
+
 export function assertNoAmbientAnthropicCredentials(env: Readonly<Record<string, string | undefined>> = process.env): void {
   const found = ambientAnthropicCredentials(env);
   if (found.length === 0) return;

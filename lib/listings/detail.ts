@@ -4,6 +4,7 @@ import { COMPONENT_NAMES, loadScoringConfig, type ComponentName } from "@/lib/sc
 import { buildVocabulary, extractKeywords, matchResume } from "@/lib/resume/match";
 import { getActiveResume } from "@/lib/resume/store";
 import { parseMergeAudit } from "@/lib/ingestion/merge-audit";
+import { loadCompanyPeople, type CompanyPerson } from "@/lib/networking/contacts";
 
 /**
  * Read model for the detail panel: everything about one listing that the lean
@@ -132,6 +133,9 @@ export interface ListingDetail {
   } | null;
 
   resumeMatch: ResumeMatchState;
+
+  /** Contacts at this listing's company — "People at {Company}". */
+  people: CompanyPerson[];
 }
 
 const FETCH_LABELS: Record<string, string> = {
@@ -247,6 +251,8 @@ export async function loadListingDetail(id: string): Promise<ListingDetail | nul
       : { state: "no-resume", postingKeywords: extractKeywords(l.postingText, vocabulary) };
   }
 
+  const people = await loadCompanyPeople(l.companyId);
+
   return {
     id: l.id,
     company: l.company.name,
@@ -327,5 +333,6 @@ export async function loadListingDetail(id: string): Promise<ListingDetail | nul
         }
       : null,
     resumeMatch,
+    people,
   };
 }
