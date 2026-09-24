@@ -118,7 +118,7 @@ to `~/docker/stacks/apps/.env` and fill in every one marked REQUIRED:
 | `TRACKER_DB_USER` / `_PASSWORD` / `_NAME` | REQUIRED | First boot only. Use `openssl rand -hex 32`: the value goes into `DATABASE_URL`, and base64's `/` would truncate it |
 | `TRACKER_USER_AGENT_CONTACT` | REQUIRED | Scraper contact address |
 | `TRACKER_AUTH_LOGOUT_URL` | optional | Authelia's logout URL, for the header link |
-| `TRACKER_ANTHROPIC_API_KEY` | optional | Unset = deterministic scoring only |
+| `TRACKER_SCORING_ANTHROPIC_API_KEY` | optional | Unset = deterministic scoring only. Renamed from `TRACKER_ANTHROPIC_API_KEY` |
 | `TRACKER_DISCORD_WEBHOOK_URL` | optional | Unset = channel reports itself off |
 | `TRACKER_SMTP_*` | optional | Never tested against a real server |
 | `TRACKER_*_CRON`, `TRACKER_BACKUP_*` | optional | Defaults are sensible |

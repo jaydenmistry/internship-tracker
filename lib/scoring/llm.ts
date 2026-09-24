@@ -286,11 +286,17 @@ export async function assessPosting(
   return { adjustment, rationale, model };
 }
 
-/** Real client, built from `ANTHROPIC_API_KEY`. Never called in tests. */
+/**
+ * Real client, built from `SCORING_ANTHROPIC_API_KEY`. Never called in tests.
+ *
+ * The key is passed explicitly: the SDK would otherwise fall back to the
+ * ambient `ANTHROPIC_API_KEY`, which lib/env-guard.ts forbids so that other
+ * Claude clients can never pick up the scoring key by accident.
+ */
 export function createAnthropicClient(): LlmClient {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.SCORING_ANTHROPIC_API_KEY;
   if (!apiKey || apiKey.trim() === "") {
-    throw new Error("ANTHROPIC_API_KEY is not set — stage-2 scoring cannot run");
+    throw new Error("SCORING_ANTHROPIC_API_KEY is not set — stage-2 scoring cannot run");
   }
   return new Anthropic({ apiKey });
 }
