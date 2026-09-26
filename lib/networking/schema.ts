@@ -1,5 +1,11 @@
 import { z } from "zod";
-import type { ContactKind, ContactStatus } from "@/generated/prisma/enums";
+import type {
+  ContactKind,
+  ContactStatus,
+  OutreachChannel,
+  OutreachDirection,
+  OutreachType,
+} from "@/generated/prisma/enums";
 
 /**
  * Contact input rules and labels, shared by the Server Actions and the /network
@@ -130,3 +136,118 @@ export const contactInputSchema = z.object({
 export type ContactInputRaw = z.input<typeof contactInputSchema>;
 /** What the data layer stores. */
 export type ContactInput = z.output<typeof contactInputSchema>;
+
+// ---------------------------------------------------------------------------
+// Messages
+// ---------------------------------------------------------------------------
+
+
+export const OUTREACH_TYPES = [
+  "COLD",
+  "CONNECT_NOTE",
+  "ACCEPTED",
+  "MEETING",
+  "FOLLOW_UP",
+  "THANK_YOU",
+  "REFERRAL_ASK",
+  "REPLY",
+] as const satisfies readonly OutreachType[];
+
+export const OUTREACH_CHANNELS = ["EMAIL", "LINKEDIN", "IN_PERSON", "OTHER"] as const satisfies readonly OutreachChannel[];
+export const OUTREACH_DIRECTIONS = ["OUT", "IN"] as const satisfies readonly OutreachDirection[];
+
+export const CHANNEL_LABELS: Record<OutreachChannel, string> = {
+  EMAIL: "email",
+  LINKEDIN: "LinkedIn",
+  IN_PERSON: "in person",
+  OTHER: "other",
+};
+
+/**
+ * Which (direction, type) pairs are real events, and the channels each may
+ * use. Anything outside this table is rejected at the boundary, so the
+ * follow-up engine never has to reason about "an inbound cold email".
+ */
+export const MESSAGE_RULES: Record<
+  OutreachDirection,
+  Partial<Record<OutreachType, readonly OutreachChannel[]>>
+> = {
+  OUT: {
+    // Openers are EMAIL or LINKEDIN only: those are the channels the
+    // follow-up engine runs a cadence for (isOpener in followup.ts). Offering
+    // OTHER here would log an "opener" that silently schedules nothing.
+    COLD: ["EMAIL", "LINKEDIN"],
+    CONNECT_NOTE: ["LINKEDIN"],
+    MEETING: ["IN_PERSON", "OTHER"],
+    FOLLOW_UP: ["EMAIL", "LINKEDIN", "OTHER"],
+    THANK_YOU: ["EMAIL", "LINKEDIN", "OTHER"],
+    REFERRAL_ASK: ["EMAIL", "LINKEDIN"],
+    REPLY: ["EMAIL", "LINKEDIN", "IN_PERSON", "OTHER"],
+  },
+  IN: {
+    ACCEPTED: ["LINKEDIN"],
+    REPLY: ["EMAIL", "LINKEDIN", "IN_PERSON", "OTHER"],
+  },
+};
+
+/** How each event reads in the timeline and the Log message picker. */
+export function eventLabel(direction: OutreachDirection, type: OutreachType): string {
+  if (direction === "IN") return type === "ACCEPTED" ? "They accepted your connection" : "They replied";
+  switch (type) {
+    case "COLD":
+      return "You sent an opener";
+    case "CONNECT_NOTE":
+      return "You sent a connection note";
+    case "MEETING":
+      return "You met";
+    case "FOLLOW_UP":
+      return "You followed up";
+    case "THANK_YOU":
+      return "You sent a thank-you";
+    case "REFERRAL_ASK":
+      return "You asked for a referral";
+    default:
+      return "You replied";
+  }
+}
+
+export const MESSAGE_LIMITS = { subject: 300, body: 20_000 } as const;
+
+/** A message may be dated up to a day ahead (zone slop), never further. */
+const MAX_FUTURE_MS = 86_400_000;
+
+const sentAtSchema = z.iso
+  .datetime({ offset: true })
+  .transform((s) => new Date(s))
+  .refine((d) => d.getTime() <= Date.now() + MAX_FUTURE_MS, "can't be in the future");
+
+export const messageInputSchema = z
+  .object({
+    direction: z.enum(OUTREACH_DIRECTIONS),
+    type: z.enum(OUTREACH_TYPES),
+    channel: z.enum(OUTREACH_CHANNELS),
+    subject: optionalText(MESSAGE_LIMITS.subject),
+    // Bodies keep their own whitespace; empty is fine (an acceptance, a meeting).
+    body: z.string().max(MESSAGE_LIMITS.body, `limited to ${MESSAGE_LIMITS.body} characters`).default(""),
+    sentAt: sentAtSchema,
+    listingId: z.string().min(1).max(100).nullable().optional().transform((s) => s ?? null),
+  })
+  .superRefine((m, ctx) => {
+    const channels = MESSAGE_RULES[m.direction][m.type];
+    if (!channels) {
+      ctx.addIssue({ code: "custom", path: ["type"], message: `${m.direction} ${m.type} isn't a message you can log` });
+    } else if (!channels.includes(m.channel)) {
+      ctx.addIssue({ code: "custom", path: ["channel"], message: `${m.type} can't be sent by ${m.channel}` });
+    }
+  });
+
+export type MessageInputRaw = z.input<typeof messageInputSchema>;
+export type MessageInput = z.output<typeof messageInputSchema>;
+
+/** Editing a logged message: its words and its date, never its kind. */
+export const messageEditSchema = z.object({
+  subject: optionalText(MESSAGE_LIMITS.subject),
+  body: z.string().max(MESSAGE_LIMITS.body, `limited to ${MESSAGE_LIMITS.body} characters`),
+  sentAt: sentAtSchema,
+});
+export type MessageEdit = z.output<typeof messageEditSchema>;

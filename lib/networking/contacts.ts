@@ -2,13 +2,14 @@ import { prisma } from "@/lib/db";
 import type { ContactKind, ContactStatus } from "@/generated/prisma/enums";
 import { normalizeCompany } from "@/lib/ingestion/normalize";
 import type { ContactInput } from "@/lib/networking/schema";
+import { followUpContext, storeFollowUpState } from "@/lib/networking/followups";
 
 /**
  * Read/write model for networking contacts.
  *
  * The derived follow-up fields (`status`, `nextFollowUpAt`, `followUpsSent`)
- * are NOT written here — only by computeFollowUpState() once messages exist
- * (phase 2). A contact's details never change its follow-up state.
+ * are NOT written here directly — only through storeFollowUpState(), which
+ * `updateContact` calls because `doNotContact` is one of the engine's inputs.
  *
  * Every string on a contact is user-typed and rendered as plain text only.
  */
@@ -29,6 +30,8 @@ export interface ContactRow {
   nextFollowUpAt: string | null;
   /** When the latest message in either direction was sent, if any. */
   lastMessageAt: string | null;
+  /** For PENDING_CONNECTION: when the latest connection note went out. */
+  pendingSince: string | null;
   updatedAt: string;
 }
 
@@ -36,6 +39,9 @@ export interface ContactDetail extends ContactRow {
   howMet: string | null;
   notes: string | null;
   followUpsSent: number;
+  manualStatus: ContactStatus | null;
+  /** Snoozed-until, if set. */
+  followUpOverrideAt: string | null;
   createdAt: string;
   /** Listings at this contact's company, for context on the contact page. */
   companyListingCount: number;
@@ -101,8 +107,22 @@ function toRow(c: RowRecord): ContactRow {
     doNotContact: c.doNotContact,
     nextFollowUpAt: iso(c.nextFollowUpAt),
     lastMessageAt: iso(c.messages[0]?.sentAt),
+    pendingSince: null,
     updatedAt: c.updatedAt.toISOString(),
   };
+}
+
+/** Fills `pendingSince` for PENDING_CONNECTION rows with one grouped query. */
+async function withPendingSince(rows: ContactRow[]): Promise<ContactRow[]> {
+  const pendingIds = rows.filter((r) => r.status === "PENDING_CONNECTION").map((r) => r.id);
+  if (pendingIds.length === 0) return rows;
+  const groups = await prisma.outreachMessage.groupBy({
+    by: ["contactId"],
+    where: { contactId: { in: pendingIds }, direction: "OUT", type: "CONNECT_NOTE" },
+    _max: { sentAt: true },
+  });
+  const since = new Map(groups.map((g) => [g.contactId, iso(g._max.sentAt)]));
+  return rows.map((r) => (since.has(r.id) ? { ...r, pendingSince: since.get(r.id) ?? null } : r));
 }
 
 // ---------------------------------------------------------------------------
@@ -164,7 +184,7 @@ export async function loadCompanyNames(): Promise<string[]> {
 
 export async function loadContacts(): Promise<ContactRow[]> {
   const rows = await prisma.contact.findMany({ select: rowSelect, orderBy: { updatedAt: "desc" } });
-  return rows.map(toRow);
+  return withPendingSince(rows.map(toRow));
 }
 
 export async function loadContact(id: string): Promise<ContactDetail | null> {
@@ -175,16 +195,21 @@ export async function loadContact(id: string): Promise<ContactDetail | null> {
       howMet: true,
       notes: true,
       followUpsSent: true,
+      manualStatus: true,
+      followUpOverrideAt: true,
       createdAt: true,
       company: { select: { name: true, normalizedName: true, _count: { select: { listings: true } } } },
     },
   });
   if (!c) return null;
+  const [row] = await withPendingSince([toRow(c)]);
   return {
-    ...toRow(c),
+    ...row,
     howMet: c.howMet,
     notes: c.notes,
     followUpsSent: c.followUpsSent,
+    manualStatus: c.manualStatus,
+    followUpOverrideAt: iso(c.followUpOverrideAt),
     createdAt: c.createdAt.toISOString(),
     companyListingCount: c.company?._count.listings ?? 0,
   };
@@ -268,10 +293,15 @@ export async function createContact(input: ContactInput): Promise<{ id: string }
   return prisma.contact.create({ data: fields(input, companyId), select: { id: true } });
 }
 
-export async function updateContact(id: string, input: ContactInput): Promise<void> {
+export async function updateContact(id: string, input: ContactInput, now = new Date()): Promise<void> {
   const companyId = await resolveCompany(input.company);
-  const { count } = await prisma.contact.updateMany({ where: { id }, data: fields(input, companyId) });
-  if (count === 0) throw new Error(`no such contact: ${id}`);
+  await prisma.$transaction(async (tx) => {
+    const { count } = await tx.contact.updateMany({ where: { id }, data: fields(input, companyId) });
+    if (count === 0) throw new Error(`no such contact: ${id}`);
+    // doNotContact feeds the engine (it clears the due date), so the stored
+    // state is recomputed in the same transaction.
+    await storeFollowUpState(tx, id, await followUpContext(tx, now));
+  });
 }
 
 /**

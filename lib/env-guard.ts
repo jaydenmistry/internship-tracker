@@ -37,6 +37,34 @@ export function reportMissingScoringKey(
   return true;
 }
 
+/**
+ * APP_URL must be an absolute http(s) origin ("https://jobs.example.com").
+ * Without the scheme the digest builder can't make a link from it and falls
+ * back to bare paths — easy to miss, so say so at startup. Returns whether
+ * it logged. Unset is fine (links are paths).
+ */
+export function reportBadAppUrl(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  log: (message: string) => void = console.error,
+  processName = "app",
+): boolean {
+  const raw = (env.APP_URL ?? "").trim();
+  if (raw === "") return false;
+  let ok = false;
+  try {
+    const u = new URL(raw);
+    ok = (u.protocol === "https:" || u.protocol === "http:") && u.host !== "";
+  } catch {
+    ok = false;
+  }
+  if (ok) return false;
+  log(
+    `[${processName}] APP_URL must be an absolute http(s) origin like https://jobs.example.com — ` +
+      `digest follow-up links will be bare paths until it is fixed.`,
+  );
+  return true;
+}
+
 export function assertNoAmbientAnthropicCredentials(env: Readonly<Record<string, string | undefined>> = process.env): void {
   const found = ambientAnthropicCredentials(env);
   if (found.length === 0) return;

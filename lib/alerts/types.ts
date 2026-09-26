@@ -43,6 +43,19 @@ export interface AlertListing {
 }
 
 /**
+ * A networking follow-up that is due, for the digest's "Follow-ups due"
+ * section. `name`/`company` are user-typed; the builder escapes them.
+ */
+export interface AlertFollowUp {
+  contactId: string;
+  name: string;
+  company: string | null;
+  kind: "FOLLOW_UP" | "THANK_YOU" | "SEND_OPENER" | "CHECK_IN";
+  dueAt: Date;
+  overdue: boolean;
+}
+
+/**
  * One alert, fully rendered, before it is addressed to a channel.
  *
  * `baseKey` is channel-independent on purpose: AlertLog carries the channel, so

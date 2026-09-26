@@ -5,12 +5,13 @@ import { prisma } from "@/lib/db";
 import { runFullCycle, type CycleSummary } from "@/lib/cycle";
 import { sendAlerts, summarize } from "@/lib/alerts/send";
 import type { AlertKind } from "@/lib/alerts/types";
-import { assertNoAmbientAnthropicCredentials, reportMissingScoringKey } from "@/lib/env-guard";
+import { assertNoAmbientAnthropicCredentials, reportBadAppUrl, reportMissingScoringKey } from "@/lib/env-guard";
 
 // Before any job is scheduled: see lib/env-guard.ts. Throwing here exits the
 // process, so compose restarts it into the same loud error until it's fixed.
 assertNoAmbientAnthropicCredentials();
 reportMissingScoringKey(process.env, console.error, "worker");
+reportBadAppUrl(process.env, console.error, "worker");
 
 const INGEST_CRON = process.env.INGEST_CRON ?? "0 6 * * *";
 const DIGEST_CRON = process.env.DIGEST_CRON ?? "0 7 * * *";

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { loadCompanyNames, loadContacts } from "@/lib/networking/contacts";
+import { displayTimeZone, followUpContext, loadDueFollowUps } from "@/lib/networking/followups";
 import NetworkView from "./NetworkView";
 
 export const metadata: Metadata = {
@@ -24,6 +25,11 @@ export default async function NetworkPage({ searchParams }: PageProps<"/network"
 
   // Sequential, like /tracker: concurrent queries through the `prisma dev`
   // proxy intermittently fail with "bind message supplies N parameters".
+  const now = new Date();
+  // Recomputes the time-sensitive contacts first (a contact that went COLD
+  // overnight), so this page is right even with the digest cron off — and it
+  // must run BEFORE loadContacts so the table shows the fresh statuses.
+  const due = await loadDueFollowUps(await followUpContext(undefined, now));
   const contacts = await loadContacts();
   const companyNames = await loadCompanyNames();
 
@@ -35,7 +41,9 @@ export default async function NetworkPage({ searchParams }: PageProps<"/network"
         initialAdd={adding ? { company } : null}
         initialQuery={adding ? "" : company}
         initialCompanyKey={companyKey}
-        nowIso={new Date().toISOString()}
+        due={due.map((d) => ({ ...d, dueAt: d.dueAt.toISOString() }))}
+        nowIso={now.toISOString()}
+        timeZone={displayTimeZone()}
       />
     </div>
   );

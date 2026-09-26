@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   addContactHref,
   companiesOf,
+  dueWhen,
+  emptyMessageForm,
+  messageFormToPayload,
+  sortContacts,
+  withEvent,
   EMPTY_FILTERS,
   filterContacts,
   linkedinHref,
@@ -25,6 +30,7 @@ function row(overrides: Partial<ContactRow> = {}): ContactRow {
     doNotContact: false,
     nextFollowUpAt: null,
     lastMessageAt: null,
+    pendingSince: null,
     updatedAt: "2026-09-20T12:00:00.000Z",
     ...overrides,
   };
@@ -97,5 +103,52 @@ describe("links", () => {
 
   it("encodes the company in the add-contact link", () => {
     expect(addContactHref("AT&T Labs")).toBe("/network?add=1&company=AT%26T%20Labs");
+  });
+});
+
+describe("sortContacts", () => {
+  const r = [
+    row({ id: "a", updatedAt: "2026-09-01T00:00:00Z", nextFollowUpAt: null, pendingSince: "2026-08-01T00:00:00Z" }),
+    row({ id: "b", updatedAt: "2026-09-03T00:00:00Z", nextFollowUpAt: "2026-09-30T04:00:00Z", pendingSince: null }),
+    row({ id: "c", updatedAt: "2026-09-02T00:00:00Z", nextFollowUpAt: "2026-09-26T04:00:00Z", pendingSince: "2026-09-01T00:00:00Z" }),
+  ];
+  it.each([
+    ["recent", ["b", "c", "a"]],
+    ["next", ["c", "b", "a"]],
+    ["pending", ["a", "c", "b"]],
+  ] as const)("%s", (sort, ids) => {
+    expect(sortContacts(r, sort).map((x) => x.id)).toEqual(ids);
+  });
+});
+
+describe("dueWhen (in the server's zone)", () => {
+  const NY = "America/New_York";
+  const now = Date.parse("2026-09-25T16:00:00Z"); // Fri noon NY
+  it("labels today, tomorrow, later and overdue by calendar day", () => {
+    expect(dueWhen("2026-09-25T04:00:00Z", now, NY)).toEqual({ text: "due today", overdue: false });
+    expect(dueWhen("2026-09-26T04:00:00Z", now, NY)).toEqual({ text: "due tomorrow", overdue: false });
+    expect(dueWhen("2026-10-02T04:00:00Z", now, NY).text).toBe("due Fri, Oct 2");
+    expect(dueWhen("2026-09-22T04:00:00Z", now, NY)).toEqual({ text: "overdue 3d (Tue, Sep 22)", overdue: true });
+  });
+  it("renders a New-York midnight as that day even for a zone west of it", () => {
+    // Midnight EDT is 21:00 the day before in Los Angeles; shown in NY it's Oct 2.
+    expect(dueWhen("2026-10-02T04:00:00Z", now, NY).text).toBe("due Fri, Oct 2");
+  });
+});
+
+describe("log message form", () => {
+  it("narrows the channel to what the event allows", () => {
+    const f = emptyMessageForm("OUT:COLD");
+    expect(f.channel).toBe("EMAIL");
+    expect(withEvent(f, "OUT:CONNECT_NOTE").channel).toBe("LINKEDIN");
+    expect(withEvent(f, "OUT:MEETING").channel).toBe("IN_PERSON");
+    expect(withEvent({ ...f, channel: "LINKEDIN" }, "OUT:FOLLOW_UP").channel).toBe("LINKEDIN");
+  });
+
+  it("builds the payload, dropping a subject off-email", () => {
+    const f = { ...emptyMessageForm("IN:REPLY"), channel: "LINKEDIN" as const, subject: "x", sentAtLocal: "2026-09-25T12:00" };
+    const p = messageFormToPayload(f);
+    expect(p).toMatchObject({ direction: "IN", type: "REPLY", channel: "LINKEDIN", subject: "", listingId: null });
+    expect(messageFormToPayload({ ...f, sentAtLocal: "" })).toEqual({ error: "pick when it happened" });
   });
 });

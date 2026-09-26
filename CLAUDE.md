@@ -55,7 +55,7 @@ app/
   import/               # /import paste/CSV import
   resume/               # /resume PDF upload (text extracted once, at upload)
   alerts/               # /alerts thresholds + per-kind "Send now"
-  network/              # /network contacts + [id] contact page (networking phase 1)
+  network/              # /network Due list + contacts, [id] contact page, settings/ (networking phases 1–2)
   api/health/           # unauthenticated liveness probe for the healthcheck
   api/applications/export/  # GET applications CSV (checks the session itself)
 lib/
@@ -72,7 +72,7 @@ lib/
   applications/         # import parse/match, commit, tracker, CSV
   resume/               # extract (unpdf), store, keyword vocabulary + matching
   alerts/               # settings/config, build (pure), data, send, channels/
-  networking/           # contact schema (pure) + contacts model; see docs/NETWORKING_PLAN.md
+  networking/           # schema, contacts, follow-up engine (pure) + persistence, messages; see docs/NETWORKING_PLAN.md
 worker/index.ts         # node-cron: ingest cycle, digest, closing-soon; /refresh, /healthz
 prisma/schema.prisma
 config/scoring.json     # ALL weights/keywords/tiers/thresholds — no restart needed

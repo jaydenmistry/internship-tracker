@@ -6,6 +6,7 @@ import { useMemo, useState, useTransition } from "react";
 import Badge from "@/components/Badge";
 import Chip from "@/components/Chip";
 import type { ContactRow } from "@/lib/networking/contacts";
+import type { DueFollowUp } from "@/lib/networking/followups";
 import {
   CONTACT_KINDS,
   CONTACT_STATUS_LABELS,
@@ -18,8 +19,13 @@ import ContactForm from "./ContactForm";
 import {
   absoluteDate,
   companiesOf,
+  DUE_LABELS,
+  dueWhen,
   emptyForm,
   filterContacts,
+  SORT_LABELS,
+  sortContacts,
+  type ContactSort,
   formToPayload,
   linkedinHref,
   mailtoHref,
@@ -43,6 +49,10 @@ interface Props {
   initialAdd: { company: string } | null;
   initialQuery: string;
   initialCompanyKey: string | null;
+  /** Due today or overdue, oldest first (dates as ISO strings). */
+  due: Array<Omit<DueFollowUp, "dueAt"> & { dueAt: string }>;
+  /** The server's follow-up zone — due days render in it. */
+  timeZone: string;
   /** Fixed on the server so first paint and hydration agree on relative dates. */
   nowIso: string;
 }
@@ -56,6 +66,8 @@ export default function NetworkView({
   initialAdd,
   initialQuery,
   initialCompanyKey,
+  due,
+  timeZone,
   nowIso,
 }: Props) {
   const router = useRouter();
@@ -70,7 +82,8 @@ export default function NetworkView({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const shown = useMemo(() => filterContacts(contacts, filters), [contacts, filters]);
+  const [sort, setSort] = useState<ContactSort>("recent");
+  const shown = useMemo(() => sortContacts(filterContacts(contacts, filters), sort), [contacts, filters, sort]);
   const companyOptions = useMemo(() => companiesOf(contacts, filters.companyKey), [contacts, filters.companyKey]);
 
   const onCreate = () => {
@@ -118,19 +131,67 @@ export default function NetworkView({
         <span className="font-mono text-[11px] text-faint tabular-nums">
           {shown.length === contacts.length ? contacts.length : `${shown.length} / ${contacts.length}`}
         </span>
-        {!form && (
-          <button
-            type="button"
-            onClick={() => {
-              setError(null);
-              setForm(emptyForm());
-            }}
-            className="ml-auto rounded border border-accent bg-accent px-3 py-1 text-[12px] text-accent-ink"
-          >
-            Add contact
-          </button>
-        )}
+        <select
+          aria-label="Sort contacts"
+          value={sort}
+          onChange={(e) => setSort(e.target.value as ContactSort)}
+          className="h-7 rounded border border-line bg-raised px-1 text-[12px] text-dim"
+        >
+          {(Object.keys(SORT_LABELS) as ContactSort[]).map((k) => (
+            <option key={k} value={k}>
+              sort: {SORT_LABELS[k]}
+            </option>
+          ))}
+        </select>
+        <div className="ml-auto flex items-center gap-2">
+          <Link href="/network/settings" className="text-[12px] text-dim hover:text-ink">
+            Settings
+          </Link>
+          {!form && (
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                setForm(emptyForm());
+              }}
+              className="rounded border border-accent bg-accent px-3 py-1 text-[12px] text-accent-ink"
+            >
+              Add contact
+            </button>
+          )}
+        </div>
       </div>
+
+      <section aria-label="Due" className="rounded border border-line bg-panel" data-testid="due-list">
+        <h2 className="border-b border-line px-3 py-1.5 font-mono text-[10px] font-semibold tracking-wide text-faint uppercase">
+          Due today{due.some((d) => d.overdue) ? " and overdue" : ""}
+          <span className="ml-2 font-normal text-faint tabular-nums">{due.length}</span>
+        </h2>
+        {due.length === 0 ? (
+          <p className="px-3 py-2 text-[12px] text-faint">Nothing due. Follow-ups, thank-yous and openers show up here on the day.</p>
+        ) : (
+          <ul className="divide-y divide-line-soft">
+            {due.map((d) => {
+              const when = dueWhen(d.dueAt, nowMs, timeZone);
+              return (
+                <li key={d.contactId} className="flex items-baseline gap-3 px-3 py-1.5 text-[13px]" data-testid="due-item">
+                  <Link
+                    href={`/network/${d.contactId}`}
+                    className="font-medium text-ink hover:underline decoration-faint underline-offset-2"
+                  >
+                    {d.name}
+                  </Link>
+                  {d.company && <span className="text-dim">{d.company}</span>}
+                  <span className="text-ink">{DUE_LABELS[d.kind]}</span>
+                  <span className={`ml-auto font-mono text-[12px] ${when.overdue ? "text-bad" : "text-dim"}`}>
+                    {when.text}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
 
       {form && (
         <section aria-label="Add contact" className="rounded border border-line bg-panel px-3 py-3">
@@ -183,7 +244,8 @@ export default function NetworkView({
             <col className="w-[11rem]" />
             <col />
             <col className="w-[7.5rem]" />
-            <col className="w-[9rem]" />
+            <col className="w-[10rem]" />
+            <col className="w-[8rem]" />
             <col className="w-[5rem]" />
             <col className="w-[7rem]" />
           </colgroup>
@@ -194,6 +256,7 @@ export default function NetworkView({
               <th className={TH}>title</th>
               <th className={TH}>kind</th>
               <th className={TH}>status</th>
+              <th className={TH}>next</th>
               <th className={TH} title="Latest message in either direction">last</th>
               <th className={TH}>reach</th>
             </tr>
@@ -201,7 +264,7 @@ export default function NetworkView({
           <tbody>
             {shown.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-2 py-6 text-center text-[12px] text-dim">
+                <td colSpan={8} className="px-2 py-6 text-center text-[12px] text-dim">
                   {contacts.length === 0
                     ? "No contacts yet. Add the people you meet at career fairs, through alumni, or on LinkedIn."
                     : "No contacts match these filters."}
@@ -238,6 +301,21 @@ export default function NetworkView({
                   <td className={`${TD} text-[12px] text-dim`}>{KIND_LABELS[c.kind]}</td>
                   <td className={`${TD} text-[12px] ${CONTACT_STATUS_TONE[c.status]}`}>
                     {CONTACT_STATUS_LABELS[c.status]}
+                    {c.status === "PENDING_CONNECTION" && c.pendingSince && (
+                      <span className="ml-1 font-mono text-faint" title={`Connection note sent ${absoluteDate(c.pendingSince)}`}>
+                        {relativeAge(c.pendingSince, nowMs)}
+                      </span>
+                    )}
+                  </td>
+                  <td className={`${TD} text-[12px]`}>
+                    {c.nextFollowUpAt ? (
+                      (() => {
+                        const when = dueWhen(c.nextFollowUpAt, nowMs, timeZone);
+                        return <span className={when.overdue ? "text-bad" : "text-dim"}>{when.text}</span>;
+                      })()
+                    ) : (
+                      <span className="text-faint">—</span>
+                    )}
                   </td>
                   <td className={`${TD} text-[12px] text-dim`}>
                     <time

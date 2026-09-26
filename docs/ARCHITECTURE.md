@@ -287,18 +287,34 @@ of the key, so the same alert to Discord and email is two rows). **Written only
 after a successful send**: recording first would dedupe a failed alert away
 permanently.
 
-**Contact** / **OutreachMessage** — networking (`docs/NETWORKING_PLAN.md`; phase
-1 of 4 is built: contacts, not messages or follow-ups yet).
+**Contact** / **OutreachMessage** — networking (`docs/NETWORKING_PLAN.md`;
+phases 1–2 of 4 are built: contacts, the message log and follow-ups. Drafting
+is not built yet).
 - Entered by hand only. The app never sends mail and never talks to LinkedIn.
 - A contact's company is a real `Company` row, found or created by
   `resolveCompany()` with ingestion's own `normalizeCompany`, so a listing
   ingested later attaches to the same row and the listing panel's "People at
   {Company}" fills in with no linking step. The normalizer can't fold synonyms
   ("Facebook" vs "Meta"), which is why the form autocompletes existing names.
-- `status`, `nextFollowUpAt` and `followUpsSent` are **derived** — written only
-  by the follow-up engine (phase 2, not built). Editing a contact's details
-  never touches them. `manualStatus`/`manualStatusAt`/`followUpOverrideAt` are
-  the user's inputs to that engine.
+- `status`, `nextFollowUpAt` and `followUpsSent` are **derived**: computed by
+  the pure `computeFollowUpState()` (`lib/networking/followup.ts`) and written
+  only by `storeFollowUpState()` / the batch recompute in
+  `lib/networking/followups.ts`. Every mutation of a contact's messages or
+  engine inputs (`doNotContact`, `manualStatus`/`manualStatusAt`,
+  `followUpOverrideAt`) recomputes **in the same transaction**.
+- Due dates are calendar days in `ALERT_TIMEZONE`, stored as that day's local
+  midnight; business days skip weekends only. The UI renders them in the same
+  zone (passed from the server), so a due day never shows as "the evening
+  before" in a browser further west.
+- Time alone can change state (AWAITING_REPLY → COLD), so the contacts with
+  status AWAITING_REPLY or a due date are recomputed by the daily digest
+  (inside `sendAlerts`, so "Send now" gets it too) and on every `/network`
+  load.
+- The digest has a "Follow-ups due" section and sends when it has either
+  listings or follow-ups. Follow-ups aren't deduped individually: an
+  unhandled one reappears daily until logged or snoozed.
+- Which (direction, type, channel) combinations are loggable is one table,
+  `MESSAGE_RULES` in `lib/networking/schema.ts`, enforced at the boundary.
 - Deleting a contact is a real delete (third-party personal data): messages
   cascade, `Application.referredByContactId` is set null. `doNotContact` is
   the keep-the-record option.
@@ -520,7 +536,8 @@ that are read on every call. `.env.example` documents them all.
 | `RESCORE_MAX_AGE_HOURS` | worker | Max-age reclaim window |
 | `DIGEST_CRON` | worker | Daily-digest schedule |
 | `CLOSING_SOON_CRON` | worker | Closing-soon schedule |
-| `ALERT_TIMEZONE` | worker, app | Timezone for alert dates; also used to format AlertLog timestamps server-side, so the recent-alerts list can't hydrate-mismatch |
+| `ALERT_TIMEZONE` | worker, app | Timezone for alert dates; also used to format AlertLog timestamps server-side, so the recent-alerts list can't hydrate-mismatch. Networking follow-up due days are computed and displayed in it too |
+| `APP_URL` | worker, app | Public origin for digest links to contact pages (compose: `https://${TRACKER_HOST}`); unset = path only |
 | `DISCORD_WEBHOOK_URL` | worker, app | Discord channel; unset = channel disabled |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` | worker, app | SMTP endpoint (`SMTP_SECURE` defaults from the port: implicit TLS on 465) |
 | `SMTP_USER` / `SMTP_PASS` | worker, app | Optional; must be set together or not at all |
@@ -545,7 +562,8 @@ app/                       Next.js App Router (UI only; no auth yet)
   import/                  /import — paste/CSV import with match review
   resume/                  /resume — PDF upload; text extracted once, at upload
   alerts/                  /alerts — thresholds, per-kind "Send now", recent sends
-  network/                 /network — contacts table + add form; [id]/ contact page
+  network/                 /network — Due list, contacts table, add form; [id]/ contact
+                           page (timeline, log message, follow-up bar); settings/
   api/applications/export/ GET → applications CSV (round-trips via /import)
   layout.tsx, globals.css  shell, nav, dark theme tokens (Tailwind v4, CSS config)
 components/                small shared UI primitives
@@ -570,7 +588,8 @@ lib/
   listings/                table read model, detail read model, row mutations
   applications/            import parse/match, commit, tracker + dashboard, CSV
   resume/                  extract (unpdf), store, vocabulary + posting↔resume match
-  networking/              contact input schema (pure), contacts read/write model
+  networking/              schema (pure), contacts model, follow-up engine (pure) +
+                           its persistence, message mutations, dates, settings
   alerts/
     settings.ts            threshold schema + defaults (pure)
     config.ts              Setting-table read/write; re-exports settings.ts
