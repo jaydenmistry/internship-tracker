@@ -3,8 +3,11 @@
 // lib/env-guard.ts for why an ambient Anthropic credential is fatal.
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
-    const { assertNoAmbientAnthropicCredentials, reportMissingScoringKey } = await import("@/lib/env-guard");
+    const { assertNoAmbientAnthropicCredentials, reportBadAppUrl, reportMissingScoringKey } = await import(
+      "@/lib/env-guard"
+    );
     assertNoAmbientAnthropicCredentials();
     reportMissingScoringKey(process.env, console.error, "app");
+    reportBadAppUrl(process.env, console.error, "app");
   }
 }

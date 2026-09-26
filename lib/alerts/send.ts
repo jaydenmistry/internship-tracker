@@ -4,10 +4,12 @@ import { createDiscordChannel } from "./channels/discord";
 import { createEmailChannel } from "./channels/email";
 import { loadAlertSettings } from "./config";
 import { loadAlertCandidates } from "./data";
+import { followUpContext, loadDueFollowUps, networkingTimeZone } from "@/lib/networking/followups";
 import type { AlertSettings } from "./settings";
 import type {
   AlertChannel,
   AlertChannelSender,
+  AlertFollowUp,
   AlertKind,
   AlertListing,
   BuiltAlert,
@@ -56,6 +58,8 @@ export interface SendAlertsOptions {
   settings?: AlertSettings;
   /** Overrides the database query (pure-ish tests). */
   listings?: AlertListing[];
+  /** Overrides the due-follow-ups query for the digest (tests). */
+  followUps?: AlertFollowUp[];
   /** Injected transports. When given, the environment is not consulted. */
   channels?: AlertChannelSender[];
   timeZone?: string;
@@ -138,7 +142,15 @@ export async function sendAlerts(
     : resolveChannels(settings);
 
   const listings = opts.listings ?? (await loadAlertCandidates(kind, settings, now));
-  const alerts = buildAlerts(kind, listings, settings, { now, timeZone: opts.timeZone });
+  const followUps =
+    kind !== "DAILY_DIGEST" ? [] : (opts.followUps ?? (await loadDigestFollowUps(now, opts.timeZone, log)));
+  const alerts = buildAlerts(
+    kind,
+    listings,
+    settings,
+    { now, timeZone: opts.timeZone, appUrl: process.env.APP_URL?.trim() || undefined },
+    followUps,
+  );
 
   const result: SendAlertsResult = {
     kind,
@@ -218,6 +230,26 @@ export async function sendAlerts(
 
   log(`[alerts] ${summarize(result)}`);
   return result;
+}
+
+/**
+ * The digest's follow-ups. `loadDueFollowUps` recomputes the time-sensitive
+ * contacts first — this is the "daily recompute", and it rides the digest so
+ * both the cron and the manual "Send now" get it. A failure here must not
+ * cost the listings half of the digest, so it degrades to "no follow-ups".
+ */
+async function loadDigestFollowUps(
+  now: Date,
+  timeZone: string | undefined,
+  log: (message: string) => void,
+): Promise<AlertFollowUp[]> {
+  try {
+    const ctx = await followUpContext(prisma, now);
+    return await loadDueFollowUps({ ...ctx, timeZone: timeZone ?? networkingTimeZone() });
+  } catch (err) {
+    log(`[alerts] follow-ups unavailable for the digest: ${err instanceof Error ? err.message : String(err)}`);
+    return [];
+  }
 }
 
 /** One line, safe to log and to show in the UI. Never names a credential. */

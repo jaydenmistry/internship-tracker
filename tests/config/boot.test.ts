@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { ambientAnthropicCredentials, assertNoAmbientAnthropicCredentials, reportMissingScoringKey } from "@/lib/env-guard";
+import {
+  ambientAnthropicCredentials,
+  assertNoAmbientAnthropicCredentials,
+  reportBadAppUrl,
+  reportMissingScoringKey,
+} from "@/lib/env-guard";
 
 describe("assertNoAmbientAnthropicCredentials", () => {
   it("passes when neither ambient variable is set", () => {
@@ -45,5 +50,19 @@ describe("reportMissingScoringKey", () => {
     const lines: string[] = [];
     expect(reportMissingScoringKey({ SCORING_ANTHROPIC_API_KEY: "sk-ant-x" }, (m) => lines.push(m))).toBe(false);
     expect(lines).toEqual([]);
+  });
+});
+
+describe("reportBadAppUrl", () => {
+  it.each(["https://jobs.example.com", "http://localhost:3000", "", undefined])("accepts %s", (v) => {
+    const lines: string[] = [];
+    expect(reportBadAppUrl({ APP_URL: v }, (m) => lines.push(m))).toBe(false);
+    expect(lines).toEqual([]);
+  });
+
+  it.each(["jobs.example.com", "javascript:alert(1)", "ftp://jobs.example.com", "https://"])("flags %s", (v) => {
+    const lines: string[] = [];
+    expect(reportBadAppUrl({ APP_URL: v }, (m) => lines.push(m), "worker")).toBe(true);
+    expect(lines[0]).toMatch(/^\[worker\] APP_URL must be an absolute http\(s\) origin/);
   });
 });

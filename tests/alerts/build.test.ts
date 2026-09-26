@@ -10,6 +10,7 @@ import {
 } from "@/lib/alerts/build";
 import { parseAlertSettings, DEFAULT_ALERT_SETTINGS } from "@/lib/alerts/settings";
 import { daysFromNow, listing, NOW, settings, TZ } from "./fixtures";
+import type { AlertFollowUp } from "@/lib/alerts/types";
 
 const o = { now: NOW, timeZone: TZ };
 
@@ -256,5 +257,111 @@ describe("parseAlertSettings", () => {
   it("rejects a non-object row wholesale", () => {
     expect(parseAlertSettings("nope").settings).toEqual(DEFAULT_ALERT_SETTINGS);
     expect(parseAlertSettings([1, 2]).issues).toHaveLength(1);
+  });
+});
+
+describe("digest follow-ups", () => {
+  const fu = (over: Partial<AlertFollowUp> = {}): AlertFollowUp => ({
+    contactId: "c1",
+    name: "Sam Lee",
+    company: "Stripe",
+    kind: "FOLLOW_UP",
+    dueAt: NOW,
+    overdue: false,
+    ...over,
+  });
+  const s = settings({ digestMinScore: 70 });
+
+  it("sends with follow-ups alone — no new listings needed", () => {
+    const d = buildDailyDigest([], s, o, [fu()])!;
+    expect(d).not.toBeNull();
+    expect(d.subject).toBe("Daily digest: 1 follow-up due");
+    expect(d.text).toContain("Sam Lee (Stripe) — follow up, due today");
+    expect(d.text).toContain("/network/c1");
+    expect(d.listingIds).toEqual([]);
+  });
+
+  it("is still null when there are neither listings nor follow-ups", () => {
+    expect(buildDailyDigest([], s, o, [])).toBeNull();
+  });
+
+  it("puts both in the headline and keeps the one-per-day dedupe key", () => {
+    const d = buildDailyDigest([listing({ id: "a", score: 90 })], s, o, [fu(), fu({ contactId: "c2" })])!;
+    expect(d.subject).toMatch(/^Daily digest: 1 new role scoring 70\+ \(last 24h\) · 2 follow-ups due$/);
+    expect(d.baseKey).toBe(buildDailyDigest([listing({ id: "a", score: 90 })], s, o)!.baseKey);
+  });
+
+  it("labels each kind and says how overdue", () => {
+    const d = buildDailyDigest([], s, o, [
+      fu({ kind: "THANK_YOU", overdue: true, dueAt: new Date("2026-09-17T00:00:00Z") }),
+      fu({ contactId: "c2", name: "Ana", company: null, kind: "SEND_OPENER" }),
+    ])!;
+    expect(d.text).toContain("Sam Lee (Stripe) — send a thank-you, overdue since 2026-09-17");
+    expect(d.text).toContain("Ana — send an opener, due today");
+  });
+
+  it("links absolutely when APP_URL is an http(s) origin, and never to anything else", () => {
+    expect(buildDailyDigest([], s, { ...o, appUrl: "https://jobs.example.com" }, [fu()])!.discord).toContain(
+      "<https://jobs.example.com/network/c1>",
+    );
+    const bad = buildDailyDigest([], s, { ...o, appUrl: "javascript:alert(1)" }, [fu()])!;
+    expect(bad.text).not.toContain("javascript:");
+    expect(bad.discord).not.toContain("<");
+  });
+
+  it("escapes user-typed names for Discord and caps the list", () => {
+    const many = Array.from({ length: 13 }, (_, i) => fu({ contactId: `c${i}`, name: `*bold* ${i}` }));
+    const d = buildDailyDigest([], s, o, many)!;
+    expect(d.discord).toContain("\\*bold\\* 0");
+    expect(d.text).toContain("…and 3 more on /network.");
+    expect(d.text).not.toContain("*bold* 12");
+  });
+});
+
+describe("digest follow-ups survive Discord's length limit", () => {
+  it("puts follow-ups before a full page of listings, inside the 2,000-char cut", async () => {
+    const { truncateForDiscord } = await import("@/lib/alerts/channels/discord");
+    const s = settings({ digestMinScore: 0, maxItemsPerDigest: 25 });
+    const many = Array.from({ length: 25 }, (_, i) =>
+      listing({ id: `l${i}`, score: 90, title: `Software Engineering Intern, Platform Infrastructure ${i}` }),
+    );
+    const d = buildDailyDigest(many, s, o, [
+      { contactId: "c1", name: "Sam Lee", company: "Stripe", kind: "FOLLOW_UP", dueAt: NOW, overdue: false },
+    ])!;
+    // Built to fit: never over the limit, so the transport never has to cut.
+    expect(d.discord.length).toBeLessThanOrEqual(2000);
+    expect(truncateForDiscord(d.discord)).toBe(d.discord);
+    expect(d.discord).toContain("Sam Lee (Stripe)");
+    const shownRoles = (d.discord.match(/Platform Infrastructure \d+/g) ?? []).length;
+    expect(shownRoles).toBeGreaterThan(0);
+    expect(shownRoles).toBeLessThan(25);
+    expect(d.discord).toMatch(new RegExp(`…and ${25 - shownRoles} more roles in the app\\.$`));
+    expect(d.text.indexOf("Sam Lee")).toBeLessThan(d.text.indexOf("Platform Infrastructure 0"));
+  });
+
+  it("counts follow-ups the limit dropped, plus those past the 10-item cap", () => {
+    const s = settings({ digestMinScore: 0 });
+    const long = "x".repeat(300);
+    const fus = Array.from({ length: 14 }, (_, i) => ({
+      contactId: `c${i}`,
+      name: `${long} ${i}`,
+      company: null,
+      kind: "FOLLOW_UP" as const,
+      dueAt: NOW,
+      overdue: false,
+    }));
+    const d = buildDailyDigest([], s, o, fus)!;
+    expect(d.discord.length).toBeLessThanOrEqual(2000);
+    const shown = (d.discord.match(/x{300} \d+/g) ?? []).length;
+    expect(shown).toBeLessThan(10);
+    // 14 due: 10 pass the cap, `shown` of those fit; the rest are all counted.
+    expect(d.discord).toContain(`…and ${14 - shown} more follow-ups on /network.`);
+    // Email has no length limit: the cap alone applies.
+    expect(d.text).toContain("…and 4 more on /network.");
+  });
+
+  it("adds no trailer when everything fits", () => {
+    const d = buildDailyDigest([listing({ id: "a", score: 90 })], settings({ digestMinScore: 0 }), o, [])!;
+    expect(d.discord).not.toContain("…and");
   });
 });

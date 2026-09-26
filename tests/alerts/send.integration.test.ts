@@ -46,6 +46,10 @@ describe.skipIf(!hasDb)("alert sending + AlertLog (integration)", () => {
     config = await import("@/lib/alerts/config");
     await prisma.alertLog.deleteMany();
     await prisma.setting.deleteMany();
+    // Contacts feed the digest's follow-ups section; clear them so a contact
+    // left by another test file can't change what the digest contains.
+    await prisma.outreachMessage.deleteMany();
+    await prisma.contact.deleteMany();
     await prisma.statusEvent.deleteMany();
     await prisma.application.deleteMany();
     await prisma.llmAssessment.deleteMany();

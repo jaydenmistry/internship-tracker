@@ -102,3 +102,45 @@ describe("parseLinkedinUrl", () => {
     expect(parseLinkedinUrl(raw)).toBeNull();
   });
 });
+
+describe("messageInputSchema", () => {
+  const ok = {
+    direction: "OUT",
+    type: "COLD",
+    channel: "EMAIL",
+    subject: " Hi ",
+    body: "Hello\n",
+    sentAt: "2026-09-25T16:00:00.000Z",
+  } as const;
+
+  it("parses a message, trimming the subject and keeping the body as typed", async () => {
+    const { messageInputSchema } = await import("@/lib/networking/schema");
+    const m = messageInputSchema.parse(ok);
+    expect(m).toMatchObject({ subject: "Hi", body: "Hello\n", listingId: null });
+    expect(m.sentAt).toEqual(new Date("2026-09-25T16:00:00.000Z"));
+  });
+
+  it.each([
+    [{ direction: "IN", type: "COLD" }, /isn't a message you can log/],
+    [{ direction: "OUT", type: "ACCEPTED", channel: "LINKEDIN" }, /isn't a message you can log/],
+    [{ type: "CONNECT_NOTE", channel: "EMAIL" }, /can't be sent by EMAIL/],
+    [{ type: "MEETING", channel: "EMAIL" }, /can't be sent by EMAIL/],
+    // Openers only on the channels the engine runs a cadence for.
+    [{ type: "COLD", channel: "OTHER" }, /can't be sent by OTHER/],
+    [{ type: "REFERRAL_ASK", channel: "OTHER" }, /can't be sent by OTHER/],
+    [{ sentAt: "yesterday" }, /./],
+    [{ sentAt: "2099-01-01T00:00:00Z" }, /future/],
+  ])("rejects %o", async (over, message) => {
+    const { messageInputSchema } = await import("@/lib/networking/schema");
+    const r = messageInputSchema.safeParse({ ...ok, ...over });
+    expect(r.success).toBe(false);
+    if (!r.success) expect(r.error.issues[0].message).toMatch(message);
+  });
+
+  it("accepts an inbound acceptance with an empty body", async () => {
+    const { messageInputSchema } = await import("@/lib/networking/schema");
+    expect(
+      messageInputSchema.safeParse({ direction: "IN", type: "ACCEPTED", channel: "LINKEDIN", sentAt: ok.sentAt }).success,
+    ).toBe(true);
+  });
+});

@@ -85,6 +85,9 @@ services:
       - SMTP_FROM=${TRACKER_SMTP_FROM:-}
       - SMTP_TO=${TRACKER_SMTP_TO:-}
       - ALERT_TIMEZONE=${TZ}
+      # /alerts "Send now" builds the digest in THIS container, so it needs
+      # the origin for follow-up links too (see the worker's comment).
+      - APP_URL=https://${TRACKER_HOST}
     volumes:
       # The scoring config, bind-mounted as a DIRECTORY, not a single file: a
       # single-file mount pins an inode, so any write-and-rename editor (vim,
@@ -143,6 +146,9 @@ services:
       - DIGEST_CRON=${TRACKER_DIGEST_CRON:-0 7 * * *}
       - CLOSING_SOON_CRON=${TRACKER_CLOSING_SOON_CRON:-0 8 * * *}
       - ALERT_TIMEZONE=${TZ}
+      # Links in the digest's "Follow-ups due" section point at the contact
+      # page on this origin. Derived from the Traefik host, not a new variable.
+      - APP_URL=https://${TRACKER_HOST}
       - USER_AGENT_CONTACT=${TRACKER_USER_AGENT_CONTACT}
       - SCORING_ANTHROPIC_API_KEY=${TRACKER_SCORING_ANTHROPIC_API_KEY:-}
       - DISCORD_WEBHOOK_URL=${TRACKER_DISCORD_WEBHOOK_URL:-}

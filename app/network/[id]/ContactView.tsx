@@ -5,38 +5,77 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import Badge from "@/components/Badge";
 import type { ContactDetail } from "@/lib/networking/contacts";
+import type { CompanyListingOption, TimelineMessage } from "@/lib/networking/messages";
 import { CONTACT_STATUS_LABELS, CONTACT_STATUS_TONE, KIND_LABELS } from "@/lib/networking/schema";
-import { deleteContactAction, updateContactAction } from "../actions";
+import { deleteContactAction, logMessageAction, updateContactAction } from "../actions";
 import ContactForm from "../ContactForm";
 import {
   absoluteDate,
+  emptyMessageForm,
   formFromContact,
   formToPayload,
   linkedinHref,
   mailtoHref,
+  messageFormToPayload,
   relativeAge,
   type ContactForm as Form,
+  type DueKindLabel,
+  type MessageForm,
 } from "../state";
+import FollowUpBar from "./FollowUpBar";
+import LogMessageForm from "./LogMessageForm";
+import Timeline from "./Timeline";
 
 /**
- * /network/[id] — one contact's details, editable in place, with a hard
- * delete behind a confirmation. Everything shown was typed by the user and is
+ * /network/[id] — one contact: what's due next, the message timeline, a Log
+ * message form, and their details (editable in place, with a hard delete
+ * behind a confirmation). Everything shown was typed by the user and is
  * rendered as text.
  */
 
 interface Props {
   contact: ContactDetail;
+  timeline: TimelineMessage[];
+  listings: CompanyListingOption[];
+  dueKind: DueKindLabel | null;
   companyNames: string[];
   nowIso: string;
+  /** The server's follow-up zone, so due days render as the same day everywhere. */
+  timeZone: string;
 }
 
-export default function ContactView({ contact, companyNames, nowIso }: Props) {
+export default function ContactView({ contact, timeline, listings, dueKind, companyNames, nowIso, timeZone }: Props) {
   const router = useRouter();
   const nowMs = useMemo(() => Date.parse(nowIso), [nowIso]);
   const [form, setForm] = useState<Form | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [msgForm, setMsgForm] = useState<MessageForm | null>(null);
+  const [msgError, setMsgError] = useState<string | null>(null);
+  const [msgPending, startMsg] = useTransition();
+
+  const openLog = (event?: string) => {
+    setMsgError(null);
+    setMsgForm(emptyMessageForm(event));
+  };
+
+  const onLog = () => {
+    if (!msgForm) return;
+    const payload = messageFormToPayload(msgForm);
+    if ("error" in payload) return setMsgError(payload.error);
+    setMsgError(null);
+    startMsg(async () => {
+      let res: Awaited<ReturnType<typeof logMessageAction>>;
+      try {
+        res = await logMessageAction({ contactId: contact.id, message: payload });
+      } catch (err) {
+        res = { ok: false, message: err instanceof Error ? err.message : String(err) };
+      }
+      if (res.ok) setMsgForm(null);
+      else setMsgError(res.message);
+    });
+  };
 
   const onSave = () => {
     if (!form) return;
@@ -112,6 +151,43 @@ export default function ContactView({ contact, companyNames, nowIso }: Props) {
           </div>
         )}
       </header>
+
+      <FollowUpBar
+        contact={contact}
+        dueKind={dueKind}
+        nowMs={nowMs}
+        timeZone={timeZone}
+        onLogMeeting={() => openLog("OUT:MEETING")}
+      />
+
+      <section aria-label="Messages" className="rounded border border-line bg-panel">
+        <div className="flex items-center gap-2 border-b border-line px-3 py-2">
+          <h2 className="font-mono text-[10px] font-semibold tracking-wide text-faint uppercase">Messages</h2>
+          {!msgForm && (
+            <button
+              type="button"
+              onClick={() => openLog()}
+              className="ml-auto rounded border border-accent bg-accent px-3 py-1 text-[12px] text-accent-ink"
+            >
+              Log message
+            </button>
+          )}
+        </div>
+        {msgForm && (
+          <div className="border-b border-line px-3 py-3">
+            <LogMessageForm
+              form={msgForm}
+              onChange={setMsgForm}
+              onSubmit={onLog}
+              onCancel={() => setMsgForm(null)}
+              listings={listings}
+              pending={msgPending}
+              error={msgError}
+            />
+          </div>
+        )}
+        <Timeline messages={timeline} timeZone={timeZone} />
+      </section>
 
       {form ? (
         <section aria-label="Edit contact" className="rounded border border-line bg-panel px-3 py-3">

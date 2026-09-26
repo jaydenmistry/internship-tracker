@@ -1,5 +1,6 @@
-import type { AlertChannel, AlertKind, AlertListing, BuiltAlert } from "./types";
+import type { AlertChannel, AlertFollowUp, AlertKind, AlertListing, BuiltAlert } from "./types";
 import type { AlertSettings } from "./settings";
+import { DISCORD_CONTENT_LIMIT } from "./channels/discord";
 
 /**
  * Pure alert construction: listings + thresholds + "now" in, rendered messages
@@ -20,6 +21,11 @@ export interface BuildOptions {
    * the cron schedules run on.
    */
   timeZone?: string;
+  /**
+   * The app's public origin (APP_URL, e.g. https://jobs.example.com), used to
+   * link a follow-up to its contact page. Unset: the path alone is shown.
+   */
+  appUrl?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -169,15 +175,47 @@ function byPriority(a: AlertListing, b: AlertListing): number {
 // Builders
 // ---------------------------------------------------------------------------
 
+/** At most this many follow-ups are named; the rest are counted. */
+export const MAX_FOLLOW_UPS_PER_DIGEST = 10;
+
+const FOLLOW_UP_LABELS: Record<AlertFollowUp["kind"], string> = {
+  FOLLOW_UP: "follow up",
+  THANK_YOU: "send a thank-you",
+  SEND_OPENER: "send an opener",
+  CHECK_IN: "check in",
+};
+
+/** The contact page link, absolute when APP_URL is set and http(s). */
+function contactLink(id: string, o: BuildOptions): string {
+  const path = `/network/${encodeURIComponent(id)}`;
+  const base = safeHttpUrl(o.appUrl ?? null);
+  return base ? new URL(path, base).toString() : path;
+}
+
+function renderFollowUp(f: AlertFollowUp, o: BuildOptions, markdown: boolean): string {
+  const who = f.company ? `${collapse(f.name)} (${collapse(f.company)})` : collapse(f.name);
+  const when = f.overdue ? `overdue since ${calendarDate(f.dueAt, o.timeZone)}` : "due today";
+  const line = `${who} — ${FOLLOW_UP_LABELS[f.kind]}, ${when}`;
+  const link = contactLink(f.contactId, o);
+  if (markdown) return `• ${escapeDiscord(line)}${link.startsWith("http") ? ` <${link}>` : ""}`;
+  return `  • ${line}\n      ${link}`;
+}
+
 /**
  * Listings first seen inside the lookback window that score at or above the
- * digest minimum. Returns null when there is nothing to say — an empty digest
- * is noise, and sending one would burn the day's dedupe key.
+ * digest minimum, plus the networking follow-ups due today or earlier.
+ * Returns null only when BOTH are empty — an empty digest is noise, and
+ * sending one would burn the day's dedupe key.
+ *
+ * Follow-ups are not deduped individually: the section reflects what is due
+ * as of this digest, so an unhandled follow-up keeps appearing each day until
+ * it is logged or snoozed. The digest as a whole still sends once per day.
  */
 export function buildDailyDigest(
   listings: readonly AlertListing[],
   settings: AlertSettings,
   o: BuildOptions,
+  followUps: readonly AlertFollowUp[] = [],
 ): BuiltAlert | null {
   const cutoff = o.now.getTime() - settings.digestLookbackHours * 3_600_000;
   const eligible = listings
@@ -190,15 +228,29 @@ export function buildDailyDigest(
     )
     .sort(byPriority);
 
-  if (eligible.length === 0) return null;
+  if (eligible.length === 0 && followUps.length === 0) return null;
 
   const shown = eligible.slice(0, settings.maxItemsPerDigest);
   const hidden = eligible.length - shown.length;
   const noun = eligible.length === 1 ? "role" : "roles";
-  const headline =
-    `${eligible.length} new ${noun} scoring ${settings.digestMinScore}+ ` +
-    `(last ${settings.digestLookbackHours}h)`;
+  const listingHeadline =
+    eligible.length > 0
+      ? `${eligible.length} new ${noun} scoring ${settings.digestMinScore}+ ` +
+        `(last ${settings.digestLookbackHours}h)`
+      : null;
   const more = hidden > 0 ? `…and ${hidden} more in the app.` : null;
+
+  const fuShown = followUps.slice(0, MAX_FOLLOW_UPS_PER_DIGEST);
+  const fuHidden = followUps.length - fuShown.length;
+  const fuHeadline =
+    followUps.length > 0 ? `${followUps.length} follow-up${followUps.length === 1 ? "" : "s"} due` : null;
+  const fuMore = fuHidden > 0 ? `…and ${fuHidden} more on /network.` : null;
+
+  const headline = [listingHeadline, fuHeadline].filter(Boolean).join(" · ");
+
+  const textFollowUps = fuHeadline
+    ? [`${fuHeadline}:`, fuShown.map((f) => renderFollowUp(f, o, false)).join("\n"), fuMore]
+    : [];
 
   return {
     kind: "DAILY_DIGEST",
@@ -206,13 +258,75 @@ export function buildDailyDigest(
     listingId: null,
     listingIds: shown.map((l) => l.id),
     subject: `Daily digest: ${headline}`,
-    text: [headline, "", ...shown.map((l) => renderItem(l, o, false)), more]
+    // Follow-ups go FIRST: they're short (capped) and actionable, and the
+    // Discord channel truncates at 2,000 characters — after the listings they
+    // would be the first thing cut.
+    text: [headline, "", ...textFollowUps, ...shown.map((l) => renderItem(l, o, false)), more]
       .filter((p) => p !== null)
       .join("\n\n"),
-    discord: [`**Daily digest — ${escapeDiscord(headline)}**`, ...shown.map((l) => renderItem(l, o, true)), more]
-      .filter((p) => p !== null)
-      .join("\n\n"),
+    discord: fitDiscordDigest(
+      `**Daily digest — ${escapeDiscord(headline)}**`,
+      fuHeadline ? `**${escapeDiscord(fuHeadline)}**` : null,
+      fuShown.map((f) => renderFollowUp(f, o, true)),
+      fuHidden,
+      shown.map((l) => renderItem(l, o, true)),
+      hidden,
+    ),
   };
+}
+
+/**
+ * The Discord body, built to FIT rather than cut: Discord rejects anything
+ * over 2,000 characters, and the transport's fallback truncation would drop
+ * whole sections behind a bare "(truncated)". Items are added in order —
+ * follow-ups first (short, capped, actionable), then listings — while they
+ * fit, and whatever didn't is counted in an "…and N more" line that is always
+ * room-reserved, so nothing disappears silently.
+ */
+function fitDiscordDigest(
+  header: string,
+  fuHeader: string | null,
+  fuItems: string[],
+  fuAlreadyHidden: number,
+  listingItems: string[],
+  listingsAlreadyHidden: number,
+): string {
+  const moreLine = (fu: number, roles: number) =>
+    [
+      fu > 0 ? `…and ${fu} more follow-up${fu === 1 ? "" : "s"} on /network.` : null,
+      roles > 0 ? `…and ${roles} more role${roles === 1 ? "" : "s"} in the app.` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  // Worst case for the trailer: every item dropped, counted with 4-digit numbers.
+  const reserve = moreLine(9999, 9999).length + 2;
+  const budget = DISCORD_CONTENT_LIMIT - reserve;
+
+  let body = header;
+  const add = (piece: string, sep: string) => {
+    if (body.length + sep.length + piece.length > budget) return false;
+    body += sep + piece;
+    return true;
+  };
+
+  let fuShown = 0;
+  if (fuHeader && fuItems.length > 0 && add(fuHeader, "\n\n")) {
+    for (const item of fuItems) {
+      if (!add(item, "\n")) break;
+      fuShown += 1;
+    }
+  }
+  let listingsShown = 0;
+  for (const item of listingItems) {
+    if (!add(item, "\n\n")) break;
+    listingsShown += 1;
+  }
+
+  const trailer = moreLine(
+    fuAlreadyHidden + (fuItems.length - fuShown),
+    listingsAlreadyHidden + (listingItems.length - listingsShown),
+  );
+  return trailer ? `${body}\n\n${trailer}` : body;
 }
 
 /** One immediate alert per listing at or above the high-score threshold. */
@@ -286,10 +400,11 @@ export function buildAlerts(
   listings: readonly AlertListing[],
   settings: AlertSettings,
   o: BuildOptions,
+  followUps: readonly AlertFollowUp[] = [],
 ): BuiltAlert[] {
   switch (kind) {
     case "DAILY_DIGEST": {
-      const digest = buildDailyDigest(listings, settings, o);
+      const digest = buildDailyDigest(listings, settings, o, followUps);
       return digest ? [digest] : [];
     }
     case "HIGH_SCORE":

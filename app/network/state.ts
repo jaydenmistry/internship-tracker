@@ -1,6 +1,12 @@
-import type { ContactKind, ContactStatus } from "@/generated/prisma/enums";
+import type {
+  ContactKind,
+  ContactStatus,
+  OutreachChannel,
+  OutreachDirection,
+  OutreachType,
+} from "@/generated/prisma/enums";
 import type { ContactDetail, ContactRow } from "@/lib/networking/contacts";
-import { parseLinkedinUrl, type ContactInputRaw } from "@/lib/networking/schema";
+import { MESSAGE_RULES, parseLinkedinUrl, type ContactInputRaw, type MessageInputRaw } from "@/lib/networking/schema";
 
 /**
  * Pure presentation logic for /network. No React, no DOM, no I/O. Imports only
@@ -151,4 +157,150 @@ export function mailtoHref(email: string | null): string | null {
 /** Where the listing panel's "add contact" link goes, company prefilled. */
 export function addContactHref(company: string): string {
   return `/network?add=1&company=${encodeURIComponent(company)}`;
+}
+
+// ---------------------------------------------------------------------------
+// Sorting
+// ---------------------------------------------------------------------------
+
+export type ContactSort = "recent" | "next" | "pending";
+
+export const SORT_LABELS: Record<ContactSort, string> = {
+  recent: "recently updated",
+  next: "next due",
+  pending: "pending longest",
+};
+
+const time = (iso: string | null) => (iso ? Date.parse(iso) : null);
+
+/** Returns a new array. Nulls sort last for "next" and "pending". */
+export function sortContacts(rows: readonly ContactRow[], sort: ContactSort): ContactRow[] {
+  const out = [...rows];
+  const nullsLast = (a: number | null, b: number | null) =>
+    a === null ? (b === null ? 0 : 1) : b === null ? -1 : a - b;
+  if (sort === "next") out.sort((a, b) => nullsLast(time(a.nextFollowUpAt), time(b.nextFollowUpAt)));
+  else if (sort === "pending") out.sort((a, b) => nullsLast(time(a.pendingSince), time(b.pendingSince)));
+  else out.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Due dates — always shown in the SERVER's follow-up zone, so a due day
+// stored as local midnight never renders as "the evening before" in a
+// browser west of it (and server and client render the same text).
+// ---------------------------------------------------------------------------
+
+export type DueKindLabel = "FOLLOW_UP" | "THANK_YOU" | "SEND_OPENER" | "CHECK_IN";
+
+export const DUE_LABELS: Record<DueKindLabel, string> = {
+  FOLLOW_UP: "follow up",
+  THANK_YOU: "send a thank-you",
+  SEND_OPENER: "send an opener",
+  CHECK_IN: "check in",
+};
+
+/** "Fri, Oct 2" in `timeZone`. */
+export function formatDueDay(iso: string, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short", month: "short", day: "numeric" }).format(
+    new Date(iso),
+  );
+}
+
+/** Whole calendar days from today to the due day, in `timeZone` (negative = overdue). */
+export function daysUntil(iso: string, nowMs: number, timeZone: string): number {
+  const day = (ms: number) =>
+    Date.parse(new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(ms));
+  return Math.round((day(Date.parse(iso)) - day(nowMs)) / 86_400_000);
+}
+
+export function dueWhen(iso: string, nowMs: number, timeZone: string): { text: string; overdue: boolean } {
+  const d = daysUntil(iso, nowMs, timeZone);
+  if (d < 0) return { text: `overdue ${-d}d (${formatDueDay(iso, timeZone)})`, overdue: true };
+  if (d === 0) return { text: "due today", overdue: false };
+  if (d === 1) return { text: "due tomorrow", overdue: false };
+  return { text: `due ${formatDueDay(iso, timeZone)}`, overdue: false };
+}
+
+// ---------------------------------------------------------------------------
+// Log message form
+// ---------------------------------------------------------------------------
+
+
+export interface EventOption {
+  value: string;
+  direction: OutreachDirection;
+  type: OutreachType;
+  label: string;
+}
+
+/** The "what happened" picker, in the order you'd reach for them. */
+export const EVENT_OPTIONS: EventOption[] = [
+  { value: "OUT:COLD", direction: "OUT", type: "COLD", label: "I sent an opener (cold email / message)" },
+  { value: "OUT:CONNECT_NOTE", direction: "OUT", type: "CONNECT_NOTE", label: "I sent a LinkedIn connection note" },
+  { value: "IN:ACCEPTED", direction: "IN", type: "ACCEPTED", label: "They accepted my connection" },
+  { value: "IN:REPLY", direction: "IN", type: "REPLY", label: "They replied" },
+  { value: "OUT:REPLY", direction: "OUT", type: "REPLY", label: "I replied" },
+  { value: "OUT:FOLLOW_UP", direction: "OUT", type: "FOLLOW_UP", label: "I followed up" },
+  { value: "OUT:REFERRAL_ASK", direction: "OUT", type: "REFERRAL_ASK", label: "I asked for a referral" },
+  { value: "OUT:MEETING", direction: "OUT", type: "MEETING", label: "We met (career fair, coffee chat, call)" },
+  { value: "OUT:THANK_YOU", direction: "OUT", type: "THANK_YOU", label: "I sent a thank-you" },
+];
+
+export function channelsFor(direction: OutreachDirection, type: OutreachType): readonly OutreachChannel[] {
+  return MESSAGE_RULES[direction][type] ?? [];
+}
+
+export interface MessageForm {
+  event: string;
+  channel: OutreachChannel;
+  /** `datetime-local` value, in the browser's zone. */
+  sentAtLocal: string;
+  subject: string;
+  body: string;
+  listingId: string;
+}
+
+/** `YYYY-MM-DDTHH:mm` for a datetime-local input, in the browser's zone. */
+export function toLocalInput(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+export function emptyMessageForm(event = "OUT:COLD", now = new Date()): MessageForm {
+  const opt = EVENT_OPTIONS.find((o) => o.value === event) ?? EVENT_OPTIONS[0];
+  return {
+    event: opt.value,
+    channel: channelsFor(opt.direction, opt.type)[0],
+    sentAtLocal: toLocalInput(now),
+    subject: "",
+    body: "",
+    listingId: "",
+  };
+}
+
+/** Switching the event keeps the channel when it's still allowed. */
+export function withEvent(form: MessageForm, event: string): MessageForm {
+  const opt = EVENT_OPTIONS.find((o) => o.value === event);
+  if (!opt) return form;
+  const allowed = channelsFor(opt.direction, opt.type);
+  return { ...form, event, channel: allowed.includes(form.channel) ? form.channel : allowed[0] };
+}
+
+/** Subjects only mean something for email. */
+export const showsSubject = (channel: OutreachChannel) => channel === "EMAIL";
+
+export function messageFormToPayload(f: MessageForm): MessageInputRaw | { error: string } {
+  const opt = EVENT_OPTIONS.find((o) => o.value === f.event);
+  if (!opt) return { error: "pick what happened" };
+  const sentAt = new Date(f.sentAtLocal);
+  if (Number.isNaN(sentAt.getTime())) return { error: "pick when it happened" };
+  return {
+    direction: opt.direction,
+    type: opt.type,
+    channel: f.channel,
+    subject: showsSubject(f.channel) ? f.subject : "",
+    body: f.body,
+    sentAt: sentAt.toISOString(),
+    listingId: f.listingId || null,
+  };
 }

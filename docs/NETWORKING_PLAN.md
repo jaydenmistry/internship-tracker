@@ -406,7 +406,26 @@ computeFollowUpState(
    `nextFollowUpAt` rules 3–7 produced. This doesn't apply under
    `doNotContact`, which rule 1 already handles.
 
-**Business days** skip weekends only. Holidays are not handled.
+**As built (phase 2), details the rules above left open:**
+
+- **A meeting counts as a manual CHATTED dated at the meeting.** The later of
+  the explicit manual status and the latest meeting wins. Under a manual
+  status the only reminder is a thank-you for a meeting that has no THANK_YOU
+  after it and no opener after it.
+- **Connection events don't supersede a manual status.** Only a newer opener
+  does, as rule 2 says.
+- **Messages with no opener, connection note or acceptance** (for example an
+  inbound reply logged on its own) give REPLIED if they ever replied,
+  otherwise NOT_CONTACTED, with no date.
+- **A snooze on a contact with nothing due adds a "check in" reminder.** A
+  snooze on something that is due keeps that item's label.
+- **`maxFollowUps = 0` means no reminders.** The contact goes COLD
+  `firstFollowUpBusinessDays` after the opener.
+- **Loggable events are one table**, `MESSAGE_RULES`: outbound COLD,
+  CONNECT_NOTE (LinkedIn only), MEETING (in person or other), FOLLOW_UP,
+  THANK_YOU, REFERRAL_ASK and REPLY; inbound ACCEPTED (LinkedIn only) and
+  REPLY. A logged message's words and date can be edited, but not its kind.
+- **Business days** skip weekends only. Holidays are not handled.
 Time-zone-aware day arithmetic reuses `calendarDate` and `calendarDaysBetween`
 from `lib/alerts/build.ts`.
 
@@ -701,6 +720,11 @@ digest's schedule.
    - contacts CSV import (reusing `/import` patterns)
    - docs: `ARCHITECTURE.md` sections, including the two Claude paths and
      token rotation, and a `CLAUDE.md` entry under architecture decisions
+   - the company-name spelling issue, deferred from phase 1 review: a company
+     created from a contact keeps the spelling typed there ("google") for
+     good, because neither contacts nor ingestion rename an existing row.
+     Likely fix: let ingestion replace the name on a row that has no listings
+     yet.
 
 Suggested owners:
 - a general agent for `lib/networking/` and `lib/claude/` (neither belongs to
