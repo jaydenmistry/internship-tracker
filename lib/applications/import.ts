@@ -166,9 +166,10 @@ export function parseAppliedDate(raw: string): string | null {
   return d.toISOString();
 }
 
-type Delimiter = "tab" | "pipe" | "comma" | "dash" | "none";
+export type Delimiter = "tab" | "pipe" | "comma" | "dash" | "none";
 
-function detectDelimiter(record: string): Delimiter {
+/** Shared with the contacts importer (lib/networking/import.ts). */
+export function detectDelimiter(record: string): Delimiter {
   if (record.includes("\t")) return "tab";
   if (record.includes("|")) return "pipe";
   if (record.includes(",")) return "comma";
@@ -214,7 +215,8 @@ function splitComma(record: string): string[] {
   return out;
 }
 
-function splitWith(delimiter: Delimiter, record: string): string[] {
+/** Shared with the contacts importer. */
+export function splitWith(delimiter: Delimiter, record: string): string[] {
   switch (delimiter) {
     case "tab":
       return record.split("\t").map((s) => s.trim());
@@ -234,7 +236,7 @@ function splitWith(delimiter: Delimiter, record: string): string[] {
  * multi-line note in an exported CSV) does not end the record. Each record
  * keeps the line number it started on, for error messages.
  */
-function splitRecords(text: string): Array<{ text: string; lineNumber: number }> {
+export function splitRecords(text: string): Array<{ text: string; lineNumber: number }> {
   const out: Array<{ text: string; lineNumber: number }> = [];
   let cur = "";
   let inQuotes = false;

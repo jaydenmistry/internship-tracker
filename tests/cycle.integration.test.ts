@@ -76,7 +76,10 @@ describe.skipIf(!hasDb)("full cycle (integration)", () => {
     await prisma.listing.deleteMany();
     await prisma.company.deleteMany();
     await prisma.ingestRun.deleteMany();
-  });
+    // The first run cold-imports the whole cycle graph (ingestion, scoring,
+    // detail fetch); on a slow filesystem (WSL on /mnt/c) that alone can pass
+    // vitest's 10s hook default.
+  }, 60_000);
 
   const quiet = () => {};
   const now = new Date("2026-09-18T12:00:00Z");

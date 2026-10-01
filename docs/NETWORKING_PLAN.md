@@ -1,8 +1,10 @@
 # Networking feature — plan
 
-**Status: proposed, nothing built.** This is a plan for review. Once work
-starts, what gets built moves into `docs/ARCHITECTURE.md` and `CLAUDE.md`, and
-this file either gets deleted or turns into a record of the decisions made.
+**Status: built — all four phases.** This file is now the record of the
+decisions made; what exists is described in `docs/ARCHITECTURE.md` (the
+Contact / OutreachMessage section and "Two paths to Claude") and `CLAUDE.md`.
+Where a section here says "as built", the code followed that, not the
+original wording above it.
 
 Open items are marked **[DECIDE]**. Anything else that's wrong, strike it out or
 rewrite it inline.

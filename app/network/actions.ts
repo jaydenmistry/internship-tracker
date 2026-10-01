@@ -16,6 +16,10 @@ import { NetworkingSettingsSchema } from "@/lib/networking/settings";
 import { DraftClientError } from "@/lib/claude/draftClient";
 import { DRAFT_TYPES } from "@/lib/networking/draft";
 import { DraftRefusedError, generateDraft } from "@/lib/networking/drafting";
+import { commitContactImport, loadExistingContactKeys } from "@/lib/networking/contacts";
+import { findDuplicates, IMPORT_MAX_CHARS, IMPORT_MAX_ROWS, parseContactImport, type DuplicateOf } from "@/lib/networking/import";
+import { setReferral } from "@/lib/networking/referrals";
+import type { ContactInput } from "@/lib/networking/schema";
 
 /**
  * Contact mutations from /network. A Server Action is a public POST endpoint,
@@ -235,5 +239,82 @@ export async function draftMessageAction(payload: unknown): Promise<DraftActionR
       return { ok: false, message, kind: err.kind, resetsAt: err.resetsAt?.toISOString() ?? null };
     }
     return failed("drafting", err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Referrals and bulk import (phase 4)
+// ---------------------------------------------------------------------------
+
+const referralSchema = z.object({ applicationId: idSchema, contactId: idSchema.nullable() });
+
+export async function setReferralAction(payload: unknown): Promise<NetworkActionResult> {
+  // See createContactAction: guarded independently of proxy.ts.
+  await requireSession();
+  const parsed = referralSchema.safeParse(payload);
+  if (!parsed.success) return invalid(parsed.error);
+  try {
+    await setReferral(parsed.data.applicationId, parsed.data.contactId);
+  } catch (err) {
+    return failed("recording the referral", err);
+  }
+  refresh();
+  return { ok: true };
+}
+
+export interface AnalyzedImportRow {
+  lineNumber: number;
+  contact: ContactInput;
+  duplicate: DuplicateOf | null;
+}
+
+export type AnalyzeImportResult =
+  | {
+      ok: true;
+      rows: AnalyzedImportRow[];
+      errors: Array<{ lineNumber: number; raw: string; reason: string }>;
+      linkedInExport: boolean;
+    }
+  | { ok: false; message: string };
+
+const analyzeSchema = z.object({ text: z.string().max(IMPORT_MAX_CHARS, `at most ${IMPORT_MAX_CHARS} characters`) });
+
+/** Parse + validate + flag duplicates. Writes nothing. */
+export async function analyzeContactImportAction(payload: unknown): Promise<AnalyzeImportResult> {
+  // See createContactAction: guarded independently of proxy.ts.
+  await requireSession();
+  const parsed = analyzeSchema.safeParse(payload);
+  if (!parsed.success) return invalid(parsed.error);
+  try {
+    const result = parseContactImport(parsed.data.text);
+    const dupes = findDuplicates(result.rows, await loadExistingContactKeys());
+    return {
+      ok: true,
+      rows: result.rows.map((r) => ({ ...r, duplicate: dupes.get(r.lineNumber) ?? null })),
+      errors: result.errors,
+      linkedInExport: result.linkedInExport,
+    };
+  } catch (err) {
+    return failed("reading the import", err);
+  }
+}
+
+// Re-validated here: what the browser sends back is a public POST body, not
+// the server's own parse result.
+const commitImportSchema = z.object({ contacts: z.array(contactInputSchema).min(1).max(IMPORT_MAX_ROWS) });
+
+export async function commitContactImportAction(
+  payload: unknown,
+): Promise<NetworkActionResult<{ created: number; failed: Array<{ index: number; name: string; message: string }> }>> {
+  // See createContactAction: guarded independently of proxy.ts.
+  await requireSession();
+  const parsed = commitImportSchema.safeParse(payload);
+  if (!parsed.success) return invalid(parsed.error);
+  try {
+    const result = await commitContactImport(parsed.data.contacts);
+    refresh();
+    return { ok: true, ...result };
+  } catch (err) {
+    return failed("importing", err);
   }
 }

@@ -62,6 +62,8 @@ export interface TrackerApplication {
    *  The badge links /network?companyKey= with it, so the page shows exactly
    *  the people counted — not a text search on the display name. */
   contactCompanyKey: string | null;
+  /** Who referred you for this application, if anyone. */
+  referredBy: { id: string; name: string } | null;
 }
 
 export async function loadTrackerApplications(): Promise<TrackerApplication[]> {
@@ -81,6 +83,7 @@ export async function loadTrackerApplications(): Promise<TrackerApplication[]> {
         },
       },
       events: { orderBy: { occurredAt: "desc" }, take: 1, select: { occurredAt: true } },
+      referredBy: { select: { id: true, name: true } },
     },
     orderBy: { updatedAt: "desc" },
   });
@@ -111,6 +114,7 @@ export async function loadTrackerApplications(): Promise<TrackerApplication[]> {
     likelyClosed: a.listing?.likelyClosed ?? false,
     contactCount,
     contactCompanyKey: contactCount > 0 ? key : null,
+    referredBy: a.referredBy,
     };
   });
 }

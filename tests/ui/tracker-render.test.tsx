@@ -37,6 +37,7 @@ function app(overrides: Partial<TrackerApplication> = {}): TrackerApplication {
     likelyClosed: false,
     contactCount: 0,
     contactCompanyKey: null,
+    referredBy: null,
     ...overrides,
   };
 }
@@ -193,5 +194,15 @@ describe("contacts badge", () => {
     const link = within(first).getByRole("link", { name: "2 contacts" });
     expect(link.getAttribute("href")).toBe("/network?companyKey=at%20t");
     expect(within(second).queryByText(/contact/)).toBeNull();
+  });
+});
+
+describe("referral badge", () => {
+  it("names who referred you and links to them", () => {
+    render(
+      <TrackerView apps={[app({ id: "a1", referredBy: { id: "c 1", name: "Sam Lee" } })]} view="list" nowIso={NOW} />,
+    );
+    const link = screen.getByRole("link", { name: "referred by Sam Lee" });
+    expect(link.getAttribute("href")).toBe("/network/c%201");
   });
 });
