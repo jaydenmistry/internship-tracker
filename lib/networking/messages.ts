@@ -108,6 +108,8 @@ export async function logMessage(contactId: string, input: MessageInput, now = n
         type: input.type,
         subject: input.subject,
         body: input.body,
+        // Only an outbound message can have started as a draft.
+        draftBody: input.direction === "OUT" ? input.draftBody : null,
         sentAt: input.sentAt,
         listingId: input.listingId,
       },

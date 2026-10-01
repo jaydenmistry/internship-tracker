@@ -7,6 +7,20 @@ const nextConfig: NextConfig = {
   // ~200MB app image and a ~1GB one. See docs/DEPLOYMENT.md.
   output: "standalone",
 
+  // The Claude Agent SDK spawns a native Claude Code binary that ships in a
+  // per-platform optional dependency. Bundling the SDK would break its
+  // runtime lookup of that binary, and file tracing can't see a binary it
+  // only finds at runtime — so keep the SDK external and trace the binary
+  // package in explicitly for the routes that draft. UNVERIFIED in a real
+  // image (none has been built): see the first-deploy checklist.
+  serverExternalPackages: ["@anthropic-ai/claude-agent-sdk"],
+  outputFileTracingIncludes: {
+    "/network/**": [
+      "./node_modules/@anthropic-ai/claude-agent-sdk/**/*",
+      "./node_modules/@anthropic-ai/claude-agent-sdk-linux-*/**/*",
+    ],
+  },
+
   experimental: {
     serverActions: {
       // Resume uploads go through a Server Action, whose request body defaults

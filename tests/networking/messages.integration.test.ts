@@ -1,8 +1,8 @@
-import "dotenv/config";
 import { beforeEach, describe, expect, it } from "vitest";
+import { hasTestDatabase } from "../db-url";
 import type { ContactInput, MessageInput } from "@/lib/networking/schema";
 
-const hasDb = Boolean(process.env.DATABASE_URL);
+const hasDb = hasTestDatabase();
 
 describe.skipIf(!hasDb)("networking messages + follow-ups (integration)", () => {
   let prisma: (typeof import("@/lib/db"))["prisma"];
@@ -51,6 +51,7 @@ describe.skipIf(!hasDb)("networking messages + follow-ups (integration)", () => 
     body: "Hello",
     sentAt: new Date(sentAt),
     listingId: null,
+    draftBody: null,
     ...over,
   });
   const stored = (id: string) =>

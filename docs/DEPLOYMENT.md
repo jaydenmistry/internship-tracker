@@ -119,6 +119,7 @@ to `~/docker/stacks/apps/.env` and fill in every one marked REQUIRED:
 | `TRACKER_USER_AGENT_CONTACT` | REQUIRED | Scraper contact address |
 | `TRACKER_AUTH_LOGOUT_URL` | optional | Authelia's logout URL, for the header link |
 | `TRACKER_SCORING_ANTHROPIC_API_KEY` | optional | Unset = deterministic scoring only. Renamed from `TRACKER_ANTHROPIC_API_KEY` |
+| `TRACKER_CLAUDE_CODE_OAUTH_TOKEN` | optional | Networking drafts, on your Claude subscription. From `claude setup-token` (valid one year — rotate it before then). Unset = "Claude not connected" |
 | `TRACKER_DISCORD_WEBHOOK_URL` | optional | Unset = channel reports itself off |
 | `TRACKER_SMTP_*` | optional | Never tested against a real server |
 | `TRACKER_*_CRON`, `TRACKER_BACKUP_*` | optional | Defaults are sensible |
@@ -267,6 +268,32 @@ docker compose exec tracker-worker node -e "fetch('http://127.0.0.1:8081/refresh
 
 This takes a few minutes and makes outbound requests. Watch it with
 `docker compose logs -f tracker-worker`.
+
+**9. Drafting runs inside the container** (only if you set
+`TRACKER_CLAUDE_CODE_OAUTH_TOKEN`). The Agent SDK spawns a native Claude Code
+binary from a per-platform optional package. The runtime stage copies the full
+production `node_modules`, which on bookworm includes the glibc
+`linux-x64`/`linux-arm64` package; `next.config.ts` also traces it into the
+standalone output. Neither has been observed. First check it's there:
+
+```bash
+docker compose exec tracker-app sh -c 'ls node_modules/@anthropic-ai/ && ls node_modules/@anthropic-ai/claude-agent-sdk-linux-*/'
+```
+
+Expect `claude-agent-sdk` and a `claude-agent-sdk-linux-x64` (or `-arm64`)
+directory containing a `claude` binary. Then open a contact, click **Draft**,
+and generate one. A "Drafting failed: … ENOENT" error means the binary isn't
+where the SDK looks (check the `ls` above, and the image's platform); an error
+about a read-only filesystem means the container can't write its per-call temp
+directory under `/tmp`. After a successful draft, confirm nothing was left
+behind — each call's HOME/config dir is deleted when it ends:
+
+```bash
+docker compose exec tracker-app sh -c 'ls -d /tmp/tracker-draft-* 2>/dev/null | wc -l'   # expect 0
+```
+
+Leave `DEBUG_CLAUDE_AGENT_SDK` unset in production: it makes the SDK write
+debug logs, prompts included, outside that temp directory.
 
 ---
 
@@ -437,6 +464,12 @@ neighbouring container — run it once.
 
 Nothing here has been built or run. In rough order of how likely each is to be
 the thing that bites:
+
+0. **Drafting in the image** (networking phase 3). The Claude Agent SDK's
+   native binary lives in an optional, per-platform dependency that file
+   tracing can only include because `next.config.ts` names it; the SDK is kept
+   out of the bundle with `serverExternalPackages`. Both are reasoned about,
+   not observed — step 5.9 checks them. Dev (`npm run dev`) is unaffected.
 
 1. **The image has never been built.** Not one `docker build`. Every stage and
    `COPY --from` is reasoned about, not observed.

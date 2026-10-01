@@ -1,11 +1,11 @@
-import "dotenv/config";
 import { beforeEach, describe, expect, it } from "vitest";
+import { hasTestDatabase } from "../db-url";
 
 /**
  * The tracker mutates by APPLICATION id (manual applications have no listing),
  * the table by LISTING id. Both must keep the same invariants.
  */
-const hasDb = Boolean(process.env.DATABASE_URL);
+const hasDb = hasTestDatabase();
 
 describe.skipIf(!hasDb)("tracker mutations + read model (integration)", () => {
   let prisma: (typeof import("@/lib/db"))["prisma"];

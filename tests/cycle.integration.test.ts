@@ -1,5 +1,5 @@
-import "dotenv/config";
 import { beforeEach, describe, expect, it } from "vitest";
+import { hasTestDatabase } from "./db-url";
 import type {
   AdapterResult,
   NormalizedListing,
@@ -11,7 +11,7 @@ import type {
  * detail fetch → final score → stage 2, and the `scoringConfigHash = null`
  * self-invalidation that ties those stages together.
  */
-const hasDb = Boolean(process.env.DATABASE_URL);
+const hasDb = hasTestDatabase();
 
 function listing(overrides: Partial<NormalizedListing> = {}): NormalizedListing {
   return {

@@ -1,5 +1,5 @@
-import "dotenv/config";
 import { beforeEach, describe, expect, it } from "vitest";
+import { hasTestDatabase } from "../db-url";
 import type {
   AdapterResult,
   NormalizedListing,
@@ -8,7 +8,7 @@ import type {
 
 // These tests need the local dev database (`npx prisma dev` + .env). They are
 // integration tests: real Prisma, fake adapters, no network.
-const hasDb = Boolean(process.env.DATABASE_URL);
+const hasDb = hasTestDatabase();
 
 function listing(overrides: Partial<NormalizedListing> = {}): NormalizedListing {
   return {

@@ -1,5 +1,5 @@
-import "dotenv/config";
 import { beforeEach, describe, expect, it } from "vitest";
+import { hasTestDatabase } from "../db-url";
 
 /**
  * Rank is persisted during the scoring run so every reader agrees on it. These
@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it } from "vitest";
  * order, and it only changes when a listing actually moves — which is what
  * keeps previousRank/rankChangedAt meaningful.
  */
-const hasDb = Boolean(process.env.DATABASE_URL);
+const hasDb = hasTestDatabase();
 
 describe.skipIf(!hasDb)("rank persistence (integration)", () => {
   let prisma: (typeof import("@/lib/db"))["prisma"];

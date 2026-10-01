@@ -88,6 +88,11 @@ services:
       # /alerts "Send now" builds the digest in THIS container, so it needs
       # the origin for follow-up links too (see the worker's comment).
       - APP_URL=https://${TRACKER_HOST}
+      # Networking drafts: YOUR Claude subscription, from `claude setup-token`.
+      # App only — the worker never drafts. Never ANTHROPIC_API_KEY or
+      # ANTHROPIC_AUTH_TOKEN: Claude Code would prefer those over this token,
+      # which is why both containers refuse to boot with either set.
+      - CLAUDE_CODE_OAUTH_TOKEN=${TRACKER_CLAUDE_CODE_OAUTH_TOKEN:-}
     volumes:
       # The scoring config, bind-mounted as a DIRECTORY, not a single file: a
       # single-file mount pins an inode, so any write-and-rename editor (vim,

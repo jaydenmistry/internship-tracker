@@ -1,5 +1,5 @@
-import "dotenv/config";
 import { beforeEach, describe, expect, it } from "vitest";
+import { hasTestDatabase } from "../db-url";
 import fixtures from "../fixtures/split/merged-pair.json";
 import { normalizeSimplifyRecord } from "@/lib/ingestion/adapters/simplify";
 import { normalizeInternListRecord } from "@/lib/ingestion/adapters/intern-list";
@@ -18,7 +18,7 @@ import type {
  * point of the feature is that a listing dedup hid can be recovered exactly,
  * so a test that hand-builds the rows would prove nothing.
  */
-const hasDb = Boolean(process.env.DATABASE_URL);
+const hasDb = hasTestDatabase();
 
 /** Normalize a fixture record the way its adapter would during a run. */
 function simplify(record: unknown): NormalizedListing {

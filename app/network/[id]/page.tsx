@@ -4,6 +4,8 @@ import { loadCompanyNames, loadContact } from "@/lib/networking/contacts";
 import { displayTimeZone, followUpContext, peekFollowUpState } from "@/lib/networking/followups";
 import { loadCompanyListings, loadTimeline } from "@/lib/networking/messages";
 import ContactView from "./ContactView";
+import { draftingConfigured } from "@/lib/claude/draftClient";
+import { parseDraftParam } from "../draft-state";
 
 export const metadata: Metadata = {
   title: "Contact · Internship Tracker",
@@ -12,8 +14,11 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
-export default async function ContactPage({ params }: PageProps<"/network/[id]">) {
+const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+
+export default async function ContactPage({ params, searchParams }: PageProps<"/network/[id]">) {
   const { id } = await params;
+  const query = await searchParams;
   // Sequential, like the other pages: concurrent queries through the
   // `prisma dev` proxy intermittently fail with "bind message" errors.
   const contact = await loadContact(id);
@@ -44,6 +49,18 @@ export default async function ContactPage({ params }: PageProps<"/network/[id]">
         companyNames={companyNames}
         nowIso={now.toISOString()}
         timeZone={displayTimeZone()}
+        drafting={
+          draftingConfigured()
+            ? { connected: true, reason: null }
+            : { connected: false, reason: "Claude not connected — set CLAUDE_CODE_OAUTH_TOKEN (see /network/settings)." }
+        }
+        initialDraft={(() => {
+          const type = parseDraftParam(first(query.draft));
+          if (!type) return null;
+          const listingId = first(query.listing) ?? null;
+          // Only a listing at this contact's company can be preselected.
+          return { type, listingId: listings.some((l) => l.id === listingId) ? listingId : null };
+        })()}
       />
     </div>
   );

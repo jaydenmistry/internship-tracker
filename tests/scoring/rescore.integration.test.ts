@@ -1,11 +1,11 @@
-import "dotenv/config";
 import { createHash } from "node:crypto";
+import { hasTestDatabase } from "../db-url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LlmClient } from "@/lib/scoring/llm";
 
 // Integration tests for the scoring orchestration layer: real Prisma, real
 // config file, mocked Anthropic client. Needs the local dev database.
-const hasDb = Boolean(process.env.DATABASE_URL);
+const hasDb = hasTestDatabase();
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 

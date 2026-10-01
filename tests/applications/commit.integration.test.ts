@@ -1,8 +1,8 @@
-import "dotenv/config";
 import { beforeEach, describe, expect, it } from "vitest";
+import { hasTestDatabase } from "../db-url";
 import type { ImportRow } from "@/lib/applications/import";
 
-const hasDb = Boolean(process.env.DATABASE_URL);
+const hasDb = hasTestDatabase();
 
 function row(overrides: Partial<ImportRow> = {}): ImportRow {
   return {

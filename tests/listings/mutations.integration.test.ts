@@ -1,12 +1,12 @@
-import "dotenv/config";
 import { beforeEach, describe, expect, it } from "vitest";
+import { hasTestDatabase } from "../db-url";
 
 /**
  * The invariant these guard: user-written notes are never deleted as a side
  * effect of a status change. Before this, un-applying a listing (pressing `a`
  * twice) deleted the Application row — and the notes on it — silently.
  */
-const hasDb = Boolean(process.env.DATABASE_URL);
+const hasDb = hasTestDatabase();
 
 describe.skipIf(!hasDb)("listing mutations (integration)", () => {
   let prisma: (typeof import("@/lib/db"))["prisma"];
