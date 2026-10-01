@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { loadCompanyNames, loadContact } from "@/lib/networking/contacts";
 import { displayTimeZone, followUpContext, peekFollowUpState } from "@/lib/networking/followups";
 import { loadCompanyListings, loadTimeline } from "@/lib/networking/messages";
+import { loadContactReferrals, loadReferrableApplications } from "@/lib/networking/referrals";
 import ContactView from "./ContactView";
 import { draftingConfigured } from "@/lib/claude/draftClient";
 import { parseDraftParam } from "../draft-state";
@@ -25,6 +26,8 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
   if (!contact) notFound();
   const timeline = await loadTimeline(id);
   const listings = await loadCompanyListings(contact.companyId);
+  const referrals = await loadContactReferrals(id);
+  const referrable = await loadReferrableApplications();
   const companyNames = await loadCompanyNames();
   const now = new Date();
   const state = await peekFollowUpState(id, await followUpContext(undefined, now));
@@ -45,6 +48,8 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
         contact={shown}
         timeline={timeline}
         listings={listings}
+        referrals={referrals}
+        referrable={referrable}
         dueKind={state?.dueKind ?? null}
         companyNames={companyNames}
         nowIso={now.toISOString()}

@@ -48,6 +48,13 @@ export function Markers({ app }: { app: TrackerApplication }) {
           closed?
         </Badge>
       )}
+      {app.referredBy && (
+        <Link href={`/network/${encodeURIComponent(app.referredBy.id)}`} className="shrink-0">
+          <Badge tone="ok" title={`${app.referredBy.name} referred you for this role`}>
+            referred by {app.referredBy.name}
+          </Badge>
+        </Link>
+      )}
       {app.contactCount > 0 && app.contactCompanyKey && (
         <Link href={`/network?companyKey=${encodeURIComponent(app.contactCompanyKey)}`} className="shrink-0">
           <Badge

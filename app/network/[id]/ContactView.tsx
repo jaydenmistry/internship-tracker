@@ -28,6 +28,8 @@ import type { DraftType } from "@/lib/networking/draft";
 import { draftTypeForDue } from "../draft-state";
 import LogMessageForm from "./LogMessageForm";
 import Timeline from "./Timeline";
+import ReferralsSection from "./ReferralsSection";
+import type { ReferralApplication } from "@/lib/networking/referrals";
 
 /**
  * /network/[id] — one contact: what's due next, the message timeline, a Log
@@ -40,6 +42,8 @@ interface Props {
   contact: ContactDetail;
   timeline: TimelineMessage[];
   listings: CompanyListingOption[];
+  referrals: ReferralApplication[];
+  referrable: ReferralApplication[];
   dueKind: DueKindLabel | null;
   companyNames: string[];
   nowIso: string;
@@ -54,6 +58,8 @@ export default function ContactView({
   contact,
   timeline,
   listings,
+  referrals,
+  referrable,
   dueKind,
   companyNames,
   nowIso,
@@ -238,6 +244,14 @@ export default function ContactView({
         )}
         <Timeline messages={timeline} timeZone={timeZone} />
       </section>
+
+      <ReferralsSection
+        contactId={contact.id}
+        contactName={contact.name}
+        companyKey={contact.companyKey}
+        referrals={referrals}
+        applications={referrable}
+      />
 
       {form ? (
         <section aria-label="Edit contact" className="rounded border border-line bg-panel px-3 py-3">

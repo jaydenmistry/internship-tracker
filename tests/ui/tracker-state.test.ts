@@ -30,6 +30,7 @@ function trackerApp(overrides: Partial<TrackerApplication> = {}): TrackerApplica
     likelyClosed: false,
     contactCount: 0,
     contactCompanyKey: null,
+    referredBy: null,
     ...overrides,
   };
 }

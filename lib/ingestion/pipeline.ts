@@ -97,12 +97,25 @@ const defaultDetailSelector = (listing: DetailCandidate): boolean =>
 /** Exported for the merge-split path, which resolves the same company row. */
 export async function upsertCompany(name: string, faangPlus: boolean) {
   const normalizedName = normalizeCompany(name);
-  const company = await prisma.company.upsert({
+  const { _count, ...company } = await prisma.company.upsert({
     where: { normalizedName },
     create: { name, normalizedName, faangPlus },
     // faangPlus is only ever raised, never lowered, by source data.
     update: faangPlus ? { faangPlus: true } : {},
+    include: { _count: { select: { listings: true } } },
   });
+  // A company row can exist before any listing does: networking creates one
+  // for a contact, spelled however it was typed ("google"). Until the row's
+  // first listing attaches, the SOURCE's spelling replaces it — after that,
+  // the name is stable (this never renames a company that has listings).
+  // Only runs when the spellings differ, and is a no-op once listings exist.
+  if (company.name !== name && _count.listings === 0) {
+    const { count } = await prisma.company.updateMany({
+      where: { id: company.id, listings: { none: {} } },
+      data: { name },
+    });
+    if (count === 1) return { ...company, name };
+  }
   return company;
 }
 

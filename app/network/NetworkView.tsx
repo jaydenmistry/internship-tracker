@@ -145,6 +145,9 @@ export default function NetworkView({
           ))}
         </select>
         <div className="ml-auto flex items-center gap-2">
+          <Link href="/network/import" className="text-[12px] text-dim hover:text-ink">
+            Import
+          </Link>
           <Link href="/network/settings" className="text-[12px] text-dim hover:text-ink">
             Settings
           </Link>

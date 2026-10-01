@@ -55,7 +55,7 @@ app/
   import/               # /import paste/CSV import
   resume/               # /resume PDF upload (text extracted once, at upload)
   alerts/               # /alerts thresholds + per-kind "Send now"
-  network/              # /network Due list + contacts, [id] contact page + draft panel, settings/ (networking phases 1–3)
+  network/              # /network Due list + contacts, [id] contact page (drafts, referrals), import/, settings/
   api/health/           # unauthenticated liveness probe for the healthcheck
   api/applications/export/  # GET applications CSV (checks the session itself)
 lib/
@@ -72,7 +72,7 @@ lib/
   applications/         # import parse/match, commit, tracker, CSV
   resume/               # extract (unpdf), store, keyword vocabulary + matching
   alerts/               # settings/config, build (pure), data, send, channels/
-  networking/           # schema, contacts, follow-up engine (pure) + persistence, messages, drafting; see docs/NETWORKING_PLAN.md
+  networking/           # schema, contacts, follow-up engine (pure) + persistence, messages, drafting, referrals, import; see docs/NETWORKING_PLAN.md
   claude/draftClient.ts # networking drafts via the Claude Agent SDK on the user's subscription — locked down
 worker/index.ts         # node-cron: ingest cycle, digest, closing-soon; /refresh, /healthz
 prisma/schema.prisma
@@ -106,6 +106,8 @@ docs/ARCHITECTURE.md, docs/DEPLOYMENT.md
 - **The allowlist fails closed.** An unset or blank `ALLOWED_USER` admits *nobody*. Authelia's own access control is usually broader than this app wants (a `default_policy` covering every domain admits every user), so this is the narrowing step, not a duplicate of it. `isPublicPath` matches exactly, never by prefix.
 - **`public/` is deliberately NOT excluded from the proxy matcher**, and neither is `_next/image`. Files there would otherwise be served to anonymous callers, and a resume lives at `public/resume.pdf`.
 - **All external data is untrusted**: source payloads, CSV imports, PDF text, and LLM responses all pass Zod validation at the boundary; scraped text is sanitized before rendering.
+- **Networking is log-only and hand-entered.** Contacts are added by hand or CSV import (LinkedIn's Connections export works); the app never sends mail, never talks to LinkedIn, and never finds contacts for you. `Contact.status`/`nextFollowUpAt`/`followUpsSent` are **derived** — written only by `storeFollowUpState()` (`lib/networking/followups.ts`) from the pure `computeFollowUpState()`, in the same transaction as every change to a contact's messages or engine inputs; the time-based recompute (AWAITING_REPLY → COLD) runs in the daily digest and on `/network` load, behind an optimistic guard. Due dates are calendar days in `ALERT_TIMEZONE`. Details and every rule: `docs/ARCHITECTURE.md` and `docs/NETWORKING_PLAN.md`.
+- **Two separate paths to Claude, never crossed.** Scoring uses the Anthropic SDK with `SCORING_ANTHROPIC_API_KEY` (API credits). Networking drafts use the Claude Agent SDK (pinned) with the user's own subscription token `CLAUDE_CODE_OAUTH_TOKEN`, through `lib/claude/draftClient.ts`, which is locked down: no tools/MCP/skills/plugins/hooks, one turn, no settings sources, `verbatimPrompts`, a per-call temp HOME/cwd, and an allowlisted env that REPLACES `process.env`. Both processes refuse to boot with a plain `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`, because Claude Code would prefer it over the subscription token. Subscription auth is personal use only — opening the app to anyone else means moving drafting to an API key first.
 
 ## Subagents
 

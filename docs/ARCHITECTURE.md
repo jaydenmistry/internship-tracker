@@ -288,8 +288,8 @@ after a successful send**: recording first would dedupe a failed alert away
 permanently.
 
 **Contact** / **OutreachMessage** — networking (`docs/NETWORKING_PLAN.md`;
-phases 1–3 of 4 are built: contacts, the message log, follow-ups and
-drafting).
+all four phases are built: contacts, the message log, follow-ups, drafting,
+referrals and bulk import).
 - Entered by hand only. The app never sends mail and never talks to LinkedIn.
 - A contact's company is a real `Company` row, found or created by
   `resolveCompany()` with ingestion's own `normalizeCompany`, so a listing
@@ -360,6 +360,23 @@ use only — opening the app to anyone else means moving drafting to an API key.
   the keep-the-record option.
 - Tracker cards count contacts by **normalized company name**, not company id,
   so a manual application (typed company, no listing) still finds them.
+- **Company spelling:** a company row created from a contact keeps the typed
+  spelling ("google") only until its first listing: `upsertCompany` replaces
+  the name with the source's spelling while the row has no listings, and
+  never renames a company that has any.
+- **Referrals:** `Application.referredByContactId` (`lib/networking/
+  referrals.ts`). Recording one sets the contact's manual status to REFERRED
+  (dated then, unless already REFERRED) and recomputes their follow-up state
+  in the same transaction; clearing it leaves the status alone. Tracker cards
+  show "referred by {name}". Deleting the contact clears the referral.
+- **Bulk import** (`/network/import`, `lib/networking/import.ts`): header row
+  required, any column order, including LinkedIn's own `Connections.csv`
+  (notes preamble skipped, First/Last Name joined, "Connected On" becomes
+  how-met). Every row goes through the Add-Contact schema. Duplicates — same
+  email, same LinkedIn profile, or same name at the same normalized company,
+  against saved contacts or earlier rows — are flagged and start unticked.
+  Commit re-validates on the server and creates row by row; one failure never
+  undoes the others. Reuses the applications importer's CSV record splitter.
 
 ---
 
@@ -599,7 +616,7 @@ and builds the resume vocabulary from the config.
 ## Directory map
 
 ```
-app/                       Next.js App Router (UI only; no auth yet)
+app/                       Next.js App Router (auth: proxy.ts + requireSession())
   page.tsx                 / — the listings table
   listings/                table, detail panel, context menu, their actions
   tracker/                 /tracker — kanban/list + minimal dashboard
@@ -607,7 +624,8 @@ app/                       Next.js App Router (UI only; no auth yet)
   resume/                  /resume — PDF upload; text extracted once, at upload
   alerts/                  /alerts — thresholds, per-kind "Send now", recent sends
   network/                 /network — Due list, contacts table, add form; [id]/ contact
-                           page (timeline, log message, follow-up bar); settings/
+                           page (timeline, log message, follow-up bar, draft panel,
+                           referrals); settings/; import/
   api/applications/export/ GET → applications CSV (round-trips via /import)
   layout.tsx, globals.css  shell, nav, dark theme tokens (Tailwind v4, CSS config)
 components/                small shared UI primitives

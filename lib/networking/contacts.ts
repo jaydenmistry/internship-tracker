@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import type { ContactKind, ContactStatus } from "@/generated/prisma/enums";
 import { normalizeCompany } from "@/lib/ingestion/normalize";
 import type { ContactInput } from "@/lib/networking/schema";
+import type { ExistingContactKey } from "@/lib/networking/import";
 import { followUpContext, storeFollowUpState } from "@/lib/networking/followups";
 
 /**
@@ -313,4 +314,45 @@ export async function updateContact(id: string, input: ContactInput, now = new D
 export async function deleteContact(id: string): Promise<void> {
   const { count } = await prisma.contact.deleteMany({ where: { id } });
   if (count === 0) throw new Error(`no such contact: ${id}`);
+}
+
+// ---------------------------------------------------------------------------
+// Bulk import
+// ---------------------------------------------------------------------------
+
+/** What duplicate detection compares against (lib/networking/import.ts). */
+export async function loadExistingContactKeys(): Promise<ExistingContactKey[]> {
+  const rows = await prisma.contact.findMany({
+    select: { id: true, name: true, email: true, linkedinUrl: true, company: { select: { normalizedName: true } } },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    email: r.email,
+    linkedinUrl: r.linkedinUrl,
+    companyKey: r.company?.normalizedName ?? null,
+  }));
+}
+
+export interface ImportCommitResult {
+  created: number;
+  failed: Array<{ index: number; name: string; message: string }>;
+}
+
+/**
+ * Creates each contact in turn. One bad row (a company that can't be
+ * resolved, a database hiccup) is reported and skipped; it never undoes the
+ * rows before it — the review step already showed what would happen.
+ */
+export async function commitContactImport(contacts: readonly ContactInput[]): Promise<ImportCommitResult> {
+  const result: ImportCommitResult = { created: 0, failed: [] };
+  for (const [index, c] of contacts.entries()) {
+    try {
+      await createContact(c);
+      result.created += 1;
+    } catch (err) {
+      result.failed.push({ index, name: c.name, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return result;
 }
