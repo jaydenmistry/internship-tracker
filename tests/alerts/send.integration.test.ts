@@ -1,5 +1,5 @@
-import "dotenv/config";
 import { beforeEach, describe, expect, it } from "vitest";
+import { hasTestDatabase } from "../db-url";
 import type { AlertChannel, AlertChannelSender, BuiltAlert } from "@/lib/alerts/types";
 import { DEFAULT_ALERT_SETTINGS, type AlertSettings } from "@/lib/alerts/settings";
 
@@ -13,7 +13,7 @@ import { DEFAULT_ALERT_SETTINGS, type AlertSettings } from "@/lib/alerts/setting
  *
  * Transports are injected, so no message is ever delivered anywhere.
  */
-const hasDb = Boolean(process.env.DATABASE_URL);
+const hasDb = hasTestDatabase();
 
 const NOW = new Date("2026-09-20T12:00:00Z");
 const TZ = "UTC";

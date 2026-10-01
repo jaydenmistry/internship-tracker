@@ -175,10 +175,11 @@ and drafting could move to an API key later without touching `draft.ts`.
   5-hour and weekly limits as your own Claude use. At a few drafts a day this
   is negligible, but if you've just hit your limit in Claude Code, Draft will
   be unavailable until it resets.
-- **The policy may change.** Programmatic subscription use currently draws
-  from the normal plan limits. Anthropic announced a separate monthly Agent
-  SDK credit, then paused that change on June 15, 2026. Because the client is
-  behind an interface, adapting is a client or config change.
+- **The policy may change.** For the current state of how Agent SDK use
+  counts against a Claude plan, see Anthropic's help article
+  [Use the Claude Agent SDK with your Claude plan](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan).
+  Because the client is behind an interface, adapting is a client or config
+  change.
 
 ### "Claude not connected"
 
@@ -492,6 +493,39 @@ compared after trimming, normalizing line endings and collapsing whitespace, so
 a formatting-only change doesn't count. Only edits made in the app count. The
 draft panel shows a short hint: "Edit here before sending — this is how drafts
 learn your voice."
+
+**As built (phase 3):**
+
+- **The "drafting config block" is `DRAFTING_MODEL`**, an env var defaulting to
+  `claude-sonnet-5`. It isn't in `config/scoring.json`, because that file is
+  hashed and any edit to it rescores the whole catalog.
+- **The allowlisted environment is PATH, `CLAUDE_CODE_OAUTH_TOKEN`, and HOME
+  plus `CLAUDE_CONFIG_DIR`.** HOME and `CLAUDE_CONFIG_DIR` both point at a
+  per-call temp directory, which is deleted in `finally`.
+- **The lockdown goes a step past the plan.** `permissionMode: "dontAsk"` and
+  a deny-all `canUseTool` back up `tools: []`, and skills, plugins, agents and
+  hooks are all explicitly empty.
+- **`verbatimPrompts: true` (found in phase 3 review).** Even with no tools,
+  the CLI expands `@path` mentions in the prompt into file contents and runs
+  slash commands. Posting text is untrusted, so without this option a posting
+  could make a draft quote `/proc/1/environ`, which holds the app's secrets.
+  Two more locks sit behind it:
+  - the fixed env flag `CLAUDE_CODE_DISABLE_ATTACHMENTS=1`
+  - `defangPrompt()`, which rewrites every word-initial `@` to `＠`
+- **The env allowlist has fixed flags added.** `CLAUDE_CODE_DISABLE_ATTACHMENTS`
+  and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` are set to constant values, so
+  they add no way for anything to be inherited.
+- **The SDK is pinned at `0.3.283`.** A test fails if `package.json` drifts
+  from `AGENT_SDK_VERSION`.
+- **Policy, as checked 2026-09-25.** The Agent SDK docs say: "Unless
+  previously approved, Anthropic does not allow third party developers to
+  offer claude.ai login or rate limits for their products." The
+  authentication docs describe `claude setup-token` as a one-year token "for
+  CI pipelines, scripts, or other environments where interactive browser login
+  isn't available." This app uses your own token for your own use and offers
+  login to no one. For how drafts count against your plan, see
+  [Use the Claude Agent SDK with your Claude plan](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)
+  (checked 2026-09-28).
 
 ### Per-type constraints
 

@@ -568,6 +568,15 @@ function PeopleSection({ detail }: { detail: ListingDetail }) {
               <span className="w-[4.5rem] shrink-0 text-right font-mono text-faint tabular-nums" title="Last message">
                 {p.lastMessageAt ? absoluteDay(new Date(p.lastMessageAt).getTime()) : "—"}
               </span>
+              {!p.doNotContact && (
+                <Link
+                  href={`/network/${p.id}?draft=COLD&listing=${encodeURIComponent(detail.id)}`}
+                  className="shrink-0 text-accent hover:underline"
+                  title={`Draft a cold email to ${p.name} about this role`}
+                >
+                  draft
+                </Link>
+              )}
             </li>
           ))}
         </ul>

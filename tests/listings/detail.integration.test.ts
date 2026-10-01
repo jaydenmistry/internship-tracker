@@ -1,9 +1,9 @@
-import "dotenv/config";
 import { createHash } from "node:crypto";
+import { hasTestDatabase } from "../db-url";
 import { beforeEach, describe, expect, it } from "vitest";
 import { describeFetchStatus } from "@/lib/listings/detail";
 
-const hasDb = Boolean(process.env.DATABASE_URL);
+const hasDb = hasTestDatabase();
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 
 describe("describeFetchStatus", () => {

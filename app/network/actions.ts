@@ -13,6 +13,9 @@ import {
 import { deleteMessage, editMessage, logMessage, setManualStatus, setSnooze } from "@/lib/networking/messages";
 import { contactInputSchema, messageEditSchema, messageInputSchema } from "@/lib/networking/schema";
 import { NetworkingSettingsSchema } from "@/lib/networking/settings";
+import { DraftClientError } from "@/lib/claude/draftClient";
+import { DRAFT_TYPES } from "@/lib/networking/draft";
+import { DraftRefusedError, generateDraft } from "@/lib/networking/drafting";
 
 /**
  * Contact mutations from /network. A Server Action is a public POST endpoint,
@@ -32,6 +35,16 @@ const editSchema = z.object({ messageId: idSchema, edit: messageEditSchema });
 const messageIdSchema = z.object({ messageId: idSchema });
 const manualSchema = z.object({ contactId: idSchema, status: z.enum(["CHATTED", "REFERRED"]).nullable() });
 const snoozeSchema = z.object({ contactId: idSchema, until: z.string().max(10).nullable() });
+const draftSchema = z.object({
+  contactId: idSchema,
+  type: z.enum(DRAFT_TYPES),
+  listingId: idSchema.nullable(),
+  nudge: z
+    .string()
+    .max(300)
+    .nullable()
+    .transform((s) => (s && s.trim() ? s.trim() : null)),
+});
 
 function invalid(error: z.ZodError): { ok: false; message: string } {
   const issue = error.issues[0];
@@ -191,4 +204,36 @@ export async function saveNetworkingSettingsAction(payload: unknown): Promise<Ne
   }
   refresh();
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Drafting. Returns the draft to the browser; nothing is saved until the
+// user clicks Mark sent (logMessageAction with draftBody).
+// ---------------------------------------------------------------------------
+
+export type DraftActionResult =
+  | { ok: true; subject: string | null; body: string; warning: string | null }
+  | { ok: false; message: string; kind?: string; resetsAt?: string | null };
+
+export async function draftMessageAction(payload: unknown): Promise<DraftActionResult> {
+  // See createContactAction: guarded independently of proxy.ts.
+  await requireSession();
+  const parsed = draftSchema.safeParse(payload);
+  if (!parsed.success) return invalid(parsed.error);
+  try {
+    const d = await generateDraft(parsed.data);
+    return { ok: true, subject: d.subject, body: d.body, warning: d.warning };
+  } catch (err) {
+    if (err instanceof DraftRefusedError) return { ok: false, message: err.message };
+    if (err instanceof DraftClientError) {
+      const message =
+        err.kind === "NotAuthenticated"
+          ? `Claude not connected: ${err.message} See /network/settings.`
+          : err.kind === "UsageLimited"
+            ? `${err.message}${err.resetsAt ? ` It resets ${err.resetsAt.toISOString()}.` : ""} You can still write the message by hand.`
+            : err.message;
+      return { ok: false, message, kind: err.kind, resetsAt: err.resetsAt?.toISOString() ?? null };
+    }
+    return failed("drafting", err);
+  }
 }

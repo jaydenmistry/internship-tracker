@@ -33,11 +33,18 @@ const FIELDS: Array<{ key: NumberKey; label: string; min: number; max: number; h
     label: "Voice examples per draft",
     min: 0,
     max: 10,
-    hint: "How many of your edited past messages a draft learns from (drafting arrives in phase 3).",
+    hint: "How many of your edited past messages of the same type a draft learns from.",
   },
 ];
 
-export default function SettingsForm({ settings }: { settings: NetworkingSettings }) {
+export default function SettingsForm({
+  settings,
+  claude,
+}: {
+  settings: NetworkingSettings;
+  /** Only whether a token is configured and which model — never the token. */
+  claude: { connected: boolean; model: string };
+}) {
   const [form, setForm] = useState<Record<NumberKey, string> & { voiceNotes: string }>(() => ({
     firstFollowUpBusinessDays: String(settings.firstFollowUpBusinessDays),
     secondFollowUpBusinessDays: String(settings.secondFollowUpBusinessDays),
@@ -78,6 +85,33 @@ export default function SettingsForm({ settings }: { settings: NetworkingSetting
           ← Network
         </Link>
       </nav>
+      <section className="rounded border border-line bg-panel" aria-label="Claude connection" data-testid="claude-status">
+        <h2 className="border-b border-line px-3 py-1.5 text-[13px] font-medium">Claude (drafting)</h2>
+        <div className="flex flex-col gap-1 px-3 py-2 text-[12px]">
+          {claude.connected ? (
+            <p>
+              <span className="text-ok">Connected</span>
+              <span className="text-dim">
+                {" "}
+                — drafts use your Claude subscription ({claude.model}). A token that has expired or been revoked shows up
+                as an error when you click Draft.
+              </span>
+            </p>
+          ) : (
+            <p className="text-warn">
+              Claude not connected. Run <code className="font-mono">claude setup-token</code> on a machine with a
+              browser, and set the token it prints as <code className="font-mono">CLAUDE_CODE_OAUTH_TOKEN</code> for
+              the app (host .env: <code className="font-mono">TRACKER_CLAUDE_CODE_OAUTH_TOKEN</code>), then restart.
+              Hand-written messages keep working.
+            </p>
+          )}
+          <p className="text-faint">
+            Drafts go through your personal Claude account, so your claude.ai privacy settings apply — check that model
+            training is off, since drafts include other people&apos;s names and your notes on them. Drafting counts
+            against your plan&apos;s usage limits.
+          </p>
+        </div>
+      </section>
       <section className="rounded border border-line bg-panel">
         <h2 className="border-b border-line px-3 py-1.5 text-[13px] font-medium">Follow-up cadence</h2>
         <div className="grid gap-x-6 gap-y-3 px-3 py-3 sm:grid-cols-2">
@@ -103,7 +137,7 @@ export default function SettingsForm({ settings }: { settings: NetworkingSetting
         <h2 className="border-b border-line px-3 py-1.5 text-[13px] font-medium">Your voice</h2>
         <label className="flex flex-col gap-1 px-3 py-3">
           <span className="text-[12px] text-dim">
-            How you write, in your own words. Every draft will include this (phase 3).
+            How you write, in your own words. Every draft includes this.
           </span>
           <textarea
             value={form.voiceNotes}

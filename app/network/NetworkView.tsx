@@ -16,6 +16,7 @@ import {
 } from "@/lib/networking/schema";
 import { createContactAction } from "./actions";
 import ContactForm from "./ContactForm";
+import { DRAFT_LABELS, draftTypeForDue } from "./draft-state";
 import {
   absoluteDate,
   companiesOf,
@@ -186,6 +187,12 @@ export default function NetworkView({
                   <span className={`ml-auto font-mono text-[12px] ${when.overdue ? "text-bad" : "text-dim"}`}>
                     {when.text}
                   </span>
+                  <Link
+                    href={`/network/${d.contactId}?draft=${draftTypeForDue(d.kind)}`}
+                    className="shrink-0 text-[12px] text-accent hover:underline"
+                  >
+                    {DRAFT_LABELS[d.kind]}
+                  </Link>
                 </li>
               );
             })}

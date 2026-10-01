@@ -37,7 +37,7 @@ Tests are Vitest, fixture-driven (`tests/fixtures/`), and never touch the networ
 
 `DATABASE_URL` must name its schema explicitly (`?schema=public` in development). `prisma dev`'s proxy leaks `search_path` between connections, so a URL without `?schema=` can silently read and write the *test* schema — which looks like "the column doesn't exist" in the app while `prisma db push` insists it already does. Always pass `--url` with the schema when pushing by hand.
 
-`*.integration.test.ts` files use a real database and wipe tables in `beforeEach`, so they run against a dedicated Postgres **schema** (`itest`), created by `tests/global-setup.ts` and selected by `tests/setup-env.ts`. Two traps are already handled here — don't undo them: (1) `prisma dev`'s local proxy ignores the *database* name in a connection string and routes every name to one physical database, so separate-database isolation silently fails; (2) with Prisma 7 driver adapters, `?schema=` is passed to node-postgres, which ignores unknown parameters, so `lib/db.ts` must read that parameter and hand it to `PrismaPg` explicitly. Vitest also runs test files sequentially (`fileParallelism: false`) since they share the one test schema.
+`*.integration.test.ts` files use a real database and wipe tables in `beforeEach`, so they run against a dedicated Postgres **schema** (`itest`), created by `tests/global-setup.ts` and selected by `tests/setup-env.ts`. **Tests use `TEST_DATABASE_URL` only and never fall back to `DATABASE_URL`**: unset, the integration tests skip and nothing is pushed anywhere; set to the same database as `DATABASE_URL`, the run refuses unless that database's name contains the word "test" (`tests/db-url.ts`). **The `itest` schema is the real boundary; that database check is best-effort** — it only sees this process's `DATABASE_URL`, and under `prisma dev` every database name routes to one physical database. `setup-env.ts` always overwrites `DATABASE_URL` (with the test URL, or `""`) after stripping dotenv's `DOTENV_*OVERRIDE`/`*PATH` knobs (`tests/load-env.ts`); each integration file gates on `hasTestDatabase()`, which is true only for a URL in the test schema, so a restored dev URL skips rather than wipes. `lib/db.ts` creates its client lazily on first query, so importing app code needs no database (the worker checks `DATABASE_URL` at boot instead). Two traps are already handled here — don't undo them: (1) `prisma dev`'s local proxy ignores the *database* name in a connection string and routes every name to one physical database, so separate-database isolation silently fails; (2) with Prisma 7 driver adapters, `?schema=` is passed to node-postgres, which ignores unknown parameters, so `lib/db.ts` must read that parameter and hand it to `PrismaPg` explicitly. Vitest also runs test files sequentially (`fileParallelism: false`) since they share the one test schema.
 
 ## Layout
 
@@ -55,7 +55,7 @@ app/
   import/               # /import paste/CSV import
   resume/               # /resume PDF upload (text extracted once, at upload)
   alerts/               # /alerts thresholds + per-kind "Send now"
-  network/              # /network Due list + contacts, [id] contact page, settings/ (networking phases 1–2)
+  network/              # /network Due list + contacts, [id] contact page + draft panel, settings/ (networking phases 1–3)
   api/health/           # unauthenticated liveness probe for the healthcheck
   api/applications/export/  # GET applications CSV (checks the session itself)
 lib/
@@ -72,7 +72,8 @@ lib/
   applications/         # import parse/match, commit, tracker, CSV
   resume/               # extract (unpdf), store, keyword vocabulary + matching
   alerts/               # settings/config, build (pure), data, send, channels/
-  networking/           # schema, contacts, follow-up engine (pure) + persistence, messages; see docs/NETWORKING_PLAN.md
+  networking/           # schema, contacts, follow-up engine (pure) + persistence, messages, drafting; see docs/NETWORKING_PLAN.md
+  claude/draftClient.ts # networking drafts via the Claude Agent SDK on the user's subscription — locked down
 worker/index.ts         # node-cron: ingest cycle, digest, closing-soon; /refresh, /healthz
 prisma/schema.prisma
 config/scoring.json     # ALL weights/keywords/tiers/thresholds — no restart needed

@@ -288,8 +288,8 @@ after a successful send**: recording first would dedupe a failed alert away
 permanently.
 
 **Contact** / **OutreachMessage** — networking (`docs/NETWORKING_PLAN.md`;
-phases 1–2 of 4 are built: contacts, the message log and follow-ups. Drafting
-is not built yet).
+phases 1–3 of 4 are built: contacts, the message log, follow-ups and
+drafting).
 - Entered by hand only. The app never sends mail and never talks to LinkedIn.
 - A contact's company is a real `Company` row, found or created by
   `resolveCompany()` with ingestion's own `normalizeCompany`, so a listing
@@ -315,6 +315,46 @@ is not built yet).
   unhandled one reappears daily until logged or snoozed.
 - Which (direction, type, channel) combinations are loggable is one table,
   `MESSAGE_RULES` in `lib/networking/schema.ts`, enforced at the boundary.
+- **Drafting** (`lib/networking/draft.ts` pure prompt/parse,
+  `lib/networking/drafting.ts` orchestration, `lib/claude/draftClient.ts`
+  client). A draft is never saved; "Mark sent" logs the edited `body` with
+  Claude's original as `draftBody`, and later drafts learn from messages whose
+  body differs from their draft (whitespace-normalized). LinkedIn's 300-char
+  note limit is checked in code (retry once, then warn).
+
+**Two paths to Claude, kept apart:**
+
+| | Scoring (stage 2) | Networking drafts |
+|---|---|---|
+| Client | Anthropic SDK, `lib/scoring/llm.ts` | Claude Agent SDK `0.3.283` (pinned exactly), `lib/claude/draftClient.ts` |
+| Auth | `SCORING_ANTHROPIC_API_KEY`, passed explicitly | `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` (one year) |
+| Billing | API credits | Your Claude plan's usage limits |
+| Runs in | worker and app | app only |
+
+Claude Code prefers `ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_API_KEY` over an OAuth
+token, so a stray key would silently move drafts to API billing. Hence: the
+scoring key's rename, the boot check (`lib/env-guard.ts`, fatal in both
+processes), and the drafting subprocess's **allowlisted environment** (PATH,
+the token, and HOME/`CLAUDE_CONFIG_DIR` pointed at a per-call temp dir that is
+deleted afterwards — the SDK's `env` replaces `process.env`, it doesn't merge).
+`buildQueryOptions` locks the session down: `tools: []`, `allowedTools: []`,
+`permissionMode: "dontAsk"` plus a deny-all `canUseTool`, `mcpServers: {}` with
+`strictMcpConfig`, no skills/plugins/agents/hooks, `maxTurns: 1`,
+`settingSources: []` (so this repo's CLAUDE.md never reaches a prompt),
+`persistSession: false`, a custom system prompt, an empty temp `cwd`, and
+**`verbatimPrompts: true`** — without it the CLI expands `@path` file mentions
+and dispatches slash commands in the prompt even with no tools, so untrusted
+posting text containing ` @/proc/1/environ` could pull the app's secrets into
+a draft. Two more locks behind it: fixed env flags
+`CLAUDE_CODE_DISABLE_ATTACHMENTS=1` and
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, and `defangPrompt()` rewriting
+every word-initial `@` in the prompt to `＠`. Setting `DEBUG_CLAUDE_AGENT_SDK`
+in the app's environment makes the SDK write debug logs under the app's own
+config dir, outside the per-call temp dir — leave it unset. Personal
+use only — opening the app to anyone else means moving drafting to an API key.
+**Token rotation:** re-run `claude setup-token` before the year is up, replace
+`TRACKER_CLAUDE_CODE_OAUTH_TOKEN`, restart the app; an expired token shows as
+"Claude not connected"/an auth error on Draft, never a crash.
 - Deleting a contact is a real delete (third-party personal data): messages
   cascade, `Application.referredByContactId` is set null. `doNotContact` is
   the keep-the-record option.
@@ -405,6 +445,8 @@ string routes to the same physical database. An early attempt at isolating
 tests with a separate `…_test` database appeared to work while the integration
 tests were wiping the real ingested listings on every run.
 *Fix:* tests are isolated by Postgres **schema** (`itest`), not by database.
+They also connect only through `TEST_DATABASE_URL`, never `DATABASE_URL`
+(`tests/db-url.ts`), so a dev `.env` alone can't point them at real data.
 
 **Form 2 — the driver adapter ignores `?schema=`.** With Prisma 7's driver
 adapters, the connection string goes to node-postgres, which drops parameters
@@ -537,6 +579,8 @@ that are read on every call. `.env.example` documents them all.
 | `DIGEST_CRON` | worker | Daily-digest schedule |
 | `CLOSING_SOON_CRON` | worker | Closing-soon schedule |
 | `ALERT_TIMEZONE` | worker, app | Timezone for alert dates; also used to format AlertLog timestamps server-side, so the recent-alerts list can't hydrate-mismatch. Networking follow-up due days are computed and displayed in it too |
+| `CLAUDE_CODE_OAUTH_TOKEN` | app | Networking drafts on your Claude subscription (`claude setup-token`); unset = "Claude not connected". Only this, PATH and a temp HOME reach the drafting subprocess |
+| `DRAFTING_MODEL` | app | Draft model, default `claude-sonnet-5`. Not in `scoring.json`: that file is hashed, so editing it rescores everything |
 | `APP_URL` | worker, app | Public origin for digest links to contact pages (compose: `https://${TRACKER_HOST}`); unset = path only |
 | `DISCORD_WEBHOOK_URL` | worker, app | Discord channel; unset = channel disabled |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` | worker, app | SMTP endpoint (`SMTP_SECURE` defaults from the port: implicit TLS on 465) |
@@ -589,7 +633,9 @@ lib/
   applications/            import parse/match, commit, tracker + dashboard, CSV
   resume/                  extract (unpdf), store, vocabulary + posting↔resume match
   networking/              schema (pure), contacts model, follow-up engine (pure) +
-                           its persistence, message mutations, dates, settings
+                           its persistence, message mutations, dates, settings,
+                           draft prompt/parse (pure) + drafting orchestration
+  claude/                  draftClient.ts — the locked-down Agent SDK client
   alerts/
     settings.ts            threshold schema + defaults (pure)
     config.ts              Setting-table read/write; re-exports settings.ts
@@ -601,8 +647,9 @@ worker/index.ts            node-cron (cycle, digest, closing-soon) + /refresh, /
 prisma/                    schema.prisma + migrations
 config/scoring.json        every scoring weight, pattern and threshold
 tests/                     Vitest; mirrors lib/; fixtures/ are real captured payloads
-  global-setup.ts          creates + syncs the itest schema
-  setup-env.ts             points tests at the itest schema
+  db-url.ts                TEST_DATABASE_URL only (never DATABASE_URL); refuses the dev DB
+  global-setup.ts          creates + syncs the itest schema, or skips with no test DB
+  setup-env.ts             overwrites DATABASE_URL with the test URL (or "")
 docs/                      this document
 .claude/agents/            subagent definitions used to build the project
 ```

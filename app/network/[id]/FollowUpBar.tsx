@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import type { ContactDetail } from "@/lib/networking/contacts";
 import { logMessageAction, setManualStatusAction, snoozeAction } from "../actions";
 import { DUE_LABELS, dueWhen, relativeAge, type DueKindLabel } from "../state";
+import { DRAFT_LABELS } from "../draft-state";
 
 /**
  * What's next for this contact, and the one-click inputs to the follow-up
@@ -17,6 +18,9 @@ interface Props {
   nowMs: number;
   timeZone: string;
   onLogMeeting: () => void;
+  /** Opens the draft panel preset to what's due. */
+  onDraft: () => void;
+  canDraft: boolean;
 }
 
 /** "YYYY-MM-DD" of today in `timeZone`, for the date input's min. */
@@ -24,7 +28,7 @@ function todayIn(timeZone: string, nowMs: number): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(nowMs);
 }
 
-export default function FollowUpBar({ contact, dueKind, nowMs, timeZone, onLogMeeting }: Props) {
+export default function FollowUpBar({ contact, dueKind, nowMs, timeZone, onLogMeeting, onDraft, canDraft }: Props) {
   const [snoozeDate, setSnoozeDate] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -52,6 +56,11 @@ export default function FollowUpBar({ contact, dueKind, nowMs, timeZone, onLogMe
       <span className={when.overdue ? "text-bad" : "text-ink"} data-testid="next-due">
         Next: {DUE_LABELS[dueKind]}, {when.text}
         {contact.followUpOverrideAt && <span className="text-faint"> (snoozed)</span>}
+        {canDraft && (
+          <button type="button" onClick={onDraft} className="ml-3 text-[12px] text-accent hover:underline">
+            {DRAFT_LABELS[dueKind]}
+          </button>
+        )}
       </span>
     );
   } else if (contact.status === "PENDING_CONNECTION" && contact.pendingSince) {

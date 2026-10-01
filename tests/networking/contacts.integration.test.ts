@@ -1,8 +1,8 @@
-import "dotenv/config";
 import { beforeEach, describe, expect, it } from "vitest";
+import { hasTestDatabase } from "../db-url";
 import type { ContactInput } from "@/lib/networking/schema";
 
-const hasDb = Boolean(process.env.DATABASE_URL);
+const hasDb = hasTestDatabase();
 
 describe.skipIf(!hasDb)("networking contacts (integration)", () => {
   let prisma: (typeof import("@/lib/db"))["prisma"];

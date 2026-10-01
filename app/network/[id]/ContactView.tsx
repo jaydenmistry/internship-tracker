@@ -22,7 +22,10 @@ import {
   type DueKindLabel,
   type MessageForm,
 } from "../state";
+import DraftPanel, { type DraftAvailability } from "./DraftPanel";
 import FollowUpBar from "./FollowUpBar";
+import type { DraftType } from "@/lib/networking/draft";
+import { draftTypeForDue } from "../draft-state";
 import LogMessageForm from "./LogMessageForm";
 import Timeline from "./Timeline";
 
@@ -42,9 +45,22 @@ interface Props {
   nowIso: string;
   /** The server's follow-up zone, so due days render as the same day everywhere. */
   timeZone: string;
+  drafting: DraftAvailability;
+  /** From `?draft=TYPE&listing=ID` (a Due list or "People at" link): open the draft panel. */
+  initialDraft: { type: DraftType; listingId: string | null } | null;
 }
 
-export default function ContactView({ contact, timeline, listings, dueKind, companyNames, nowIso, timeZone }: Props) {
+export default function ContactView({
+  contact,
+  timeline,
+  listings,
+  dueKind,
+  companyNames,
+  nowIso,
+  timeZone,
+  drafting,
+  initialDraft,
+}: Props) {
   const router = useRouter();
   const nowMs = useMemo(() => Date.parse(nowIso), [nowIso]);
   const [form, setForm] = useState<Form | null>(null);
@@ -54,6 +70,11 @@ export default function ContactView({ contact, timeline, listings, dueKind, comp
   const [msgForm, setMsgForm] = useState<MessageForm | null>(null);
   const [msgError, setMsgError] = useState<string | null>(null);
   const [msgPending, startMsg] = useTransition();
+  const [draft, setDraft] = useState<{ type: DraftType; listingId: string | null; key: number } | null>(
+    initialDraft ? { ...initialDraft, key: 0 } : null,
+  );
+  const openDraft = (type: DraftType, listingId: string | null = null) =>
+    setDraft((d) => ({ type, listingId, key: (d?.key ?? 0) + 1 }));
 
   const openLog = (event?: string) => {
     setMsgError(null);
@@ -158,20 +179,49 @@ export default function ContactView({ contact, timeline, listings, dueKind, comp
         nowMs={nowMs}
         timeZone={timeZone}
         onLogMeeting={() => openLog("OUT:MEETING")}
+        onDraft={() => openDraft(draftTypeForDue(dueKind))}
+        canDraft={!contact.doNotContact}
       />
+
+      {draft && (
+        <DraftPanel
+          key={draft.key}
+          contactId={contact.id}
+          contactName={contact.name}
+          email={contact.email}
+          doNotContact={contact.doNotContact}
+          listings={listings}
+          availability={drafting}
+          initialType={draft.type}
+          initialListingId={draft.listingId}
+          preferLinkedIn={dueKind === "SEND_OPENER" || (!contact.email && contact.linkedinUrl !== null)}
+          onClose={() => setDraft(null)}
+        />
+      )}
 
       <section aria-label="Messages" className="rounded border border-line bg-panel">
         <div className="flex items-center gap-2 border-b border-line px-3 py-2">
           <h2 className="font-mono text-[10px] font-semibold tracking-wide text-faint uppercase">Messages</h2>
-          {!msgForm && (
-            <button
-              type="button"
-              onClick={() => openLog()}
-              className="ml-auto rounded border border-accent bg-accent px-3 py-1 text-[12px] text-accent-ink"
-            >
-              Log message
-            </button>
-          )}
+          <div className="ml-auto flex gap-2">
+            {!draft && !contact.doNotContact && (
+              <button
+                type="button"
+                onClick={() => openDraft(draftTypeForDue(dueKind))}
+                className="rounded border border-line px-3 py-1 text-[12px] text-dim hover:text-ink"
+              >
+                Draft
+              </button>
+            )}
+            {!msgForm && (
+              <button
+                type="button"
+                onClick={() => openLog()}
+                className="rounded border border-accent bg-accent px-3 py-1 text-[12px] text-accent-ink"
+              >
+                Log message
+              </button>
+            )}
+          </div>
         </div>
         {msgForm && (
           <div className="border-b border-line px-3 py-3">

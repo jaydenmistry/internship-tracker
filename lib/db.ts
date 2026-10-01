@@ -24,6 +24,25 @@ function createClient() {
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-export const prisma = globalForPrisma.prisma ?? createClient();
+/** The real client, created on FIRST USE rather than at import. */
+function client(): PrismaClient {
+  if (!globalForPrisma.prisma) globalForPrisma.prisma = createClient();
+  return globalForPrisma.prisma;
+}
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+/**
+ * Lazy: importing a module that happens to reach this file (a Server Action,
+ * a read model) no longer needs DATABASE_URL — only a query does. Tests rely
+ * on that: they run with DATABASE_URL blank unless TEST_DATABASE_URL names a
+ * test database (tests/db-url.ts), so no test can ever reach dev data just by
+ * importing the app. Behaviour is otherwise identical: one client per process
+ * (cached on globalThis so dev HMR doesn't open a new pool per reload), and
+ * the same "DATABASE_URL is not set" error, raised by the first query.
+ */
+export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
+  get(_target, prop) {
+    const real = client();
+    const value = Reflect.get(real, prop, real);
+    return typeof value === "function" ? value.bind(real) : value;
+  },
+});

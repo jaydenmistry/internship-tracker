@@ -10,6 +10,9 @@ import { assertNoAmbientAnthropicCredentials, reportBadAppUrl, reportMissingScor
 // Before any job is scheduled: see lib/env-guard.ts. Throwing here exits the
 // process, so compose restarts it into the same loud error until it's fixed.
 assertNoAmbientAnthropicCredentials();
+// lib/db.ts connects lazily, so a missing DATABASE_URL would otherwise only
+// surface when the first cron job runs. Fail at boot, loudly, instead.
+if (!process.env.DATABASE_URL?.trim()) throw new Error("DATABASE_URL is not set — the worker cannot run");
 reportMissingScoringKey(process.env, console.error, "worker");
 reportBadAppUrl(process.env, console.error, "worker");
 

@@ -231,6 +231,13 @@ export const messageInputSchema = z
     body: z.string().max(MESSAGE_LIMITS.body, `limited to ${MESSAGE_LIMITS.body} characters`).default(""),
     sentAt: sentAtSchema,
     listingId: z.string().min(1).max(100).nullable().optional().transform((s) => s ?? null),
+    /** Claude's original draft, when this message started as one (phase 3). */
+    draftBody: z
+      .string()
+      .max(MESSAGE_LIMITS.body)
+      .nullable()
+      .optional()
+      .transform((s) => (s == null || s.trim() === "" ? null : s)),
   })
   .superRefine((m, ctx) => {
     const channels = MESSAGE_RULES[m.direction][m.type];
