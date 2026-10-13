@@ -279,8 +279,10 @@ plain string with no foreign key.
 - Matching is for **tailoring, not scoring** — it never touches a score.
 
 **Setting** — key/value JSON for UI-editable config. Holds the alert thresholds
-edited at `/alerts`, Zod-validated on read with defaults when absent or
-malformed. Scoring weights live in `config/scoring.json` and never here.
+edited at `/alerts`, the networking settings, and the listings table's saved
+views (`listings.views`: name + URL query, one optionally the default for a
+bare `/`). Zod-validated on read with defaults when absent or malformed.
+Scoring weights live in `config/scoring.json` and never here.
 
 **AlertLog** — alert de-duplication (`dedupeKey` unique, and `channel` is part
 of the key, so the same alert to Discord and email is two rows). **Written only
@@ -555,7 +557,9 @@ run. Any content change rescores the whole catalog on the next run.
   specificity, not value**. Reorder to retune.
 - `companyTier`, `location`, `freshness` (half-life), `deadlineUrgency` (window).
 - `disqualifiers` — advanced degrees (with the bachelor's exemption),
-  blocked countries, closed.
+  title level (graduate, Master's, PhD, MBA and new-grad roles, read from the
+  title alone so a `["Bachelor's"]` degree tag can't exempt them; a title that
+  also names undergrads or a bachelor's is exempt), blocked countries, closed.
 - `thresholds.detailFetchMin` — **measured on `gateScore`**, not the displayed
   score. Currently 50. Raise it if fetch volume becomes a problem.
 - `thresholds.llmMin` — measured on `ruleScore`. Currently 70.
@@ -618,7 +622,7 @@ and builds the resume vocabulary from the config.
 ```
 app/                       Next.js App Router (auth: proxy.ts + requireSession())
   page.tsx                 / — the listings table
-  listings/                table, detail panel, context menu, their actions
+  listings/                table, toolbar + filter menus, saved views, detail panel, context menu, their actions
   tracker/                 /tracker — kanban/list + minimal dashboard
   import/                  /import — paste/CSV import with match review
   resume/                  /resume — PDF upload; text extracted once, at upload
@@ -647,7 +651,7 @@ lib/
     engine.ts              pure stage-1 scorer + disqualifiers; SCORING_ENGINE_VERSION
     llm.ts                 stage-2 Claude call (structured output, clamped)
     rescore.ts             persistence: stage 1, stage 2, ranks, raw-SQL schema guard
-  listings/                table read model, detail read model, row mutations
+  listings/                table read model, detail read model, row mutations, facets, saved views
   applications/            import parse/match, commit, tracker + dashboard, CSV
   resume/                  extract (unpdf), store, vocabulary + posting↔resume match
   networking/              schema (pure), contacts model, follow-up engine (pure) +

@@ -380,6 +380,46 @@
         "(?:bachelor'?s?|undergraduate)[^.]{0,60}\\b(?:and|or)\\s+(?:above|higher)\\b"
       ]
     },
+    "titleLevel": {
+      "notes": "Disqualifies by the job TITLE, independently of degrees[]. Sources tag graduate roles with [\"Bachelor's\"] because a bachelor's is the degree you must already HOLD, so the advancedDegrees bachelor exemption would let them through. A title that also names undergrads or a bachelor's (\"Undergraduate / Graduate Research Intern\", \"BS/MS/PhD\") is open to undergrads and exempt. Rules are checked in order; every matching rule adds its reason. Note \\bgraduate\\b does not match inside \"undergraduate\" (no word boundary there).",
+      "exemptPatterns": [
+        "\\bundergrad(?:uate)?s?\\b",
+        "\\bbachelor[’']?s?\\b",
+        "\\bb\\.?s\\.?\\s*/",
+        "\\bb\\.?s\\.?\\s*(?:,|or\\b|and\\b|&)",
+        "(?:[/,&]|\\bor|\\band)\\s*b\\.?s\\.?(?![a-z])"
+      ],
+      "rules": [
+        {
+          "id": "graduate",
+          "reason": "for graduate students",
+          "patterns": [
+            "\\bgraduate\\b(?!\\s+(?:by|in|between|before|after|from)\\b)",
+            "\\bgrad\\s+(?:students?|interns?(?:hip)?|research(?:ers?)?)\\b"
+          ]
+        },
+        {
+          "id": "masters",
+          "reason": "for Master's students",
+          "patterns": ["\\bmaster[’']?s\\b", "\\bmaster\\s+students?\\b"]
+        },
+        {
+          "id": "phd",
+          "reason": "for PhD students",
+          "patterns": ["\\bph\\.?\\s?d\\.?(?![a-z])", "\\b(?:post)?doctoral\\b"]
+        },
+        {
+          "id": "mba",
+          "reason": "for MBA students",
+          "patterns": ["\\bm\\.?b\\.?a\\.?(?![a-z])"]
+        },
+        {
+          "id": "new-grad",
+          "reason": "new-grad role",
+          "patterns": ["\\bnew[-\\s]?grad(?:uate)?s?\\b"]
+        }
+      ]
+    },
     "workAuthorization": {
       "reason": "Canada/UK/EU work authorization",
       "remoteExempt": true,

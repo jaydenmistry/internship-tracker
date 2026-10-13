@@ -13,6 +13,7 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import Badge from "@/components/Badge";
 import type { ListingRow } from "@/lib/listings/query";
+import type { SavedView } from "@/lib/listings/views";
 import ContextMenu from "./ContextMenu";
 import DetailPanel from "./DetailPanel";
 import HelpOverlay from "./HelpOverlay";
@@ -23,11 +24,8 @@ import {
   absoluteDate,
   absoluteDay,
   applyPatches,
-  allSources,
-  DEFAULT_SORT,
   deadlineUrgency,
   dqBadge,
-  EMPTY_FILTER,
   fetchBadge,
   formatDeadline,
   formatScore,
@@ -46,6 +44,8 @@ import {
   type SortKey,
   type SortState,
   type TableRow,
+  viewFromQuery,
+  viewToQuery,
 } from "./table-state";
 import { useListingDetail } from "./useListingDetail";
 import { useRowActions } from "./useRowActions";
@@ -69,13 +69,17 @@ interface Props {
   rows: ListingRow[];
   /** Rendered "now", handed down by the server so SSR and hydration agree. */
   nowIso: string;
+  /** Filters + sort to open with: the URL's query, or the default saved view's. */
+  initialQuery: string;
+  views: SavedView[];
 }
 
-export default function ListingsTable({ rows, nowIso }: Props) {
+export default function ListingsTable({ rows, nowIso, initialQuery, views }: Props) {
   const base = useMemo(() => prepareRows(rows), [rows]);
 
-  const [filter, setFilter] = useState<FilterState>(EMPTY_FILTER);
-  const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
+  const [filter, setFilter] = useState<FilterState>(() => viewFromQuery(initialQuery).filter);
+  const [sort, setSort] = useState<SortState>(() => viewFromQuery(initialQuery).sort);
+  const [savedViews, setSavedViews] = useState<SavedView[]>(views);
   const [cursor, setCursor] = useState<number | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   /** Section the panel should reveal when a command opened it (split audit). */
@@ -140,7 +144,39 @@ export default function ListingsTable({ rows, nowIso }: Props) {
     [patched, effectiveFilter, sort, now],
   );
 
-  const sources = useMemo(() => allSources(base), [base]);
+  // The view lives in the URL so a reload or a bookmark keeps it. Written
+  // with replaceState (no history entry per keystroke, no server round trip)
+  // and debounced, since browsers throttle rapid history writes.
+  const currentQuery = useMemo(() => viewToQuery({ filter, sort }), [filter, sort]);
+  useEffect(() => {
+    const id = setTimeout(() => {
+      const next = currentQuery ? `?${currentQuery}` : window.location.pathname;
+      if (window.location.search !== (currentQuery ? `?${currentQuery}` : "")) {
+        window.history.replaceState(null, "", next);
+      }
+    }, 300);
+    return () => clearTimeout(id);
+  }, [currentQuery]);
+
+  const applyView = useCallback((query: string) => {
+    const view = viewFromQuery(query);
+    setFilter(view.filter);
+    setSort(view.sort);
+  }, []);
+
+  // A soft navigation to `/` (the nav's Listings link) re-renders the page
+  // with a new initialQuery while this component stays mounted, so the
+  // useState initializers above never see it. Adopt it here, during render,
+  // so the table and the URL can't disagree.
+  const [seenQuery, setSeenQuery] = useState(initialQuery);
+  if (initialQuery !== seenQuery) {
+    setSeenQuery(initialQuery);
+    if (initialQuery !== currentQuery) {
+      const view = viewFromQuery(initialQuery);
+      setFilter(view.filter);
+      setSort(view.sort);
+    }
+  }
 
   // Chip counts respect the disqualified/dismissed toggles so the numbers match
   // what clicking the chip would actually show.
@@ -384,6 +420,10 @@ export default function ListingsTable({ rows, nowIso }: Props) {
       <Toolbar
         filter={filter}
         onChange={setFilter}
+        sort={sort}
+        onSortChange={setSort}
+        rows={patched}
+        now={now}
         searchRef={searchRef}
         onSearchEscape={() => {
           searchRef.current?.blur();
@@ -391,8 +431,11 @@ export default function ListingsTable({ rows, nowIso }: Props) {
         }}
         shown={visible.length}
         total={base.length}
-        sources={sources}
         counts={counts}
+        views={savedViews}
+        currentQuery={currentQuery}
+        onApplyView={applyView}
+        onViewsChange={setSavedViews}
         onShowHelp={() => setShowHelp(true)}
       />
 
