@@ -28,6 +28,7 @@ function app(overrides: Partial<TrackerApplication> = {}): TrackerApplication {
     contactCount: 0,
     contactCompanyKey: null,
     referredBy: null,
+    hasCoverLetter: false,
     ...overrides,
   };
 }

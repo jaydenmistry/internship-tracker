@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { wordCount } from "@/lib/coverletter/prompt";
 import type { AppStatus } from "@/generated/prisma/enums";
 import { COMPONENT_NAMES, loadScoringConfig, type ComponentName } from "@/lib/scoring/config";
 import { buildVocabulary, extractKeywords, matchResume } from "@/lib/resume/match";
@@ -130,6 +131,8 @@ export interface ListingDetail {
     requisitionId: string | null;
     applyUrl: string | null;
     timeline: TimelineEvent[];
+    /** The saved cover letter, if one was written (lib/coverletter). */
+    coverLetter: { words: number; updatedAt: string } | null;
   } | null;
 
   resumeMatch: ResumeMatchState;
@@ -189,7 +192,10 @@ export async function loadListingDetail(id: string): Promise<ListingDetail | nul
       company: { select: { name: true, faangPlus: true } },
       sources: { select: { source: true, url: true, active: true, lastSeen: true } },
       application: {
-        include: { events: { orderBy: { occurredAt: "asc" } } },
+        include: {
+          events: { orderBy: { occurredAt: "asc" } },
+          coverLetter: { select: { body: true, updatedAt: true } },
+        },
       },
       assessments: { orderBy: { createdAt: "desc" } },
     },
@@ -330,6 +336,12 @@ export async function loadListingDetail(id: string): Promise<ListingDetail | nul
             occurredAt: e.occurredAt.toISOString(),
             note: e.note,
           })),
+          coverLetter: l.application.coverLetter
+            ? {
+                words: wordCount(l.application.coverLetter.body),
+                updatedAt: l.application.coverLetter.updatedAt.toISOString(),
+              }
+            : null,
         }
       : null,
     resumeMatch,

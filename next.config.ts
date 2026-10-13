@@ -11,11 +11,16 @@ const nextConfig: NextConfig = {
   // per-platform optional dependency. Bundling the SDK would break its
   // runtime lookup of that binary, and file tracing can't see a binary it
   // only finds at runtime — so keep the SDK external and trace the binary
-  // package in explicitly for the routes that draft. UNVERIFIED in a real
+  // package in explicitly for the routes that draft (networking messages and
+  // cover letters). UNVERIFIED in a real
   // image (none has been built): see the first-deploy checklist.
   serverExternalPackages: ["@anthropic-ai/claude-agent-sdk"],
   outputFileTracingIncludes: {
     "/network/**": [
+      "./node_modules/@anthropic-ai/claude-agent-sdk/**/*",
+      "./node_modules/@anthropic-ai/claude-agent-sdk-linux-*/**/*",
+    ],
+    "/cover-letter/**": [
       "./node_modules/@anthropic-ai/claude-agent-sdk/**/*",
       "./node_modules/@anthropic-ai/claude-agent-sdk-linux-*/**/*",
     ],

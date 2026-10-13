@@ -200,10 +200,38 @@ model Application {
   referredByContactId String?
   referredBy          Contact?          @relation("ReferredBy", fields: [referredByContactId], references: [id], onDelete: SetNull)
   outreach            OutreachMessage[]
+  coverLetter         CoverLetter?
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
 
   @@index([referredByContactId])
+}
+
+/// One cover letter per application. Like notes, it is user content: a
+/// NOT_APPLIED application holding a letter is kept, never dropped as a side
+/// effect of a status change (lib/applications/keep.ts).
+model CoverLetter {
+  id            String      @id @default(cuid())
+  applicationId String      @unique
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  /// The letter's paragraphs as you'll send them — your edits. The
+  /// letterhead, date, recipient, greeting and sign-off are added on export.
+  body          String
+  /// "Dear MEMX Talent Acquisition Team," — null means the profile's default.
+  greeting      String?
+  /// The recipient block, one line per line — null means the profile's default.
+  recipient     String?
+  /// Claude's latest draft exactly as generated. A letter whose body differs
+  /// from it is one you edited, and becomes a voice example for the next one.
+  draftBody     String?
+  /// A description you pasted, for roles whose posting text was never fetched.
+  postingText   String?
+  /// Things Claude flagged to check (claims, gaps), from the latest draft.
+  checks        String[]
+  model         String?
+  generatedAt   DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 }
 
 model StatusEvent {

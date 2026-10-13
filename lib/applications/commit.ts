@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import type { AppStatus } from "@/generated/prisma/enums";
 import type { ImportRow } from "@/lib/applications/import";
 import { normalizeCompany, normalizeTitle } from "@/lib/ingestion/normalize";
+import { dropApplicationIfEmpty, holdsUserContent, USER_CONTENT_SELECT } from "@/lib/applications/keep";
 
 /**
  * Finds an existing manual (unlinked) application for the same company+role.
@@ -13,7 +14,7 @@ async function findManualApplication(company: string, role: string) {
   const targetRole = normalizeTitle(role);
   const candidates = await prisma.application.findMany({
     where: { listingId: null, companyName: { not: null } },
-    select: { id: true, status: true, notes: true, companyName: true, roleTitle: true },
+    select: { id: true, status: true, ...USER_CONTENT_SELECT, companyName: true, roleTitle: true },
   });
   return (
     candidates.find(
@@ -88,14 +89,6 @@ export async function recordStatus(
 
 const hasNotes = (v: string | null | undefined) => typeof v === "string" && v.trim() !== "";
 
-/** Removes an application and its timeline together. */
-async function dropApplication(applicationId: string): Promise<void> {
-  await prisma.$transaction([
-    prisma.statusEvent.deleteMany({ where: { applicationId } }),
-    prisma.application.delete({ where: { id: applicationId } }),
-  ]);
-}
-
 export async function commitImport(
   decisions: ImportDecision[],
   opts: { now?: Date } = {},
@@ -121,18 +114,17 @@ export async function commitImport(
     const notes = row.notes ?? decision.notes;
 
     try {
-      // NOT_APPLIED exists only to hold notes (see lib/listings/mutations.ts).
+      // NOT_APPLIED exists only to hold notes or a cover letter (lib/applications/keep.ts).
       // A row saying "not applied" with nothing written on it records nothing,
       // so importing one must not create an invariant-violating row.
       if (status === "NOT_APPLIED" && !hasNotes(notes)) {
         const existing = decision.listingId
           ? await prisma.application.findUnique({
               where: { listingId: decision.listingId },
-              select: { id: true, notes: true },
+              select: { id: true, ...USER_CONTENT_SELECT },
             })
           : await findManualApplication(row.company, row.role);
-        if (existing && !hasNotes(existing.notes)) {
-          await dropApplication(existing.id);
+        if (existing && !holdsUserContent(existing) && (await dropApplicationIfEmpty(existing.id))) {
           summary.updated += 1;
         } else if (existing) {
           await recordStatus(existing.id, status, { note: "bulk import", occurredAt: now });

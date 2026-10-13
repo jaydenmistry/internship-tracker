@@ -98,6 +98,7 @@ erDiagram
   Listing |o--o{ OutreachMessage : "about"
   Application |o--o{ OutreachMessage : "about"
   Contact |o--o{ Application : "referred"
+  Application ||--o| CoverLetter : "letter"
 
   Company {
     string normalizedName UK
@@ -180,6 +181,15 @@ erDiagram
     string draftBody
     datetime sentAt
   }
+  CoverLetter {
+    string applicationId "unique"
+    string body "paragraphs only"
+    string greeting
+    string recipient
+    string draftBody
+    string postingText "pasted, optional"
+    string[] checks
+  }
 ```
 
 `IngestRun`, `Resume` and `Setting` have no relations. `AlertLog.listingId` is a
@@ -254,9 +264,14 @@ plain string with no foreign key.
   accidental OA corrected, or un-apply then re-apply) never overwrites it.
 - **"Not applied" has two representations** — this differs from the original
   plan, which said "absence of a row". It is *either* no row, *or* a row with
-  status `NOT_APPLIED` that exists only to hold notes written before applying.
-  Un-applying a listing whose application has notes keeps the row rather than
-  deleting the notes. Readers must treat both the same: the table folds null
+  status `NOT_APPLIED` that exists only to hold notes or a cover letter written
+  before applying. Un-applying a listing whose application has either keeps the
+  row rather than deleting them. Every path that could drop such a row goes
+  through `dropApplicationIfEmpty()` (`lib/applications/keep.ts`), which takes
+  `SELECT … FOR UPDATE` on the row and re-checks its content — and, for the
+  notes-clearing paths, that it is still NOT_APPLIED — in the same
+  transaction, so a letter or note saved a moment earlier is never cascaded
+  away. Deleting a letter runs the same check inside its own transaction. Readers must treat both the same: the table folds null
   into `NOT_APPLIED`; the tracker and dashboard exclude `NOT_APPLIED` rows.
 
 **StatusEvent** — append-only status timeline.
@@ -279,7 +294,8 @@ plain string with no foreign key.
 - Matching is for **tailoring, not scoring** — it never touches a score.
 
 **Setting** — key/value JSON for UI-editable config. Holds the alert thresholds
-edited at `/alerts`, the networking settings, and the listings table's saved
+edited at `/alerts`, the networking settings, the cover-letter letterhead
+(`coverletter.profile`), and the listings table's saved
 views (`listings.views`: name + URL query, one optionally the default for a
 bare `/`). Zod-validated on read with defaults when absent or malformed.
 Scoring weights live in `config/scoring.json` and never here.
@@ -324,9 +340,36 @@ referrals and bulk import).
   body differs from their draft (whitespace-normalized). LinkedIn's 300-char
   note limit is checked in code (retry once, then warn).
 
+**CoverLetter** — one per application (`lib/coverletter/`; editor at
+`/cover-letter?listing=` or `?application=`). Drafted through the same
+locked-down client as the networking drafts, from the listing's posting text
+or a pasted description (the editor says which, explicitly; a paste is stored
+on the letter only while it is the chosen source), plus the active resume —
+refused without a description or a resume — and, when set, voice notes and up
+to two past edited letters. `body` holds only the paragraphs; the letterhead,
+date, recipient block, greeting and sign-off are added on export. The target
+is re-resolved after the draft returns, so a listing applied to (or a row
+dropped) mid-draft doesn't lose the draft; the first letter for an un-applied
+listing creates its NOT_APPLIED row only then. A draft is saved straight away
+as both `body` and `draftBody`; later letters learn from letters whose body
+differs from their draft. Deleting the letter drops a NOT_APPLIED row that
+holds nothing else.
+
+Export runs in the browser from one layout model (`compose.ts`): `.docx` via
+a dependency-free writer (`docx.ts`, Aptos, letterhead in the Word page
+header, signature inline) and PDF via pdf-lib (`pdf.ts`, same sizes and
+spacing in Helvetica — Aptos can't be bundled; Windows-1252 only, anything
+else is simplified or "?"). Files are named `YYYYMMDD_Cover Letter_Company`.
+The letterhead — name, up to three contact lines, closing, default recipient
+and greeting, signature image (PNG/JPEG identified from its bytes, ≤ 512 KB)
+— is one `Setting` row, `coverletter.profile`, edited at
+`/cover-letter/settings`; it is personal data and never lives in the repo.
+Networking drafts and letters share one two-at-a-time limit
+(`lib/claude/slots.ts`).
+
 **Two paths to Claude, kept apart:**
 
-| | Scoring (stage 2) | Networking drafts |
+| | Scoring (stage 2) | Networking drafts and cover letters |
 |---|---|---|
 | Client | Anthropic SDK, `lib/scoring/llm.ts` | Claude Agent SDK `0.3.283` (pinned exactly), `lib/claude/draftClient.ts` |
 | Auth | `SCORING_ANTHROPIC_API_KEY`, passed explicitly | `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` (one year) |
@@ -488,8 +531,10 @@ name its schema inherits whatever `search_path` the proxy last had — often
 
 *Fixes:* `DATABASE_URL` always names its schema (`?schema=public`); push by
 hand only with `--url` including the schema; and raw SQL never uses an
-unqualified table name — it goes through `qualifiedListingTable()` in
-`lib/scoring/rescore.ts`, which validates the schema as a safe identifier.
+unqualified table name — it goes through `qualifiedTable()` in `lib/sql.ts`,
+which validates the schema and table as safe identifiers.
+`tests/scoring/env-guard.test.ts` searches `lib/` for `FROM`/`UPDATE`/`INTO`/
+`JOIN` followed by a bare quoted table name and fails on any.
 
 **Related, not the proxy:** after a schema migration, a running `next dev`
 keeps its old generated Prisma client and fails with `Unknown field` until the
@@ -630,6 +675,8 @@ app/                       Next.js App Router (auth: proxy.ts + requireSession()
   network/                 /network — Due list, contacts table, add form; [id]/ contact
                            page (timeline, log message, follow-up bar, draft panel,
                            referrals); settings/; import/
+  cover-letter/            /cover-letter — draft, edit, save, download PDF/.docx;
+                           settings/ letterhead + signature
   api/applications/export/ GET → applications CSV (round-trips via /import)
   layout.tsx, globals.css  shell, nav, dark theme tokens (Tailwind v4, CSS config)
 components/                small shared UI primitives
@@ -657,7 +704,11 @@ lib/
   networking/              schema (pure), contacts model, follow-up engine (pure) +
                            its persistence, message mutations, dates, settings,
                            draft prompt/parse (pure) + drafting orchestration
-  claude/                  draftClient.ts — the locked-down Agent SDK client
+  coverletter/             prompt/parse, layout model, .docx writer, image sniffing,
+                           profile schema (all pure); PDF writer (pdf-lib);
+                           letters + profile persistence
+  claude/                  draftClient.ts — the locked-down Agent SDK client;
+                           slots.ts — the shared two-drafts-at-once limit
   alerts/
     settings.ts            threshold schema + defaults (pure)
     config.ts              Setting-table read/write; re-exports settings.ts
@@ -691,7 +742,7 @@ What `CLAUDE.md`'s original plan describes, against what exists after Phase 3:
 | Resume PDF upload | Built. Upload, extraction and the matched panel state were driven end to end through the real Server Action over real multipart. |
 | "Refresh now" button → worker `/refresh` | Endpoint exists; **no UI calls it**. |
 | UI action to split an incorrect merge | Built, and **run against the live catalog**: the three EquipmentShare requisitions that dedup had collapsed into one row are now three listings ranking independently. The two concurrency guards (a racing ingest, two simultaneous splits) are coded and reasoned about but not covered by a test — that needs two interleaved transactions. |
-| "Not applied" = absence of an Application row | Also a `NOT_APPLIED` row holding pre-apply notes. |
+| "Not applied" = absence of an Application row | Also a `NOT_APPLIED` row holding pre-apply notes or a cover letter. |
 | Detail fetch gated on the score | Gated on **`gateScore`** (tech fit excluded) — the plain score deadlocked. |
 | Rank derived for display | **Persisted** on Listing, with movement history. The ↑/↓ indicator is shown only when the listing's own score moved (`scoreMoved`) — 88% of ranked rows carried a cascade move, which told the reader nothing. |
 | Stage 2 adjusts scores | It never ran: the structured-output schema sent `minimum`/`maximum` on an integer, which the Messages API rejects with a 400, so **every** stage-2 call failed while the mocked tests stayed green. Fixed, and now pinned at `temperature: 0`. |

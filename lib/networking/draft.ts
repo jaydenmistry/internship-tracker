@@ -151,7 +151,7 @@ export interface DraftInputs {
   retryFeedback?: string;
 }
 
-function clip(s: string, max: number): string {
+export function clip(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max)}\n[…truncated]`;
 }
 
@@ -159,7 +159,7 @@ function clip(s: string, max: number): string {
  * Wraps untrusted content in a data block, stripping anything resembling the
  * block's own tags (`</posting >`, `< /posting>`) so it can't close early.
  */
-function fence(tag: string, content: string): string {
+export function fence(tag: string, content: string): string {
   const safe = content.replace(new RegExp(`<\\s*\\/?\\s*${tag}\\b[^>]*>`, "gi"), "");
   return `<${tag}>\n${safe}\n</${tag}>`;
 }

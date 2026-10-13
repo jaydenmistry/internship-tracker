@@ -134,6 +134,7 @@ export default function DetailPanel({
             <LlmSection detail={detail} />
             <FetchSection detail={detail} />
             <ResumeSection match={detail.resumeMatch} />
+            <CoverLetterSection detail={detail} />
             <Notes
               key={detail.id}
               listingId={detail.id}
@@ -524,6 +525,37 @@ function KeywordList({ words, tone }: { words: string[]; tone: "hit" | "miss" | 
         </li>
       ))}
     </ul>
+  );
+}
+
+/** The saved cover letter for this listing, or a link to write one. */
+function CoverLetterSection({ detail }: { detail: ListingDetail }) {
+  const letter = detail.application?.coverLetter ?? null;
+  const href = `/cover-letter?listing=${encodeURIComponent(detail.id)}`;
+  return (
+    <Section title="Cover letter">
+      {letter ? (
+        <p className="flex items-baseline gap-2 text-[12px]" data-testid="cover-letter">
+          <span className="text-dim">
+            {letter.words} words · saved {absoluteDay(new Date(letter.updatedAt).getTime())}
+          </span>
+          <Link href={href} className="ml-auto shrink-0 text-accent hover:underline">
+            Open →
+          </Link>
+        </p>
+      ) : (
+        <p className="flex items-baseline gap-2 text-[12px]" data-testid="cover-letter-empty">
+          <span className="text-faint">
+            {detail.hasPostingText
+              ? "Claude can draft one from this posting and your resume."
+              : "No posting text here — you'll paste the description."}
+          </span>
+          <Link href={href} className="ml-auto shrink-0 text-accent hover:underline">
+            Write one →
+          </Link>
+        </p>
+      )}
+    </Section>
   );
 }
 

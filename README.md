@@ -28,8 +28,10 @@ I built it for my own Summer 2027 search. It runs on my home server behind Traef
 - Bulk import from pasted text or CSV, and CSV export.
 - Roles found outside the sources can be added by hand.
 
-**Resume matching**
+**Resume matching and cover letters**
 - Upload a PDF resume and see which keywords from each posting it covers and which it misses.
+- Draft a cover letter for any listing or application from the posting and your resume. Claude is told to use only facts from your resume and lists anything to double-check.
+- The letter is edited and saved on the application, then downloaded as a PDF or Word file with your letterhead and signature, named `YYYYMMDD_Cover Letter_Company`.
 
 **Networking**
 - A contact list linked to companies, shown in context on listings ("People at Stripe") and on tracker cards.
