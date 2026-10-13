@@ -251,6 +251,7 @@ describe("status controls and timeline", () => {
           { fromStatus: null, toStatus: "APPLIED", occurredAt: "2026-09-10T14:00:00.000Z", note: null },
           { fromStatus: "APPLIED", toStatus: "OA", occurredAt: "2026-09-12T14:00:00.000Z", note: "HackerRank" },
         ],
+      coverLetter: null,
       },
     });
     const items = screen.getByTestId("timeline").querySelectorAll("li");

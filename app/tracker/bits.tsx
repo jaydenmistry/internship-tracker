@@ -55,6 +55,17 @@ export function Markers({ app }: { app: TrackerApplication }) {
           </Badge>
         </Link>
       )}
+      <Link
+        href={`/cover-letter?application=${encodeURIComponent(app.id)}`}
+        className="shrink-0"
+        title={app.hasCoverLetter ? "Open the cover letter for this application" : "Write a cover letter for this application"}
+      >
+        {app.hasCoverLetter ? (
+          <Badge tone="ok">cover letter</Badge>
+        ) : (
+          <span className="text-[11px] text-faint hover:text-ink">+ letter</span>
+        )}
+      </Link>
       {app.contactCount > 0 && app.contactCompanyKey && (
         <Link href={`/network?companyKey=${encodeURIComponent(app.contactCompanyKey)}`} className="shrink-0">
           <Badge

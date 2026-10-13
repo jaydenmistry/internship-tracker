@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { qualifiedTable } from "@/lib/sql";
 import type { Prisma } from "@/generated/prisma/client";
 import { loadScoringConfig, type ScoringConfig } from "@/lib/scoring/config";
 import { scoreListing, SCORING_ENGINE_VERSION, type ScoringInput } from "@/lib/scoring/engine";
@@ -455,27 +456,9 @@ export async function rescoreListings(opts: RescoreOptions = {}): Promise<Rescor
   };
 }
 
-/**
- * Schema-qualified table name for raw SQL.
- *
- * Prisma's driver adapter applies the `?schema=` parameter to the queries IT
- * generates, but raw SQL is sent verbatim and resolves through the connection's
- * `search_path` — which `prisma dev`'s proxy leaks between connections. An
- * unqualified `"Listing"` therefore silently hit the test schema. Never write
- * an unqualified table name in raw SQL here.
- */
+/** `"<schema>"."Listing"` for raw SQL — see lib/sql.ts for why it must be qualified. */
 export function qualifiedListingTable(): string {
-  let schema = "public";
-  try {
-    schema = new URL(process.env.DATABASE_URL ?? "").searchParams.get("schema") ?? "public";
-  } catch {
-    /* falls back to public */
-  }
-  // The value reaches SQL as an identifier, which cannot be parameterized.
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(schema)) {
-    throw new Error(`refusing unsafe schema name in DATABASE_URL: ${schema}`);
-  }
-  return `"${schema}"."Listing"`;
+  return qualifiedTable("Listing");
 }
 
 /**

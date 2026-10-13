@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { positiveNumberFromEnv, qualifiedListingTable } from "@/lib/scoring/rescore";
+import { qualifiedTable } from "@/lib/sql";
 
 /**
  * These knobs cap spending. A malformed value must fall back to the default,
@@ -74,5 +77,47 @@ describe("qualifiedListingTable", () => {
       process.env.DATABASE_URL = `postgres://u:p@localhost:5432/db?schema=${encodeURIComponent(bad)}`;
       expect(() => qualifiedListingTable()).toThrow(/unsafe schema/i);
     }
+  });
+});
+
+describe("qualifiedTable", () => {
+  const original = process.env.DATABASE_URL;
+  afterEach(() => {
+    if (original === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = original;
+  });
+
+  it("qualifies any table with the URL's schema", () => {
+    process.env.DATABASE_URL = "postgres://u:p@localhost:5432/db?schema=itest";
+    expect(qualifiedTable("Application")).toBe('"itest"."Application"');
+  });
+
+  it("refuses a table name that isn't a plain identifier", () => {
+    expect(() => qualifiedTable('Application"; DROP TABLE x; --')).toThrow(/unsafe table name/);
+  });
+});
+
+/**
+ * The rule above, enforced by search: no raw SQL anywhere in lib/ may name a
+ * table without a schema. A template like FROM "Application" passes every test
+ * under one schema while locking or writing the wrong table under another.
+ */
+describe("raw SQL never uses a bare table name", () => {
+  it("finds none in lib/", () => {
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (/\.tsx?$/.test(entry.name)) {
+          const src = readFileSync(full, "utf8");
+          for (const m of src.matchAll(/\b(?:FROM|UPDATE|INTO|JOIN)\s+"[A-Z][A-Za-z0-9_]*"/g)) {
+            offenders.push(`${path.relative(process.cwd(), full)}: ${m[0]}`);
+          }
+        }
+      }
+    };
+    walk(path.join(process.cwd(), "lib"));
+    expect(offenders).toEqual([]);
   });
 });

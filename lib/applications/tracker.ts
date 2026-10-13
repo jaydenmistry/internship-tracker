@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { dropApplicationIfEmpty, holdsUserContent, USER_CONTENT_SELECT } from "@/lib/applications/keep";
 import type { AppStatus } from "@/generated/prisma/enums";
 import { recordStatus } from "@/lib/applications/commit";
 import { TRACKER_STATUSES } from "@/lib/applications/statuses";
@@ -64,6 +65,8 @@ export interface TrackerApplication {
   contactCompanyKey: string | null;
   /** Who referred you for this application, if anyone. */
   referredBy: { id: string; name: string } | null;
+  /** A cover letter has been saved for this application. */
+  hasCoverLetter: boolean;
 }
 
 export async function loadTrackerApplications(): Promise<TrackerApplication[]> {
@@ -84,6 +87,7 @@ export async function loadTrackerApplications(): Promise<TrackerApplication[]> {
       },
       events: { orderBy: { occurredAt: "desc" }, take: 1, select: { occurredAt: true } },
       referredBy: { select: { id: true, name: true } },
+      coverLetter: { select: { id: true } },
     },
     orderBy: { updatedAt: "desc" },
   });
@@ -115,6 +119,7 @@ export async function loadTrackerApplications(): Promise<TrackerApplication[]> {
     contactCount,
     contactCompanyKey: contactCount > 0 ? key : null,
     referredBy: a.referredBy,
+    hasCoverLetter: a.coverLetter !== null,
     };
   });
 }
@@ -184,23 +189,13 @@ export async function loadDashboardStats(): Promise<DashboardStats> {
   );
 }
 
-const hasText = (s: string | null | undefined) => typeof s === "string" && s.trim() !== "";
-
-/** Removes an application and its timeline together. */
-async function deleteApplication(applicationId: string): Promise<void> {
-  await prisma.$transaction([
-    prisma.statusEvent.deleteMany({ where: { applicationId } }),
-    prisma.application.delete({ where: { id: applicationId } }),
-  ]);
-}
-
 /**
  * Status change by application id — works for manual applications too.
  *
  * Mirrors setListingStatus in lib/listings/mutations.ts so both entry points
- * keep one invariant: a NOT_APPLIED row exists only to hold notes. Setting
- * NOT_APPLIED on an application with no notes removes it; with notes, the row
- * stays so the notes are never lost.
+ * keep one invariant: a NOT_APPLIED row exists only to hold notes or a cover
+ * letter. Setting NOT_APPLIED on an application with neither removes it;
+ * otherwise the row stays so they are never lost.
  */
 export async function setApplicationStatus(
   applicationId: string,
@@ -209,12 +204,11 @@ export async function setApplicationStatus(
 ): Promise<{ removed: boolean }> {
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
-    select: { id: true, notes: true },
+    select: { id: true, ...USER_CONTENT_SELECT },
   });
   if (!app) throw new Error(`no such application: ${applicationId}`);
 
-  if (status === "NOT_APPLIED" && !hasText(app.notes)) {
-    await deleteApplication(applicationId);
+  if (status === "NOT_APPLIED" && !holdsUserContent(app) && (await dropApplicationIfEmpty(applicationId))) {
     return { removed: true };
   }
   await recordStatus(applicationId, status, { occurredAt: opts.now ?? new Date(), note: opts.note });
@@ -233,8 +227,7 @@ export async function setApplicationNotes(
   });
   if (!app) throw new Error(`no such application: ${applicationId}`);
 
-  if (trimmed === null && app.status === "NOT_APPLIED") {
-    await deleteApplication(applicationId);
+  if (trimmed === null && app.status === "NOT_APPLIED" && (await dropApplicationIfEmpty(applicationId, { ignoreNotes: true, requireStatus: "NOT_APPLIED" }))) {
     return { removed: true };
   }
   await prisma.application.update({ where: { id: applicationId }, data: { notes: trimmed } });

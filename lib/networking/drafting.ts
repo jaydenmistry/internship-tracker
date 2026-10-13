@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { createDraftClient, DraftClientError, type DraftClient } from "@/lib/claude/draftClient";
+import { withDraftSlot } from "@/lib/claude/slots";
 import { getActiveResume } from "@/lib/resume/store";
 import { loadNetworkingSettings } from "@/lib/networking/followups";
 import {
@@ -48,26 +49,15 @@ export function draftModel(): string {
   return process.env.DRAFTING_MODEL?.trim() || "claude-sonnet-5";
 }
 
-/**
- * Each draft spawns a Claude Code process (a couple of hundred MB). One user
- * can't need more than two at once; this stops a double-click storm.
- */
-const MAX_CONCURRENT_DRAFTS = 2;
-let inFlight = 0;
-
+/** At most two drafts at once, shared with cover letters (lib/claude/slots.ts). */
 export async function generateDraft(
   input: GenerateDraftInput,
   client: DraftClient = createDraftClient({ model: draftModel() }),
 ): Promise<DraftResult> {
-  if (inFlight >= MAX_CONCURRENT_DRAFTS) {
-    throw new DraftRefusedError("A draft is already being written — wait for it to finish.");
-  }
-  inFlight += 1;
-  try {
-    return await generateDraftInner(input, client);
-  } finally {
-    inFlight -= 1;
-  }
+  return withDraftSlot(
+    () => generateDraftInner(input, client),
+    () => new DraftRefusedError("A draft is already being written — wait for it to finish."),
+  );
 }
 
 async function generateDraftInner(input: GenerateDraftInput, client: DraftClient): Promise<DraftResult> {

@@ -1,22 +1,21 @@
 import { prisma } from "@/lib/db";
 import type { AppStatus } from "@/generated/prisma/enums";
 import { recordStatus } from "@/lib/applications/commit";
+import { dropApplicationIfEmpty, holdsUserContent, USER_CONTENT_SELECT } from "@/lib/applications/keep";
 
 /**
  * Row-level actions from the main table and detail panel, keyed by listing.
  *
  * "Not applied" has two representations: no Application row at all, or a row
- * with status NOT_APPLIED. The second exists ONLY to hold notes written before
- * applying — user-written notes are never deleted as a side effect of a status
- * change. Readers must treat both the same (the table folds null into
+ * with status NOT_APPLIED. The second exists ONLY to hold notes or a cover
+ * letter written before applying — user content is never deleted as a side
+ * effect of a status change. Readers must treat both the same (the table folds null into
  * NOT_APPLIED; the tracker excludes NOT_APPLIED rows).
  */
 
-const hasText = (s: string | null | undefined) => typeof s === "string" && s.trim() !== "";
-
 /** Creates the tracking row for a listing, carrying its own company/role text so
  *  the record survives an unlink later. */
-async function createApplicationFor(listingId: string, status: AppStatus, now: Date) {
+export async function createApplicationFor(listingId: string, status: AppStatus, now: Date) {
   const listing = await prisma.listing.findUnique({
     where: { id: listingId },
     select: {
@@ -53,22 +52,18 @@ export async function setListingStatus(
   const now = opts.now ?? new Date();
   const existing = await prisma.application.findUnique({
     where: { listingId },
-    select: { id: true, status: true, notes: true },
+    select: { id: true, status: true, ...USER_CONTENT_SELECT },
   });
 
   if (status === "NOT_APPLIED") {
     if (!existing) return { status: null };
-    if (hasText(existing.notes)) {
-      // Keep the row: deleting it would silently destroy the user's notes.
-      await recordStatus(existing.id, "NOT_APPLIED", { occurredAt: now });
-      return { status: "NOT_APPLIED" };
+    // Nothing worth keeping — back to the canonical "no row" state. Otherwise
+    // keep the row: deleting it would silently destroy the user's notes or letter.
+    if (!holdsUserContent(existing) && (await dropApplicationIfEmpty(existing.id))) {
+      return { status: null };
     }
-    // Nothing worth keeping — back to the canonical "no row" state.
-    await prisma.$transaction([
-      prisma.statusEvent.deleteMany({ where: { applicationId: existing.id } }),
-      prisma.application.delete({ where: { id: existing.id } }),
-    ]);
-    return { status: null };
+    await recordStatus(existing.id, "NOT_APPLIED", { occurredAt: now });
+    return { status: "NOT_APPLIED" };
   }
 
   if (existing) {
@@ -105,12 +100,8 @@ export async function setListingNotes(
   }
 
   if (trimmed === null && existing.status === "NOT_APPLIED") {
-    // The row existed only to hold notes; with none left, remove it.
-    await prisma.$transaction([
-      prisma.statusEvent.deleteMany({ where: { applicationId: existing.id } }),
-      prisma.application.delete({ where: { id: existing.id } }),
-    ]);
-    return;
+    // The row existed only to hold notes; with none left (and no letter), remove it.
+    if (await dropApplicationIfEmpty(existing.id, { ignoreNotes: true, requireStatus: "NOT_APPLIED" })) return;
   }
 
   await prisma.application.update({ where: { id: existing.id }, data: { notes: trimmed } });
