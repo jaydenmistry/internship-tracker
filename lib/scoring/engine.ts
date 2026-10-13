@@ -16,7 +16,7 @@ import { COMPONENT_NAMES, type ComponentName, type ScoringConfig } from "@/lib/s
  * on its old score. (Forgetting to bump is not fatal — the time-based
  * staleness window in rescore.ts re-scores everything within a day anyway.)
  */
-export const SCORING_ENGINE_VERSION = 3;
+export const SCORING_ENGINE_VERSION = 4;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -295,6 +295,25 @@ function scoreDeadlineUrgency(
 // Disqualifiers
 // ---------------------------------------------------------------------------
 
+/**
+ * Graduate-student and new-grad roles, read from the title alone. Kept apart
+ * from `advancedDegreeReasons` on purpose: sources tag a "Graduate Research
+ * Assistant" with degrees ["Bachelor's"] — the degree you must already hold —
+ * so that function's bachelor exemption would wave it through. Here only the
+ * title itself can exempt a listing ("Undergraduate / Graduate …", "BS/MS").
+ */
+function titleLevelReasons(input: ScoringInput, config: ScoringConfig): string[] {
+  const cfg = config.disqualifiers.titleLevel;
+  if (matchesAny(input.title, cfg.exemptPatterns)) return [];
+  const reasons: string[] = [];
+  for (const rule of cfg.rules) {
+    if (matchesAny(input.title, rule.patterns) && !reasons.includes(rule.reason)) {
+      reasons.push(rule.reason);
+    }
+  }
+  return reasons;
+}
+
 function advancedDegreeReasons(input: ScoringInput, config: ScoringConfig): string[] {
   const cfg = config.disqualifiers.advancedDegrees;
   const reasons: string[] = [];
@@ -367,7 +386,10 @@ export function scoreListing(
     deadlineUrgency: scoreDeadlineUrgency(input, config, now),
   };
 
-  const disqualifyReasons: string[] = [...advancedDegreeReasons(input, config)];
+  const disqualifyReasons: string[] = [
+    ...advancedDegreeReasons(input, config),
+    ...titleLevelReasons(input, config),
+  ];
   const authReason = workAuthorizationReason(input, config);
   if (authReason) disqualifyReasons.push(authReason);
   if (input.likelyClosed) disqualifyReasons.push(config.disqualifiers.closed.reason);

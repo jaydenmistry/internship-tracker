@@ -4,6 +4,7 @@ import { z } from "zod";
 import { refresh } from "next/cache";
 import { AppStatus } from "@/generated/prisma/enums";
 import { NOTES_MAX } from "./row-actions";
+import { viewFromQuery, viewToQuery } from "./table-state";
 import { loadListingDetail, type ListingDetail } from "@/lib/listings/detail";
 import { splitMerge } from "@/lib/ingestion/split";
 import {
@@ -13,6 +14,15 @@ import {
   setListingStatus,
 } from "@/lib/listings/mutations";
 import { requireSession } from "@/lib/auth-guard";
+import {
+  deleteView,
+  saveView,
+  setDefaultView,
+  VIEW_NAME_MAX,
+  VIEW_QUERY_MAX,
+  ViewLimitError,
+  type SavedView,
+} from "@/lib/listings/views";
 
 /**
  * Row actions from the main table.
@@ -195,4 +205,59 @@ export async function splitMergeAction(
     alreadySplit: result.alreadySplit,
     label: `${result.company} — ${result.title}`,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Saved views (filters + sort, stored as the table's URL query)
+// ---------------------------------------------------------------------------
+
+const viewIdSchema = z.string().min(1).max(100);
+
+const saveViewSchema = z.object({
+  name: z.string().trim().min(1, "give the view a name").max(VIEW_NAME_MAX),
+  query: z.string().max(VIEW_QUERY_MAX),
+  isDefault: z.boolean(),
+});
+
+const deleteViewSchema = z.object({ id: viewIdSchema });
+
+const defaultViewSchema = z.object({ id: viewIdSchema.nullable() });
+
+type ViewsResult = ActionResult<{ views: SavedView[] }>;
+
+export async function saveViewAction(payload: unknown): Promise<ViewsResult> {
+  await requireSession();
+  const parsed = saveViewSchema.safeParse(payload);
+  if (!parsed.success) return invalid(parsed.error);
+  try {
+    // Stored canonical, so the menu's "is this the current view" match holds
+    // and nothing the parser would drop is ever persisted.
+    const query = viewToQuery(viewFromQuery(parsed.data.query));
+    return { ok: true, views: await saveView({ ...parsed.data, query }) };
+  } catch (err) {
+    if (err instanceof ViewLimitError) return { ok: false, message: err.message };
+    return failed("Saving the view", err);
+  }
+}
+
+export async function deleteViewAction(payload: unknown): Promise<ViewsResult> {
+  await requireSession();
+  const parsed = deleteViewSchema.safeParse(payload);
+  if (!parsed.success) return invalid(parsed.error);
+  try {
+    return { ok: true, views: await deleteView(parsed.data.id) };
+  } catch (err) {
+    return failed("Deleting the view", err);
+  }
+}
+
+export async function setDefaultViewAction(payload: unknown): Promise<ViewsResult> {
+  await requireSession();
+  const parsed = defaultViewSchema.safeParse(payload);
+  if (!parsed.success) return invalid(parsed.error);
+  try {
+    return { ok: true, views: await setDefaultView(parsed.data.id) };
+  } catch (err) {
+    return failed("Changing the default view", err);
+  }
 }

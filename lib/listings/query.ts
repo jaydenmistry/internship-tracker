@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import type { AppStatus } from "@/generated/prisma/enums";
+import { categoryGroup, cleanTerms } from "@/lib/listings/facets";
 import { primaryLocation } from "@/lib/listings/location";
 import { countMergeEntries } from "@/lib/ingestion/merge-audit";
 
@@ -38,7 +39,15 @@ export interface ListingRow {
   locationCount: number;
   /** Every location (capped), so the cell can name them rather than say "+1". */
   allLocations: string[];
+  /** Every location, uncapped and lowercased, for the location filter. */
+  locationSearch: string;
   remote: boolean;
+  /** Any location is in the US (remote-only postings count as US). */
+  inUS: boolean;
+  /** Category folded to one name per group across sources (`categoryGroup`). */
+  category: string | null;
+  /** Terms such as "Summer 2027", with "N/A" dropped. */
+  terms: string[];
   url: string;
   score: number | null;
   llmAdjustment: number | null;
@@ -49,7 +58,7 @@ export interface ListingRow {
   saved: boolean;
   dismissed: boolean;
   disqualified: boolean;
-  /** Every reason, in engine order (degree, work authorization, closed). A
+  /** Every reason, in engine order (degree, title level, work authorization, closed). A
    *  listing excluded on two grounds tells you something neither does alone. */
   disqualifyReasons: string[];
   likelyClosed: boolean;
@@ -83,6 +92,9 @@ export async function loadListingRows(): Promise<ListingRow[]> {
       title: true,
       locations: true,
       remote: true,
+      countries: true,
+      category: true,
+      terms: true,
       url: true,
       finalScore: true,
       llmAdjustment: true,
@@ -118,7 +130,11 @@ export async function loadListingRows(): Promise<ListingRow[]> {
     location: primaryLocation(l.locations, l.remote),
     locationCount: l.locations.length,
     allLocations: l.locations.slice(0, 8),
+    locationSearch: l.locations.join(" | ").toLowerCase(),
     remote: l.remote,
+    inUS: l.countries.includes("US"),
+    category: categoryGroup(l.category),
+    terms: cleanTerms(l.terms),
     url: l.url,
     score: l.finalScore,
     llmAdjustment: l.llmAdjustment,

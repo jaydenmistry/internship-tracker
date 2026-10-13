@@ -145,6 +145,18 @@ export const ScoringConfigSchema = z.object({
       ),
       textExemptPatterns: z.array(PatternSchema),
     }),
+    titleLevel: z.object({
+      notes: z.string().optional(),
+      /** A title matching any of these is open to undergrads; no rule applies. */
+      exemptPatterns: z.array(PatternSchema),
+      rules: z.array(
+        z.object({
+          id: z.string().min(1),
+          reason: z.string().min(1),
+          patterns: PatternsSchema,
+        }),
+      ),
+    }),
     workAuthorization: z.object({
       reason: z.string().min(1),
       remoteExempt: z.boolean(),

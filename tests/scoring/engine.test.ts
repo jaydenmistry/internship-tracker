@@ -457,6 +457,82 @@ describe("disqualifiers — advanced degree", () => {
   });
 });
 
+describe("disqualifiers — graduate and new-grad titles", () => {
+  // Real titles from the Simplify feed, with the degrees[] the source shipped.
+  // Most carry a Bachelor's tag (the degree you must already hold), which is
+  // exactly why the degree check alone let them through.
+  const disqualifying: Array<[title: string, degrees: string[], reason: string]> = [
+    ["Graduate Research Assistant Intern", ["Bachelor's"], "for graduate students"],
+    ["Graduate Intern", ["Bachelor's", "Master's", "PhD"], "for graduate students"],
+    ["Design Engineer Intern - Graduate-Level - Summer 2027", ["Bachelor's"], "for graduate students"],
+    ["Market Analytics Graduate Intern", ["Bachelor's"], "for graduate students"],
+    ["Grad Student Researcher - Robotics", [], "for graduate students"],
+    ["Quantitative Master’s Intern - Investments", [], "for Master's students"],
+    ["Software Engineering Masters Intern", ["Bachelor's"], "for Master's students"],
+    ["Software Engineer Intern - Systems and Infrastructure - PhD", [], "for PhD students"],
+    ["Design Verification Engineer Intern - MS/PhD", ["Bachelor's"], "for PhD students"],
+    ["Research Intern (Ph.D.)", ["Bachelor's"], "for PhD students"],
+    ["MBA Product Intern", ["Bachelor's", "Master's", "MBA"], "for MBA students"],
+    ["Associate Product Manager New Grad", ["Bachelor's"], "new-grad role"],
+    ["Software Engineer, New-Grad 2027", [], "new-grad role"],
+    ["New Graduate Software Engineer", ["Bachelor's"], "new-grad role"],
+    ["Data Science Master Student Intern", [], "for Master's students"],
+    ["Postdoctoral Research Intern", [], "for PhD students"],
+  ];
+
+  it.each(disqualifying)("%j is disqualified", (title, degrees, reason) => {
+    const result = scoreListing(listing({ title, degrees }), config, NOW);
+    expect(result.disqualified).toBe(true);
+    expect(result.disqualifyReasons).toContain(reason);
+    expect(result.ruleScore).toBe(0);
+  });
+
+  const allowed: Array<[title: string, degrees: string[]]> = [
+    // "graduate" inside "undergraduate" has no word boundary.
+    ["Machine Learning Engineering Undergraduate Intern", ["Bachelor's"]],
+    // A title naming undergrads too is open to them.
+    ["Undergraduate / Graduate Cyber Security Research Intern - 5G", ["Bachelor's", "Master's"]],
+    ["Investment Engineering Intern - Undergraduate & Master's", ["Bachelor's", "Master's"]],
+    ["Research Intern - BS/MS/PhD", ["Bachelor's", "Master's", "PhD"]],
+    ["Software Engineer Intern (PhD/MS/BS)", ["Bachelor's", "Master's", "PhD"]],
+    ["Software Engineer Intern - BS, MS, or PhD", ["Bachelor's", "Master's", "PhD"]],
+    ["Research Intern - MS or BS", ["Bachelor's", "Master's"]],
+    // "graduate" as a verb is about graduation dates, not the role's level.
+    ["Software Intern - graduate by 2028", ["Bachelor's"]],
+    // Look-alikes that are not about degree level.
+    ["Master Data Intern - Service & Support", ["Bachelor's"]],
+    ["Software Engineer Intern - Early Careers", ["Bachelor's"]],
+    ["Entry-Level C++ Software Engineer Intern", ["Bachelor's", "Master's", "PhD"]],
+    ["Software Engineer Intern", ["Bachelor's"]],
+  ];
+
+  it.each(allowed)("%j is not disqualified", (title, degrees) => {
+    expect(scoreListing(listing({ title, degrees }), config, NOW).disqualified).toBe(false);
+  });
+
+  it("is not overridden by a Bachelor's in degrees[]", () => {
+    const result = scoreListing(
+      listing({ title: "Graduate Assistant - Data", degrees: ["Bachelor's", "Master's", "PhD"] }),
+      config,
+      NOW,
+    );
+    expect(result.disqualifyReasons).toEqual(["for graduate students"]);
+  });
+
+  it("reads only the title, never the posting text", () => {
+    const result = scoreListing(
+      listing({
+        title: "Software Engineer Intern",
+        postingText: "Our new grad and graduate programs are separate from this internship.",
+      }),
+      config,
+      NOW,
+    );
+    expect(result.disqualifyReasons).not.toContain("for graduate students");
+    expect(result.disqualifyReasons).not.toContain("new-grad role");
+  });
+});
+
 describe("disqualifiers — work authorization", () => {
   const cases: Array<[name: string, overrides: Partial<ScoringInput>, disqualified: boolean]> = [
     ["Toronto only", { locations: ["Toronto, ON"], countries: ["CA"] }, true],
