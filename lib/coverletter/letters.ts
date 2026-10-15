@@ -289,7 +289,11 @@ export async function generateCoverLetter(
       });
       const text = await client.complete({ system, prompt });
       const parsed = parseCoverLetterOutput(text);
-      if (!parsed) throw new DraftClientError("BadOutput", "Claude's reply wasn't a usable letter. Try again.");
+      if (!parsed) {
+        // The only trace of what came back — the reply itself isn't stored.
+        console.warn(`[cover-letter] unreadable reply (${text.length} chars): ${JSON.stringify(text.slice(0, 500))}`);
+        throw new DraftClientError("BadOutput", badOutputMessage(text));
+      }
       return parsed;
     },
     () => new CoverLetterRefusedError("A draft is already being written — wait for it to finish."),
@@ -316,6 +320,14 @@ export async function generateCoverLetter(
     }),
   );
   return view(saved);
+}
+
+/** Shows the start of an unreadable reply, which is usually a question or a refusal worth reading. */
+function badOutputMessage(text: string): string {
+  const said = text.replace(/\s+/g, " ").trim();
+  if (said === "") return "Claude sent back an empty reply. Try again.";
+  const snippet = Array.from(said).slice(0, 160).join("");
+  return `Claude's reply wasn't a usable letter. Try again. It began: "${snippet}${snippet.length < said.length ? "…" : ""}"`;
 }
 
 export interface CoverLetterEdits {

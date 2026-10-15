@@ -81,6 +81,46 @@ describe("buildCoverLetterPrompt", () => {
 });
 
 describe("parseCoverLetterOutput", () => {
+  it("reads the tagged sections the prompt asks for", () => {
+    const text = [
+      "<greeting>Dear Ms. Rivera,</greeting>",
+      "<letter>",
+      'I applied because the team "ships weekly" — quotes and all.',
+      "",
+      "Second paragraph.",
+      "</letter>",
+      "<checks>",
+      "- Confirm the term",
+      "* Kafka isn't on the resume",
+      "</checks>",
+    ].join("\n");
+    expect(parseCoverLetterOutput(text)).toEqual({
+      greeting: "Dear Ms. Rivera,",
+      body: 'I applied because the team "ships weekly" — quotes and all.\n\nSecond paragraph.',
+      checks: ["Confirm the term", "Kafka isn't on the resume"],
+    });
+  });
+
+  it("treats a greeting of none, an empty checks block and chatter around the tags as absent", () => {
+    expect(parseCoverLetterOutput("Sure!\n<greeting>none</greeting>\n<letter>Body.</letter>\n<checks>\n</checks>\nDone.")).toEqual({
+      greeting: null,
+      body: "Body.",
+      checks: [],
+    });
+    expect(parseCoverLetterOutput("<letter>Body.</letter>")?.greeting).toBeNull();
+  });
+
+  it("reads an unclosed letter up to the next section, or to the end", () => {
+    expect(parseCoverLetterOutput("<letter>\nBody.\n<checks>\n- one\n</checks>")).toEqual({ greeting: null, body: "Body.", checks: ["one"] });
+    expect(parseCoverLetterOutput("<greeting>none</greeting><letter>\nCut off mid")?.body).toBe("Cut off mid");
+  });
+
+  it("accepts JSON whose strings hold raw line breaks", () => {
+    expect(parseCoverLetterOutput('{"greeting": null, "body": "Para one.\n\nPara two.", "checks": []}')?.body).toBe(
+      "Para one.\n\nPara two.",
+    );
+  });
+
   it("reads the greeting, body and checks", () => {
     expect(
       parseCoverLetterOutput('{"greeting":"Dear Ms. Rivera,","body":"Para one.\\n\\nPara two.","checks":["Confirm the term"]}'),
@@ -110,6 +150,7 @@ describe("parseCoverLetterOutput", () => {
     expect(parseCoverLetterOutput("Sorry, I can't help with that.")).toBeNull();
     expect(parseCoverLetterOutput('{"body":"   "}')).toBeNull();
     expect(parseCoverLetterOutput('{"text":"wrong key"}')).toBeNull();
+    expect(parseCoverLetterOutput("<letter>\n  \n</letter>")).toBeNull();
     expect(parseCoverLetterOutput("{not json}")).toBeNull();
   });
 });
