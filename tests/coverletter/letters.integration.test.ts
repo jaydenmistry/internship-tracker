@@ -16,7 +16,7 @@ describe.skipIf(!hasDb)("cover letters (integration)", () => {
   let tracker: typeof import("@/lib/applications/tracker");
 
   const reply = (body: string, checks: string[] = [], greeting: string | null = null) =>
-    JSON.stringify({ greeting, body, checks });
+    `<greeting>${greeting ?? "none"}</greeting>\n<letter>\n${body}\n</letter>\n<checks>\n${checks.map((c) => `- ${c}`).join("\n")}\n</checks>`;
   const edits = (body: string, greeting = "", recipient = "") => ({ body, greeting, recipient });
 
   function fakeClient(text: string | (() => string)): DraftClient & { calls: DraftRequest[] } {
