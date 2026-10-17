@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import { PDFDict, PDFDocument, PDFName, StandardFonts } from "pdf-lib";
 import { composeLetter } from "@/lib/coverletter/compose";
-import { buildPdf, wrap } from "@/lib/coverletter/pdf";
+import { buildPdf, wordMetrics, wrap } from "@/lib/coverletter/pdf";
+import { GEIST } from "./test-font";
 import { DEFAULT_LETTER_PROFILE } from "@/lib/coverletter/profile-schema";
 
 /** The PDF export: it opens, fits on US Letter, wraps, and survives odd characters. */
@@ -52,6 +53,26 @@ describe("buildPdf", () => {
     expect(pdf.getPageCount()).toBeGreaterThanOrEqual(1);
   });
 
+  it("embeds an uploaded font as a subset, with or without a bold face", async () => {
+    for (const bold of [null, GEIST]) {
+      const bytes = await buildPdf(doc("Body in the uploaded font.", true), { title: "t", fonts: { regular: GEIST, bold } });
+      const pdf = await PDFDocument.load(bytes);
+      const baseFonts = pdf.context
+        .enumerateIndirectObjects()
+        .map(([, obj]) => (obj instanceof PDFDict ? obj.get(PDFName.of("BaseFont")) : undefined))
+        .filter((name) => name !== undefined)
+        .map(String);
+      expect(baseFonts.length).toBeGreaterThan(0);
+      expect(baseFonts.every((name) => /^\/Geist-Regular-\d+$/.test(name))).toBe(true); // the uploaded font, no Helvetica
+      expect(pdf.getPageCount()).toBe(1);
+    }
+  });
+
+  it("doesn't fail on characters an uploaded font lacks", async () => {
+    const bytes = await buildPdf(doc("Emoji 🚀, CJK 漢字, ő and →."), { title: "t", fonts: { regular: GEIST, bold: null } });
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1);
+  });
+
   it("doesn't fail on characters the standard font can't encode", async () => {
     const bytes = await buildPdf(doc("Smart “quotes” — fine. Emoji 🚀, CJK 漢字, ő and →."), { title: "t" });
     expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1);
@@ -75,5 +96,21 @@ describe("wrap", () => {
     const lines = wrap("x".repeat(200), font, 10, 100);
     expect(lines.length).toBeGreaterThan(1);
     expect(lines.join("")).toBe("x".repeat(200));
+  });
+});
+
+describe("wordMetrics", () => {
+  const base = { unitsPerEm: 2048, ascent: 1900, descent: -500, lineGap: 0 };
+
+  it("uses the typographic metrics when the font asks for them, as Aptos does", () => {
+    const aptos = { ...base, "OS/2": { typoAscender: 1923, typoDescender: -577, typoLineGap: 0, winAscent: 2068, winDescent: 563, fsSelection: { useTypoMetrics: true } } };
+    const m = wordMetrics(aptos);
+    expect(m.ascent).toBeCloseTo(0.939, 3);
+    expect(m.height * 10 * 1.15).toBeCloseTo(14.04, 2); // the 14 pt line pitch Word gives 10 pt Aptos
+  });
+
+  it("otherwise uses the Windows ascent and descent, then hhea", () => {
+    expect(wordMetrics({ ...base, "OS/2": { winAscent: 2048, winDescent: 512, fsSelection: {} } })).toEqual({ ascent: 1, height: 1.25 });
+    expect(wordMetrics(base).height).toBeCloseTo(2400 / 2048);
   });
 });

@@ -4,7 +4,14 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import type { LetterProfileFields } from "@/lib/coverletter/profile-schema";
 import { SIGNATURE_MAX_BYTES } from "@/lib/coverletter/profile-schema";
-import { removeSignatureAction, saveLetterProfileAction, uploadSignatureAction } from "./actions";
+import { FONT_MAX_BYTES, FONT_WEIGHTS, type LetterFontsInfo } from "@/lib/coverletter/fonts-schema";
+import {
+  removeFontAction,
+  removeSignatureAction,
+  saveLetterProfileAction,
+  uploadFontAction,
+  uploadSignatureAction,
+} from "./actions";
 
 /**
  * The letterhead every exported cover letter uses: your name and contact
@@ -18,11 +25,13 @@ const PRIMARY = "rounded border border-accent bg-accent px-3 py-1 text-[12px] te
 
 interface Props {
   fields: LetterProfileFields;
+  /** Names of the uploaded PDF fonts. */
+  fonts: LetterFontsInfo;
   /** A data: URL of the stored signature, for the preview only. */
   signature: { src: string; width: number; height: number } | null;
 }
 
-export default function LetterProfileForm({ fields, signature }: Props) {
+export default function LetterProfileForm({ fields, fonts, signature }: Props) {
   const [f, setF] = useState(() => ({
     ...fields,
     contactLines: [0, 1, 2].map((i) => fields.contactLines[i] ?? ""),
@@ -67,7 +76,18 @@ export default function LetterProfileForm({ fields, signature }: Props) {
       >
         <label className="flex flex-col gap-1">
           <span className="text-dim">Your name</span>
-          <input value={f.name} maxLength={100} onChange={(e) => set("name", e.target.value)} placeholder="Jayden Mistry" className={INPUT} />
+          <input
+            value={f.name}
+            maxLength={100}
+            onChange={(e) => set("name", e.target.value)}
+            placeholder="Your full name"
+            className={INPUT}
+          />
+          {!fields.name.trim() && (
+            <span className="text-[11px] text-warn">
+              Not set — downloads print no name at the top or under the signature until you save one.
+            </span>
+          )}
         </label>
         <fieldset className="flex flex-col gap-1">
           <legend className="mb-1 text-dim">Contact lines (up to three)</legend>
@@ -151,6 +171,67 @@ export default function LetterProfileForm({ fields, signature }: Props) {
         <p className="text-[11px] text-faint">
           PNG or JPEG, under {Math.round(SIGNATURE_MAX_BYTES / 1024)} KB. A scan on a white background works; it&apos;s drawn
           about 2&quot; wide.
+        </p>
+      </section>
+
+      <section aria-label="PDF font" className="flex flex-col gap-2 rounded border border-line bg-panel p-3 text-[12px]">
+        <h2 className="font-mono text-[10px] font-semibold tracking-wide text-faint uppercase">PDF font</h2>
+        <p className="text-dim">
+          PDFs use Helvetica unless you upload your own font — upload Aptos to match Word. It stays in this app&apos;s
+          database (fonts can&apos;t be shipped with the app). Word files ask Word for the regular font&apos;s family
+          {fonts.regular ? ` (${fonts.regular.family})` : " (Aptos)"}.
+        </p>
+        {FONT_WEIGHTS.map((weight) => {
+          const current = fonts[weight];
+          return (
+            <form
+              key={weight}
+              aria-label={`${weight === "regular" ? "Regular" : "Bold"} font`}
+              className="flex flex-wrap items-center gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const form = new FormData(e.currentTarget);
+                form.set("weight", weight);
+                run(() => uploadFontAction(form), "Font saved.");
+                e.currentTarget.reset();
+              }}
+            >
+              <span className="w-28 text-dim">
+                {weight === "regular" ? "Regular" : "Bold (your name)"}
+              </span>
+              <span className={`w-36 truncate ${current ? "text-ink" : "text-faint"}`} data-testid={`font-${weight}`}>
+                {current ? `${current.family} ${current.style}`.trim() : weight === "regular" ? "Helvetica" : "—"}
+              </span>
+              <input
+                type="file"
+                name="font"
+                accept=".ttf,.otf,font/ttf,font/otf"
+                required
+                aria-label={`${weight === "regular" ? "Regular" : "Bold"} font file`}
+                className="w-52 text-[12px] text-dim file:mr-2 file:rounded file:border file:border-line file:bg-raised file:px-2 file:py-0.5 file:text-dim"
+              />
+              <button type="submit" disabled={pending} className={BTN}>
+                Upload
+              </button>
+              {current && (
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => run(() => removeFontAction(weight), "Font removed.")}
+                  className={`${BTN} hover:text-bad`}
+                >
+                  Remove
+                </button>
+              )}
+            </form>
+          );
+        })}
+        <p className="text-[11px] text-faint">
+          A single .ttf or .otf, under {Math.round(FONT_MAX_BYTES / 1024 / 1024)} MB. Without a bold font your name is
+          emboldened from the regular one. Aptos is free from Microsoft&apos;s Aptos font download; on Windows with
+          Office, the regular face is often already in
+          <code className="mx-1">%LOCALAPPDATA%\Microsoft\FontCache\4\CloudFonts\Aptos</code>
+          (a .ttf with a numeric name).
         </p>
       </section>
 

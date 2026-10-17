@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { loadCoverLetterPage, type CoverLetterTarget } from "@/lib/coverletter/letters";
 import { loadLetterProfile } from "@/lib/coverletter/profile";
+import { loadLetterFonts } from "@/lib/coverletter/fonts";
+import { letterFontsInfo } from "@/lib/coverletter/fonts-schema";
 import CoverLetterEditor from "./CoverLetterEditor";
 
 export const metadata: Metadata = {
@@ -32,7 +34,9 @@ export default async function CoverLetterPage({ searchParams }: PageProps<"/cove
   // Sequential, like the other pages: concurrent queries through the
   // `prisma dev` proxy intermittently fail with "bind message" errors.
   const profile = page ? await loadLetterProfile() : null;
-  if (!page || !profile) {
+  // Names only reach the page; the bytes are fetched when a PDF is built.
+  const fonts = page ? letterFontsInfo(await loadLetterFonts()) : null;
+  if (!page || !profile || !fonts) {
     return (
       <div className="px-4 py-6 text-[13px] text-dim">
         <p>
@@ -55,7 +59,7 @@ export default async function CoverLetterPage({ searchParams }: PageProps<"/cove
 
   return (
     <div className="px-4 py-3">
-      <CoverLetterEditor page={page} profile={profile} />
+      <CoverLetterEditor page={page} profile={profile} fonts={fonts} />
     </div>
   );
 }

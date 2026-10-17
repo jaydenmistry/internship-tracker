@@ -3,10 +3,10 @@ import { base64ToBytes } from "./image";
 
 /**
  * A minimal .docx writer for an exported cover letter, laid out like the
- * user's own Word template: a centred letterhead in the page header, Aptos
- * throughout (10.5 pt body with a half-inch first-line indent, 9 pt date and
- * sign-off), 1" margins on US Letter, and the signature image inline above
- * the name. Pure and dependency-free, so the browser builds the file without
+ * user's own Word template: a centred letterhead in the page header (14 pt
+ * bold name), 10 pt Aptos throughout — or the family of the font you uploaded
+ * for PDFs — with a half-inch first-line indent, 1" margins on US Letter, and
+ * the signature image inline above the name. Pure and dependency-free, so the browser builds the file without
  * a round trip.
  *
  * A .docx is a ZIP of a few XML parts. Entries are STORED (no compression):
@@ -127,21 +127,25 @@ const NS_PIC = "http://schemas.openxmlformats.org/drawingml/2006/picture";
 const XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
 
 /** Font sizes in half-points, as in the template. */
-const SIZE = { name: 28, contact: 20, body: 21, small: 18 } as const;
+const SIZE = { name: 28, text: 20 } as const;
+
+export const DEFAULT_DOCX_FONT = "Aptos";
 
 /** The signature is drawn this wide (EMU, 914400 per inch), height by aspect. */
 const SIGNATURE_WIDTH_EMU = 1_800_225;
 const SIGNATURE_MAX_HEIGHT_EMU = 685_800;
 
-function runProps(size: number, bold = false): string {
+function runProps(font: string, size: number, bold = false): string {
+  const f = xmlText(font).replace(/"/g, "&quot;");
   return (
-    '<w:rPr><w:rFonts w:ascii="Aptos" w:hAnsi="Aptos" w:eastAsia="Aptos" w:cs="Aptos"/>' +
+    `<w:rPr><w:rFonts w:ascii="${f}" w:hAnsi="${f}" w:eastAsia="${f}" w:cs="${f}"/>` +
     (bold ? "<w:b/><w:bCs/>" : "") +
     `<w:sz w:val="${size}"/><w:szCs w:val="${size}"/></w:rPr>`
   );
 }
 
 interface ParaOptions {
+  font: string;
   size: number;
   after?: number;
   before?: number;
@@ -164,7 +168,7 @@ function para(text: string, o: ParaOptions): string {
     `<w:pPr>${spacing}` +
     (o.firstLine ? `<w:ind w:firstLine="${o.firstLine}"/>` : "") +
     (o.center ? '<w:jc w:val="center"/>' : "") +
-    `${runProps(o.size, o.bold)}</w:pPr>`;
+    `${runProps(o.font, o.size, o.bold)}</w:pPr>`;
   const runs = text
     .split("\n")
     .map(
@@ -176,16 +180,16 @@ function para(text: string, o: ParaOptions): string {
           .join("<w:tab/>"),
     )
     .join("");
-  return `<w:p>${pPr}<w:r>${runProps(o.size, o.bold)}${runs}</w:r></w:p>`;
+  return `<w:p>${pPr}<w:r>${runProps(o.font, o.size, o.bold)}${runs}</w:r></w:p>`;
 }
 
-export function headerXml(header: NonNullable<LetterDoc["header"]>): string {
+export function headerXml(header: NonNullable<LetterDoc["header"]>, font: string = DEFAULT_DOCX_FONT): string {
   const parts: string[] = [];
   if (header.name) {
-    parts.push(para(header.name, { size: SIZE.name, bold: true, center: true, after: header.lines.length ? 40 : 320 }));
+    parts.push(para(header.name, { font, size: SIZE.name, bold: true, center: true, after: header.lines.length ? 40 : 320 }));
   }
   header.lines.forEach((line, i) =>
-    parts.push(para(line, { size: SIZE.contact, center: true, after: i === header.lines.length - 1 ? 320 : 40 })),
+    parts.push(para(line, { font, size: SIZE.text, center: true, after: i === header.lines.length - 1 ? 320 : 40 })),
   );
   return `${XML_DECL}<w:hdr xmlns:w="${NS_W}" xmlns:r="${NS_R}">${parts.join("")}</w:hdr>`;
 }
@@ -201,7 +205,7 @@ export function signatureExtent(sig: { width: number; height: number }): { cx: n
   return { cx, cy };
 }
 
-function signatureXml(sig: NonNullable<LetterDoc["signature"]>, relId: string): string {
+function signatureXml(sig: NonNullable<LetterDoc["signature"]>, relId: string, font: string): string {
   const { cx, cy } = signatureExtent(sig);
   const drawing =
     `<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/>` +
@@ -214,24 +218,28 @@ function signatureXml(sig: NonNullable<LetterDoc["signature"]>, relId: string): 
     '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>' +
     "</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>";
   return (
-    `<w:p><w:pPr><w:spacing w:before="60" w:after="60"/>${runProps(SIZE.small)}</w:pPr>` +
-    `<w:r>${runProps(SIZE.small)}${drawing}</w:r></w:p>`
+    `<w:p><w:pPr><w:spacing w:before="0" w:after="60"/>${runProps(font, SIZE.text)}</w:pPr>` +
+    `<w:r>${runProps(font, SIZE.text)}${drawing}</w:r></w:p>`
   );
 }
 
-export function documentXml(doc: LetterDoc, rel: { header: string | null; signature: string | null }): string {
-  const body = { size: SIZE.body, after: 80 };
+export function documentXml(
+  doc: LetterDoc,
+  rel: { header: string | null; signature: string | null },
+  font: string = DEFAULT_DOCX_FONT,
+): string {
+  const body = { font, size: SIZE.text, after: 80 };
   const parts: string[] = [];
-  parts.push(para(doc.date, { size: SIZE.small, after: 320 }));
+  parts.push(para(doc.date, { ...body, after: 320 }));
   for (const line of doc.recipient) parts.push(para(line, body));
   parts.push(para("", body));
   parts.push(para(doc.greeting, body));
   parts.push(para("", body));
   for (const p of doc.paragraphs) parts.push(para(p, { ...body, firstLine: 720 }));
   parts.push(para("", body));
-  parts.push(para(doc.closing, { size: SIZE.small, after: 80 }));
-  if (doc.signature && rel.signature) parts.push(signatureXml(doc.signature, rel.signature));
-  if (doc.signName) parts.push(para(doc.signName, { size: SIZE.small }));
+  parts.push(para(doc.closing, body));
+  if (doc.signature && rel.signature) parts.push(signatureXml(doc.signature, rel.signature, font));
+  if (doc.signName) parts.push(para(doc.signName, { font, size: SIZE.text }));
 
   const sect =
     "<w:sectPr>" +
@@ -245,8 +253,9 @@ export function documentXml(doc: LetterDoc, rel: { header: string | null; signat
   );
 }
 
-/** The letter as a .docx file's bytes. */
-export function buildDocx(doc: LetterDoc): Uint8Array<ArrayBuffer> {
+/** The letter as a .docx file's bytes; `font` is the family Word is asked for. */
+export function buildDocx(doc: LetterDoc, opts: { font?: string } = {}): Uint8Array<ArrayBuffer> {
+  const font = opts.font?.trim() || DEFAULT_DOCX_FONT;
   const enc = new TextEncoder();
   const sigExt = doc.signature?.mime === "image/png" ? "png" : "jpeg";
   const headerRel = doc.header ? "rIdHeader" : null;
@@ -275,10 +284,10 @@ export function buildDocx(doc: LetterDoc): Uint8Array<ArrayBuffer> {
   const files: Array<{ name: string; data: Uint8Array }> = [
     { name: "[Content_Types].xml", data: enc.encode(contentTypes) },
     { name: "_rels/.rels", data: enc.encode(rootRels) },
-    { name: "word/document.xml", data: enc.encode(documentXml(doc, { header: headerRel, signature: sigRel })) },
+    { name: "word/document.xml", data: enc.encode(documentXml(doc, { header: headerRel, signature: sigRel }, font)) },
     { name: "word/_rels/document.xml.rels", data: enc.encode(docRels) },
   ];
-  if (doc.header) files.push({ name: "word/header1.xml", data: enc.encode(headerXml(doc.header)) });
+  if (doc.header) files.push({ name: "word/header1.xml", data: enc.encode(headerXml(doc.header, font)) });
   if (doc.signature) {
     files.push({ name: `word/media/signature.${sigExt}`, data: base64ToBytes(doc.signature.base64) });
   }

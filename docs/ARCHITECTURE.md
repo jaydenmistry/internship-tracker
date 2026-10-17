@@ -295,7 +295,7 @@ plain string with no foreign key.
 
 **Setting** — key/value JSON for UI-editable config. Holds the alert thresholds
 edited at `/alerts`, the networking settings, the cover-letter letterhead
-(`coverletter.profile`), and the listings table's saved
+(`coverletter.profile`) and PDF fonts (`coverletter.fonts`), and the listings table's saved
 views (`listings.views`: name + URL query, one optionally the default for a
 bare `/`). Zod-validated on read with defaults when absent or malformed.
 Scoring weights live in `config/scoring.json` and never here.
@@ -356,10 +356,18 @@ differs from their draft. Deleting the letter drops a NOT_APPLIED row that
 holds nothing else.
 
 Export runs in the browser from one layout model (`compose.ts`): `.docx` via
-a dependency-free writer (`docx.ts`, Aptos, letterhead in the Word page
-header, signature inline) and PDF via pdf-lib (`pdf.ts`, same sizes and
-spacing in Helvetica — Aptos can't be bundled; Windows-1252 only, anything
-else is simplified or "?"). Files are named `YYYYMMDD_Cover Letter_Company`.
+a dependency-free writer (`docx.ts`, 10 pt Aptos with a 14 pt bold name,
+letterhead in the Word page header, signature inline) and PDF via pdf-lib
+(`pdf.ts`), laid out with Word's own line metrics so it matches a letter Word
+exports to within a fraction of a point. The PDF font is one you upload at
+`/cover-letter/settings` — Aptos can't be committed (its licence forbids
+redistribution and the repo is public) — stored in `Setting`
+`coverletter.fonts` (`.ttf`/`.otf` ≤ 2 MB per weight, sniffed, licence bits
+checked, test-embedded at upload with `@pdf-lib/fontkit`) and fetched only
+when a PDF is built; it is embedded as a subset, and without a bold face the
+name is emboldened by outlining. With no upload the PDF falls back to
+Helvetica (Windows-1252 only). Characters a font lacks are simplified or "?".
+Files are named `YYYYMMDD_Cover Letter_Company`.
 The letterhead — name, up to three contact lines, closing, default recipient
 and greeting, signature image (PNG/JPEG identified from its bytes, ≤ 512 KB)
 — is one `Setting` row, `coverletter.profile`, edited at

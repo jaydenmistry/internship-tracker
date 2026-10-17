@@ -6,6 +6,8 @@ import { requireSession } from "@/lib/auth-guard";
 import { saveLetterProfileFields, saveSignature } from "@/lib/coverletter/profile";
 import { validateSignature } from "@/lib/coverletter/signature";
 import { LetterProfileSchema, SIGNATURE_MAX_BYTES } from "@/lib/coverletter/profile-schema";
+import { saveLetterFont, validateFont } from "@/lib/coverletter/fonts";
+import { FONT_MAX_BYTES, FONT_WEIGHTS } from "@/lib/coverletter/fonts-schema";
 
 /**
  * Letterhead settings. Each action checks the session itself first (not
@@ -68,6 +70,43 @@ export async function removeSignatureAction(): Promise<ProfileResult> {
     await saveSignature(null);
   } catch (err) {
     return failed("Removing the signature", err);
+  }
+  refresh();
+  return { ok: true };
+}
+
+const weightSchema = z.enum(FONT_WEIGHTS);
+
+/** A .ttf/.otf for exported PDFs, identified and test-embedded from its bytes. */
+export async function uploadFontAction(form: FormData): Promise<ProfileResult> {
+  await requireSession();
+  const weight = weightSchema.safeParse(form.get("weight"));
+  if (!weight.success) return { ok: false, message: "Unknown font weight." };
+  const file = form.get("font");
+  if (!(file instanceof File)) return { ok: false, message: "Choose a font file." };
+  // Checked before the bytes are read.
+  if (file.size > FONT_MAX_BYTES) {
+    return { ok: false, message: `Font files must be under ${Math.round(FONT_MAX_BYTES / 1024 / 1024)} MB.` };
+  }
+  const checked = await validateFont(new Uint8Array(await file.arrayBuffer()));
+  if (!checked.ok) return checked;
+  try {
+    await saveLetterFont(weight.data, checked.font);
+  } catch (err) {
+    return failed("Saving the font", err);
+  }
+  refresh();
+  return { ok: true };
+}
+
+export async function removeFontAction(weight: unknown): Promise<ProfileResult> {
+  await requireSession();
+  const parsed = weightSchema.safeParse(weight);
+  if (!parsed.success) return { ok: false, message: "Unknown font weight." };
+  try {
+    await saveLetterFont(parsed.data, null);
+  } catch (err) {
+    return failed("Removing the font", err);
   }
   refresh();
   return { ok: true };
