@@ -11,6 +11,7 @@ import {
   type CoverLetterView,
 } from "@/lib/coverletter/letters";
 import { COVER_LETTER_CAPS, COVER_LETTER_MAX, PASTED_POSTING_MAX } from "@/lib/coverletter/prompt";
+import { loadLetterFonts } from "@/lib/coverletter/fonts";
 
 /**
  * Cover-letter actions. A Server Action is a public POST endpoint, so each one
@@ -106,5 +107,18 @@ export async function deleteCoverLetterAction(payload: unknown): Promise<DeleteR
     return { ok: true };
   } catch (err) {
     return failed("Deleting the letter", err);
+  }
+}
+
+export type FontsResult = { ok: true; regular: string | null; bold: string | null } | { ok: false; message: string };
+
+/** Your uploaded fonts' bytes (base64), fetched only when a PDF is built. */
+export async function loadLetterFontsAction(): Promise<FontsResult> {
+  await requireSession();
+  try {
+    const fonts = await loadLetterFonts();
+    return { ok: true, regular: fonts.regular?.base64 ?? null, bold: fonts.bold?.base64 ?? null };
+  } catch (err) {
+    return { ok: false, message: `Loading your fonts failed: ${err instanceof Error ? err.message : String(err)}` };
   }
 }

@@ -1,9 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useTransition, type MouseEvent } from "react";
+import { useEffect, useRef, useState, useTransition, type MouseEvent } from "react";
 import type { CoverLetterPage, CoverLetterView } from "@/lib/coverletter/letters";
 import type { LetterProfile } from "@/lib/coverletter/profile-schema";
+import { docxFontFamily, type LetterFontsInfo } from "@/lib/coverletter/fonts-schema";
+import { base64ToBytes } from "@/lib/coverletter/image";
+import type { PdfFonts } from "@/lib/coverletter/pdf";
 import {
   composeLetter,
   defaultGreeting,
@@ -13,7 +16,7 @@ import {
   todayCivil,
 } from "@/lib/coverletter/compose";
 import { COVER_LETTER_CAPS, COVER_LETTER_MAX, isEdited, PASTED_POSTING_MAX, wordCount } from "@/lib/coverletter/prompt";
-import { deleteCoverLetterAction, generateCoverLetterAction, saveCoverLetterAction } from "./actions";
+import { deleteCoverLetterAction, generateCoverLetterAction, loadLetterFontsAction, saveCoverLetterAction } from "./actions";
 
 /**
  * Draft → edit → save → download. Claude writes the body paragraphs from the
@@ -54,7 +57,15 @@ const fromLetter = (l: CoverLetterView | null): Saved => ({
   recipient: l?.recipient ?? "",
 });
 
-export default function CoverLetterEditor({ page, profile }: { page: CoverLetterPage; profile: LetterProfile }) {
+export default function CoverLetterEditor({
+  page,
+  profile,
+  fonts,
+}: {
+  page: CoverLetterPage;
+  profile: LetterProfile;
+  fonts: LetterFontsInfo;
+}) {
   const [letter, setLetter] = useState<CoverLetterView | null>(page.letter);
   const [saved, setSaved] = useState<Saved>(() => fromLetter(page.letter));
   const [body, setBody] = useState(saved.body);
@@ -74,6 +85,8 @@ export default function CoverLetterEditor({ page, profile }: { page: CoverLetter
   const [notice, setNotice] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [exporting, setExporting] = useState(false);
+  // Your uploaded font files, fetched on the first PDF download and kept for the next.
+  const fontBytes = useRef<PdfFonts | null>(null);
   const [drafting, startDrafting] = useTransition();
   const [saving, startSaving] = useTransition();
 
@@ -81,6 +94,7 @@ export default function CoverLetterEditor({ page, profile }: { page: CoverLetter
   const words = wordCount(body);
   const hasPosting = source === "pasted" ? pasted.trim() !== "" : page.listingPostingWords > 0;
   const profileEmpty = !profile.name.trim() && profile.contactLines.length === 0;
+  const nameMissing = !profileEmpty && !profile.name.trim();
 
   // The chosen download format is a per-browser convenience.
   useEffect(() => {
@@ -219,6 +233,20 @@ export default function CoverLetterEditor({ page, profile }: { page: CoverLetter
     }
   };
 
+  const pdfFonts = async (): Promise<PdfFonts | null> => {
+    if (!fonts.regular) return null;
+    if (!fontBytes.current) {
+      const res = await loadLetterFontsAction();
+      if (!res.ok) throw new Error(res.message);
+      if (!res.regular) return null; // removed in another tab since this page loaded
+      fontBytes.current = {
+        regular: base64ToBytes(res.regular),
+        bold: res.bold ? base64ToBytes(res.bold) : null,
+      };
+    }
+    return fontBytes.current;
+  };
+
   const onDownload = async () => {
     if (!isCivilDate(date)) {
       setError("Pick the letter's date first.");
@@ -232,10 +260,10 @@ export default function CoverLetterEditor({ page, profile }: { page: CoverLetter
       if (format === "pdf") {
         // Loaded on demand: pdf-lib is a few hundred KB the page doesn't need until now.
         const { buildPdf, PDF_MIME } = await import("@/lib/coverletter/pdf");
-        download(name, await buildPdf(doc, { title: `Cover Letter — ${page.company}` }), PDF_MIME);
+        download(name, await buildPdf(doc, { title: `Cover Letter — ${page.company}`, fonts: await pdfFonts() }), PDF_MIME);
       } else {
         const { buildDocx, DOCX_MIME } = await import("@/lib/coverletter/docx");
-        download(name, buildDocx(doc), DOCX_MIME);
+        download(name, buildDocx(doc, { font: docxFontFamily(fonts) }), DOCX_MIME);
       }
     } catch (err) {
       setError(`Couldn't build the file: ${err instanceof Error ? err.message : String(err)}`);
@@ -270,6 +298,15 @@ export default function CoverLetterEditor({ page, profile }: { page: CoverLetter
             letterhead and signature
           </Link>{" "}
           once — your name and contact lines go at the top of every downloaded letter.
+        </p>
+      )}
+      {nameMissing && (
+        <p className="rounded border border-warn/50 px-3 py-2 text-[12px] text-warn">
+          Your{" "}
+          <Link href="/cover-letter/settings" onClick={guardLeave} className="underline">
+            letterhead
+          </Link>{" "}
+          has no name, so downloads print without one at the top and under the signature.
         </p>
       )}
 
@@ -380,6 +417,13 @@ export default function CoverLetterEditor({ page, profile }: { page: CoverLetter
               {isCivilDate(date) ? exportFilename(date, page.company, format) : ""}
             </span>
           </div>
+          <p className="text-[11px] text-faint" data-testid="export-font">
+            {format === "docx"
+              ? `Word file in ${docxFontFamily(fonts)}.`
+              : fonts.regular
+                ? `PDF in ${fonts.regular.family}${fonts.bold ? "" : " (name emboldened — no bold font uploaded)"}.`
+                : "PDF in Helvetica — upload your font (e.g. Aptos) in Letterhead to match Word."}
+          </p>
 
           {notice && !error && <p className="text-[12px] text-ok">{notice}</p>}
           {error && (

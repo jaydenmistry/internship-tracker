@@ -65,9 +65,15 @@ describe("documentXml", () => {
 
   it("indents body paragraphs half an inch and uses the template's sizes", () => {
     expect(xml.match(/<w:ind w:firstLine="720"\/>/g)).toHaveLength(2);
-    expect(xml).toContain('<w:sz w:val="21"/>'); // 10.5 pt body
-    expect(xml).toContain('<w:sz w:val="18"/>'); // 9 pt date and sign-off
+    // 10 pt everywhere in the body — date, recipient, letter and sign-off alike.
+    expect(new Set(xml.match(/<w:sz w:val="\d+"\/>/g))).toEqual(new Set(['<w:sz w:val="20"/>']));
     expect(xml).toContain('w:ascii="Aptos"');
+  });
+
+  it("asks Word for the chosen font family, escaped", () => {
+    const custom = documentXml(letter(), { header: null, signature: null }, 'My "Font" & Co');
+    expect(custom).toContain('w:ascii="My &quot;Font&quot; &amp; Co"');
+    expect(custom).not.toContain("Aptos");
   });
 
   it("escapes the letter's text", () => {
