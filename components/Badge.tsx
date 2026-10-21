@@ -8,13 +8,13 @@ import type { ReactNode } from "react";
 export type BadgeTone = "ink" | "dim" | "accent" | "ok" | "warn" | "bad" | "info";
 
 const TONES: Record<BadgeTone, string> = {
-  ink: "border-line text-dim",
-  dim: "border-line-soft text-faint",
-  accent: "border-accent/40 text-accent",
-  ok: "border-ok/40 text-ok",
-  warn: "border-warn/45 text-warn",
-  bad: "border-bad/50 text-bad",
-  info: "border-info/40 text-info",
+  ink: "bg-raised text-dim",
+  dim: "bg-raised/70 text-faint",
+  accent: "bg-accent/12 text-accent",
+  ok: "bg-ok/12 text-ok",
+  warn: "bg-warn/14 text-warn",
+  bad: "bg-bad/12 text-bad",
+  info: "bg-info/12 text-info",
 };
 
 interface Props {
@@ -29,9 +29,9 @@ export default function Badge({ tone = "ink", title, solid = false, children }: 
   return (
     <span
       title={title}
-      className={`inline-flex shrink-0 items-center rounded-sm border px-1 font-mono text-[10px] leading-[15px] tracking-tight ${
+      className={`inline-flex shrink-0 items-center rounded-full px-1.5 text-footnote leading-4 font-semibold ${
         TONES[tone]
-      } ${solid ? "bg-raised" : ""}`}
+      } ${solid ? "ring-1 ring-current/20 ring-inset" : ""}`}
     >
       {children}
     </span>

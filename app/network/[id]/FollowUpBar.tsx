@@ -57,7 +57,7 @@ export default function FollowUpBar({ contact, dueKind, nowMs, timeZone, onLogMe
         Next: {DUE_LABELS[dueKind]}, {when.text}
         {contact.followUpOverrideAt && <span className="text-faint"> (snoozed)</span>}
         {canDraft && (
-          <button type="button" onClick={onDraft} className="ml-3 text-[12px] text-accent hover:underline">
+          <button type="button" onClick={onDraft} className="ml-3 text-callout text-accent hover:underline">
             {DRAFT_LABELS[dueKind]}
           </button>
         )}
@@ -82,11 +82,11 @@ export default function FollowUpBar({ contact, dueKind, nowMs, timeZone, onLogMe
     next = <span className="text-faint">Nothing due.</span>;
   }
 
-  const BTN = "rounded border border-line px-2.5 py-1 text-[12px] text-dim hover:text-ink disabled:opacity-60";
+  const BTN = "btn disabled:opacity-60";
 
   return (
-    <section aria-label="Follow-up" className="flex flex-col gap-2 rounded border border-line bg-panel px-3 py-2">
-      <div className="text-[13px]">{next}</div>
+    <section aria-label="Follow-up" className="flex flex-col gap-2 card px-3 py-2">
+      <div className="text-body">{next}</div>
       <div className="flex flex-wrap items-center gap-2">
         {contact.status === "PENDING_CONNECTION" && (
           <button
@@ -115,7 +115,7 @@ export default function FollowUpBar({ contact, dueKind, nowMs, timeZone, onLogMe
           Log meeting
         </button>
 
-        <label className="flex items-center gap-1 text-[12px] text-dim">
+        <label className="flex items-center gap-1 text-callout text-dim">
           Status
           <select
             aria-label="Set status by hand"
@@ -129,7 +129,7 @@ export default function FollowUpBar({ contact, dueKind, nowMs, timeZone, onLogMe
                 }),
               )
             }
-            className="h-7 rounded border border-line bg-raised px-1 text-[12px]"
+            className="h-7 rounded-md border border-line bg-canvas px-1 text-callout"
             title="Set CHATTED or REFERRED by hand. A newer opener takes over again."
           >
             <option value="">automatic</option>
@@ -138,7 +138,7 @@ export default function FollowUpBar({ contact, dueKind, nowMs, timeZone, onLogMe
           </select>
         </label>
 
-        <span className="flex items-center gap-1 text-[12px] text-dim">
+        <span className="flex items-center gap-1 text-callout text-dim">
           Snooze to
           <input
             type="date"
@@ -146,7 +146,7 @@ export default function FollowUpBar({ contact, dueKind, nowMs, timeZone, onLogMe
             min={todayIn(timeZone, nowMs)}
             value={snoozeDate}
             onChange={(e) => setSnoozeDate(e.target.value)}
-            className="h-7 rounded border border-line bg-raised px-1 font-mono text-[12px]"
+            className="h-7 rounded-md border border-line bg-canvas px-1 font-mono text-callout"
           />
           <button
             type="button"
@@ -169,7 +169,7 @@ export default function FollowUpBar({ contact, dueKind, nowMs, timeZone, onLogMe
         </span>
       </div>
       {error && (
-        <p role="alert" className="text-[12px] text-bad">
+        <p role="alert" className="text-callout text-bad">
           {error}
         </p>
       )}

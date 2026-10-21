@@ -1,5 +1,6 @@
 "use client";
 
+import { Search, SlidersHorizontal } from "lucide-react";
 import { useMemo, useState, type RefObject } from "react";
 import Chip from "@/components/Chip";
 import type { SavedView } from "@/lib/listings/views";
@@ -52,7 +53,7 @@ interface Props {
 }
 
 const inputClass =
-  "rounded border border-line bg-canvas px-1.5 py-[3px] text-[12px] text-ink placeholder:text-faint focus:border-accent focus:outline-none";
+  "rounded-md border border-line bg-canvas px-1.5 py-[3px] text-callout text-ink placeholder:text-faint focus:border-accent focus:outline-none";
 
 export default function Toolbar({
   filter,
@@ -115,15 +116,16 @@ export default function Toolbar({
   ].filter(Boolean).length;
 
   return (
-    <div className="shrink-0 border-b border-line bg-panel">
+    <div className="shrink-0 border-b border-line bg-canvas">
       {/* Row 1 — search, result count, quick chips, sort, views. */}
-      <div className="flex flex-wrap items-center gap-2 px-3 py-1.5">
+      <div className="flex flex-wrap items-center gap-2 px-5 pt-4 pb-2.5">
         <div className="relative">
+          <Search aria-hidden size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" />
           <input
             ref={searchRef}
             type="search"
             value={filter.search}
-            placeholder="Search company, role, location…  (-word excludes)"
+            placeholder="Search listings"
             aria-label="Search listings"
             title='Every word must match. Put "-" in front of a word to exclude it, e.g. "backend -amazon".'
             onChange={(e) => set({ search: e.target.value })}
@@ -133,19 +135,19 @@ export default function Toolbar({
                 onSearchEscape();
               }
             }}
-            className="w-80 rounded border border-line bg-canvas py-[3px] pr-8 pl-2 text-[12px] text-ink placeholder:text-faint focus:border-accent focus:outline-none"
+            className="h-9 w-80 max-w-[calc(100vw-2rem)] rounded-[10px] border border-transparent bg-raised pr-8 pl-9 text-body text-ink placeholder:text-faint"
           />
-          <kbd className="pointer-events-none absolute top-1/2 right-1.5 -translate-y-1/2 rounded-sm border border-line px-1 font-mono text-[10px] text-faint">
+          <kbd className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded-md border border-line bg-canvas px-1.5 font-mono text-footnote text-faint">
             /
           </kbd>
         </div>
 
-        <span className="font-mono text-[12px] text-dim tabular-nums" aria-live="polite">
-          <span className="text-ink">{shown.toLocaleString("en-US")}</span>
-          <span className="text-faint"> of {total.toLocaleString("en-US")}</span>
+        <span className="px-1 text-callout text-faint tabular-nums" aria-live="polite">
+          <span className="font-semibold text-ink">{shown.toLocaleString("en-US")}</span>
+          {" "}of {total.toLocaleString("en-US")}
         </span>
 
-        <span className="h-4 w-px bg-line" />
+        <span className="mx-1 h-4 w-px bg-line" />
 
         <Chip
           active={filter.chipSaved}
@@ -180,63 +182,13 @@ export default function Toolbar({
           high score
         </Chip>
 
-        <div className="ml-auto flex items-center gap-2">
-          <FilterMenu
-            label="Sort"
-            summary={sortLabel(sort)}
-            active={false}
-            align="right"
-            title="Sort order — clicking a column header works too"
-          >
-            {(close) => (
-              <div>
-                <PanelHeader hint="Sort listings by" />
-                {SORT_PRESETS.map((preset) => (
-                  <RadioRow
-                    key={preset.label}
-                    name="sort"
-                    checked={preset.sort.key === sort.key && preset.sort.dir === sort.dir}
-                    onSelect={() => {
-                      onSortChange(preset.sort);
-                      close();
-                    }}
-                  >
-                    {preset.label}
-                  </RadioRow>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => onSortChange({ ...sort, dir: sort.dir === "asc" ? "desc" : "asc" })}
-                  className="mt-1.5 w-full rounded border border-line px-2 py-1 text-left text-dim hover:border-faint hover:text-ink"
-                >
-                  ⇅ Reverse order
-                </button>
-              </div>
-            )}
-          </FilterMenu>
-
-          <ViewsMenu
-            views={views}
-            currentQuery={currentQuery}
-            onApply={onApplyView}
-            onChange={onViewsChange}
-          />
-
-          <button
-            type="button"
-            onClick={onShowHelp}
-            title="Keyboard shortcuts"
-            className="rounded border border-line px-1.5 py-[2px] font-mono text-[12px] text-faint hover:border-faint hover:text-ink"
-          >
-            ?
-          </button>
-        </div>
       </div>
 
       {/* Row 2 — one dropdown per filter. Filters combine with AND; boxes
           ticked inside one dropdown combine with OR. */}
-      <div className="flex flex-wrap items-center gap-1.5 border-t border-line-soft px-3 py-1.5 text-[12px]">
-        <span className="mr-0.5 text-faint">Filter</span>
+      <div className="flex flex-wrap items-center gap-1.5 px-5 pb-3.5 text-callout">
+        <SlidersHorizontal aria-hidden size={14} className="mr-1 text-faint" />
+        <span className="sr-only">Filter</span>
         {facet("statuses", "Status")}
         {facet("sources", "Source")}
         {facet("categories", "Category")}
@@ -259,7 +211,7 @@ export default function Toolbar({
               <CheckRow checked={filter.usOnly} onChange={(v) => set({ usOnly: v })}>
                 In the US
               </CheckRow>
-              <label className="mt-1.5 block px-1 text-[11px] text-faint">
+              <label className="mt-1.5 block px-1 text-subhead text-faint">
                 City or state contains
                 <input
                   type="text"
@@ -384,25 +336,77 @@ export default function Toolbar({
             </div>
           )}
         </FilterMenu>
+        <div className="ml-auto flex items-center gap-2">
+          <FilterMenu
+            label="Sort"
+            summary={sortLabel(sort)}
+            active={false}
+            align="right"
+            title="Sort order — clicking a column header works too"
+          >
+            {(close) => (
+              <div>
+                <PanelHeader hint="Sort listings by" />
+                {SORT_PRESETS.map((preset) => (
+                  <RadioRow
+                    key={preset.label}
+                    name="sort"
+                    checked={preset.sort.key === sort.key && preset.sort.dir === sort.dir}
+                    onSelect={() => {
+                      onSortChange(preset.sort);
+                      close();
+                    }}
+                  >
+                    {preset.label}
+                  </RadioRow>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => onSortChange({ ...sort, dir: sort.dir === "asc" ? "desc" : "asc" })}
+                  className="mt-1.5 w-full rounded-md border border-line px-2 py-1 text-left text-dim hover:bg-raised hover:text-ink"
+                >
+                  ⇅ Reverse order
+                </button>
+              </div>
+            )}
+          </FilterMenu>
+
+          <ViewsMenu
+            views={views}
+            currentQuery={currentQuery}
+            onApply={onApplyView}
+            onChange={onViewsChange}
+          />
+
+          <button
+            type="button"
+            onClick={onShowHelp}
+            title="Keyboard shortcuts"
+            aria-label="Keyboard shortcuts"
+            className="flex size-7 items-center justify-center rounded-full border border-line text-callout font-medium text-dim hover:bg-raised hover:text-ink"
+          >
+            ?
+          </button>
+        </div>
       </div>
 
       {/* Row 3 — what is narrowing the view right now, each removable. */}
       {active.length > 0 && (
         <div
-          className="flex flex-wrap items-center gap-1.5 border-t border-line-soft px-3 py-1.5 text-[12px]"
+          className="flex flex-wrap items-center gap-1.5 border-t border-line-soft px-4 py-2 text-callout"
           aria-label="Active filters"
         >
           {active.map((item) => (
             <span
               key={item.key}
-              className="inline-flex items-center gap-1 rounded-full border border-line bg-raised py-[1px] pr-1 pl-2 text-dim"
+              className="inline-flex items-center gap-1 rounded-full bg-accent/10 py-0.5 pr-1 pl-2.5 text-ink"
             >
               {item.label}
               <button
                 type="button"
                 aria-label={`Remove filter: ${item.label}`}
                 onClick={() => onChange(item.clear(filter))}
-                className="rounded-full px-1 text-faint hover:bg-panel hover:text-ink"
+                className="rounded-full px-1 text-dim hover:bg-raised hover:text-ink"
               >
                 ×
               </button>
@@ -484,7 +488,7 @@ function FacetPanel({
               type="button"
               onClick={() => onChange([option.value])}
               title={`Show only ${option.label}`}
-              className="ml-1 rounded px-1 text-[10px] text-faint opacity-0 group-hover:opacity-100 hover:text-ink focus:opacity-100"
+              className="ml-1 rounded px-1 text-footnote text-faint opacity-0 group-hover:opacity-100 hover:text-ink focus:opacity-100"
             >
               only
             </button>
@@ -545,7 +549,7 @@ function ScorePanel({
             key={n}
             type="button"
             onClick={() => onChange(n, null)}
-            className={`rounded border px-1.5 py-[1px] text-[11px] ${
+            className={`rounded border px-1.5 py-[1px] text-subhead ${
               minScore === n && maxScore === null
                 ? "border-accent text-ink"
                 : "border-line text-dim hover:border-faint hover:text-ink"

@@ -87,15 +87,15 @@ export default function ImportContacts() {
 
   return (
     <div className="flex max-w-6xl flex-col gap-3">
-      <nav className="text-[12px] text-dim">
+      <nav className="text-callout text-dim">
         <Link href="/network" className="hover:text-ink">
           ← Network
         </Link>
       </nav>
-      <h1 className="text-[14px] font-medium">Import contacts</h1>
+      <h1 className="text-headline leading-tight font-bold tracking-[-0.025em]">Import contacts</h1>
 
       {done && (
-        <div role="status" className="rounded border border-ok/40 bg-ok/10 px-3 py-2 text-[13px]" data-testid="import-done">
+        <div role="status" className="rounded-lg border border-ok/25 bg-ok/10 px-3 py-2 text-body" data-testid="import-done">
           Imported {done.created} contact{done.created === 1 ? "" : "s"}.{" "}
           <Link href="/network" className="text-accent hover:underline">
             See them on Network
@@ -113,21 +113,21 @@ export default function ImportContacts() {
       )}
 
       {!analysis && (
-        <section className="rounded border border-line bg-panel">
-          <div className="flex items-center justify-between border-b border-line-soft px-3 py-1.5">
-            <span className="font-mono text-[11px] tracking-wide text-faint uppercase">paste or upload</span>
+        <section className="card">
+          <div className="flex items-center justify-between border-b border-line-soft px-4 py-2.5">
+            <span className="eyebrow">paste or upload</span>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => setText(EXAMPLE)}
-                className="rounded px-2 py-0.5 text-[12px] text-dim hover:bg-raised hover:text-ink"
+                className="rounded px-2 py-0.5 text-callout text-dim hover:bg-raised hover:text-ink"
               >
                 Load example
               </button>
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
-                className="rounded px-2 py-0.5 text-[12px] text-dim hover:bg-raised hover:text-ink"
+                className="rounded px-2 py-0.5 text-callout text-dim hover:bg-raised hover:text-ink"
               >
                 Upload .csv
               </button>
@@ -162,10 +162,10 @@ export default function ImportContacts() {
             spellCheck={false}
             rows={12}
             placeholder={"Name, Company, Title, Email\nAda Example, Stripe, University Recruiter, ada@example.com"}
-            className="block w-full resize-y bg-transparent px-3 py-2 font-mono text-[12px] leading-5 outline-none placeholder:text-faint"
+            className="block w-full resize-y bg-transparent px-3 py-2 font-mono text-callout leading-5 outline-none placeholder:text-faint"
           />
           <div className="flex items-center justify-between gap-3 border-t border-line-soft px-3 py-2">
-            <p className="text-[11px] text-faint">
+            <p className="text-subhead text-faint">
               First row names the columns, in any order: Name (or First Name + Last Name), Company, Title, Kind, Email,
               LinkedIn, How met, Notes. LinkedIn&apos;s own <span className="text-dim">Connections.csv</span> export works
               as is.
@@ -174,7 +174,7 @@ export default function ImportContacts() {
               type="button"
               onClick={onAnalyze}
               disabled={pending || text.trim() === ""}
-              className="shrink-0 rounded bg-accent px-3 py-1 text-[12px] font-medium text-accent-ink disabled:opacity-40"
+              className="shrink-0 btn btn-primary disabled:opacity-40"
             >
               {pending ? "Reading…" : "Review"}
             </button>
@@ -184,7 +184,7 @@ export default function ImportContacts() {
 
       {analysis && (
         <section className="flex flex-col gap-2" aria-label="Review">
-          <div className="flex flex-wrap items-center gap-3 text-[12px]">
+          <div className="flex flex-wrap items-center gap-3 text-callout">
             <span>
               {analysis.rows.length} row{analysis.rows.length === 1 ? "" : "s"} read
               {analysis.linkedInExport && " from a LinkedIn Connections export"}
@@ -203,16 +203,16 @@ export default function ImportContacts() {
               type="button"
               onClick={onImport}
               disabled={pending || count === 0}
-              className="ml-auto rounded bg-accent px-3 py-1 font-medium text-accent-ink disabled:opacity-40"
+              className="ml-auto btn btn-primary disabled:opacity-40"
               data-testid="import-commit"
             >
               {pending ? "Importing…" : `Import ${count} contact${count === 1 ? "" : "s"}`}
             </button>
           </div>
 
-          <div className="overflow-x-auto rounded border border-line bg-panel">
-            <table className="w-full border-collapse text-[12px]" data-testid="import-review">
-              <thead className="border-b border-line text-left text-[11px] text-faint">
+          <div className="overflow-x-auto card">
+            <table className="w-full border-collapse text-callout" data-testid="import-review">
+              <thead className="th border-b border-line">
                 <tr>
                   <th className="w-8 px-2 py-1" />
                   <th className="px-2 py-1 font-normal">name</th>
@@ -262,7 +262,7 @@ export default function ImportContacts() {
           </div>
 
           {analysis.errors.length > 0 && (
-            <details className="rounded border border-line bg-panel px-3 py-2 text-[12px]">
+            <details className="card px-3 py-2 text-callout">
               <summary className="cursor-pointer text-warn">
                 {analysis.errors.length} line{analysis.errors.length === 1 ? "" : "s"} skipped
               </summary>
@@ -279,7 +279,7 @@ export default function ImportContacts() {
       )}
 
       {error && (
-        <p role="alert" className="rounded border border-bad/40 bg-bad/10 px-3 py-2 text-[12px] text-bad">
+        <p role="alert" className="rounded-lg border border-bad/25 bg-bad/10 px-3 py-2 text-callout text-bad">
           {error}
         </p>
       )}

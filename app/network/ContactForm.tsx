@@ -23,9 +23,9 @@ interface Props {
   error: string | null;
 }
 
-const INPUT = "h-7 w-full rounded border border-line bg-raised px-2 text-[13px]";
+const INPUT = "h-8 w-full rounded-md border border-line bg-canvas px-2.5 text-body";
 const LABEL = "flex min-w-0 flex-col gap-1";
-const CAPTION = "text-[12px] text-dim";
+const CAPTION = "text-callout text-dim";
 
 export default function ContactForm({
   form,
@@ -141,26 +141,26 @@ export default function ContactForm({
             onChange={(e) => set("notes", e.target.value)}
             rows={4}
             placeholder="What you talked about, what they work on, anything a draft should mention."
-            className="w-full rounded border border-line bg-raised px-2 py-1 text-[13px] leading-snug"
+            className="w-full rounded-md border border-line bg-canvas px-2 py-1 text-body leading-snug"
           />
         </label>
       </div>
 
-      <label className="flex items-center gap-2 text-[13px]">
+      <label className="flex items-center gap-2 text-body">
         <input
           type="checkbox"
           checked={form.doNotContact}
           onChange={(e) => set("doNotContact", e.target.checked)}
         />
         Do not contact
-        <span className="text-[12px] text-faint">keeps the record, never schedules a follow-up</span>
+        <span className="text-callout text-faint">keeps the record, never schedules a follow-up</span>
       </label>
 
       <div className="flex items-center gap-2">
         <button
           type="submit"
           disabled={pending}
-          className="rounded border border-accent bg-accent px-3 py-1 text-[12px] text-accent-ink disabled:opacity-60"
+          className="btn btn-primary disabled:opacity-60"
         >
           {pending ? "Saving…" : submitLabel}
         </button>
@@ -169,13 +169,13 @@ export default function ContactForm({
             type="button"
             onClick={onCancel}
             disabled={pending}
-            className="rounded border border-line px-3 py-1 text-[12px] text-dim hover:text-ink"
+            className="btn"
           >
             Cancel
           </button>
         )}
         {error && (
-          <p role="alert" className="text-[12px] text-bad">
+          <p role="alert" className="text-callout text-bad">
             {error}
           </p>
         )}

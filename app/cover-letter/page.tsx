@@ -38,7 +38,7 @@ export default async function CoverLetterPage({ searchParams }: PageProps<"/cove
   const fonts = page ? letterFontsInfo(await loadLetterFonts()) : null;
   if (!page || !profile || !fonts) {
     return (
-      <div className="px-4 py-6 text-[13px] text-dim">
+      <div className="px-4 py-6 text-body text-dim">
         <p>
           {target
             ? "That listing or application doesn't exist any more."
@@ -58,7 +58,7 @@ export default async function CoverLetterPage({ searchParams }: PageProps<"/cove
   }
 
   return (
-    <div className="px-4 py-3">
+    <div className="px-6 py-7 lg:px-10 lg:py-9">
       <CoverLetterEditor page={page} profile={profile} fonts={fonts} />
     </div>
   );

@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 export default function ImportContactsPage() {
   return (
-    <div className="flex flex-col gap-3 px-4 py-3">
+    <div className="flex flex-col gap-5 px-6 py-7 lg:px-10 lg:py-9">
       <ImportContacts />
     </div>
   );

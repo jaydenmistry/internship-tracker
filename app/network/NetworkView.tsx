@@ -1,5 +1,7 @@
 "use client";
 
+import { Plus, Search } from "lucide-react";
+import PageHeader from "@/components/PageHeader";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
@@ -58,8 +60,8 @@ interface Props {
   nowIso: string;
 }
 
-const TH = "px-2 py-1 text-left text-[11px] font-normal text-faint";
-const TD = "px-2 py-1 align-top";
+const TH = "th px-3 py-2";
+const TD = "px-3 py-2 align-top";
 
 export default function NetworkView({
   contacts,
@@ -103,82 +105,92 @@ export default function NetworkView({
   };
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
+      <PageHeader
+        title="Network"
+        description="People you've met and when to follow up. Nothing is sent from here — you write and send every message yourself."
+        actions={
+          <>
+            <Link href="/network/import" className="btn">
+              Import
+            </Link>
+            <Link href="/network/settings" className="btn">
+              Settings
+            </Link>
+            {!form && (
+              <button
+                type="button"
+                onClick={() => {
+                  setError(null);
+                  setForm(emptyForm());
+                }}
+                className="btn btn-primary"
+              >
+                <Plus aria-hidden size={14} />
+                Add contact
+              </button>
+            )}
+          </>
+        }
+      />
+
       <div className="flex flex-wrap items-center gap-2">
-        <h1 className="mr-2 text-[14px] font-medium">Network</h1>
-        <input
-          type="search"
-          aria-label="Search contacts"
-          placeholder="Search name, company, title, email"
-          value={filters.query}
-          onChange={(e) => setFilters((f) => ({ ...f, query: e.target.value }))}
-          className="h-7 w-72 rounded border border-line bg-raised px-2 text-[13px]"
-        />
+        <div className="relative">
+          <Search aria-hidden size={14} className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-faint" />
+          <input
+            type="search"
+            aria-label="Search contacts"
+            placeholder="Search name, company, title, email"
+            value={filters.query}
+            onChange={(e) => setFilters((f) => ({ ...f, query: e.target.value }))}
+            className="h-8 w-72 rounded-lg border border-transparent bg-raised pr-2 pl-8 text-body"
+          />
+        </div>
         <select
           aria-label="Filter by company"
           value={filters.companyKey ?? ""}
           onChange={(e) => setFilters((f) => ({ ...f, companyKey: e.target.value || null }))}
-          className={`h-7 max-w-[14rem] rounded border bg-raised px-1 text-[13px] ${
+          className={`h-8 max-w-[14rem] rounded-lg border bg-canvas px-2 text-body ${
             filters.companyKey ? "border-accent text-ink" : "border-line text-dim"
           }`}
         >
-          <option value="">any company</option>
+          <option value="">Any company</option>
           {companyOptions.map((o) => (
             <option key={o.key} value={o.key}>
               {o.name} ({o.count})
             </option>
           ))}
         </select>
-        <span className="font-mono text-[11px] text-faint tabular-nums">
-          {shown.length === contacts.length ? contacts.length : `${shown.length} / ${contacts.length}`}
-        </span>
         <select
           aria-label="Sort contacts"
           value={sort}
           onChange={(e) => setSort(e.target.value as ContactSort)}
-          className="h-7 rounded border border-line bg-raised px-1 text-[12px] text-dim"
+          className="h-8 rounded-lg border border-line bg-canvas px-2 text-body text-dim"
         >
           {(Object.keys(SORT_LABELS) as ContactSort[]).map((k) => (
             <option key={k} value={k}>
-              sort: {SORT_LABELS[k]}
+              Sort: {SORT_LABELS[k]}
             </option>
           ))}
         </select>
-        <div className="ml-auto flex items-center gap-2">
-          <Link href="/network/import" className="text-[12px] text-dim hover:text-ink">
-            Import
-          </Link>
-          <Link href="/network/settings" className="text-[12px] text-dim hover:text-ink">
-            Settings
-          </Link>
-          {!form && (
-            <button
-              type="button"
-              onClick={() => {
-                setError(null);
-                setForm(emptyForm());
-              }}
-              className="rounded border border-accent bg-accent px-3 py-1 text-[12px] text-accent-ink"
-            >
-              Add contact
-            </button>
-          )}
-        </div>
+        <span className="px-1 text-callout text-faint tabular-nums">
+          {shown.length === contacts.length ? `${contacts.length} contacts` : `${shown.length} of ${contacts.length}`}
+        </span>
       </div>
 
-      <section aria-label="Due" className="rounded border border-line bg-panel" data-testid="due-list">
-        <h2 className="border-b border-line px-3 py-1.5 font-mono text-[10px] font-semibold tracking-wide text-faint uppercase">
+      <section aria-label="Due" className="card" data-testid="due-list">
+        <h2 className="flex items-center gap-2 border-b border-line-soft px-4 py-2.5 text-body font-semibold">
           Due today{due.some((d) => d.overdue) ? " and overdue" : ""}
-          <span className="ml-2 font-normal text-faint tabular-nums">{due.length}</span>
+          <span className="rounded-full bg-raised px-1.5 text-subhead font-medium text-dim tabular-nums">{due.length}</span>
         </h2>
         {due.length === 0 ? (
-          <p className="px-3 py-2 text-[12px] text-faint">Nothing due. Follow-ups, thank-yous and openers show up here on the day.</p>
+          <p className="px-4 py-3 text-callout text-faint">Nothing due. Follow-ups, thank-yous and openers show up here on the day.</p>
         ) : (
           <ul className="divide-y divide-line-soft">
             {due.map((d) => {
               const when = dueWhen(d.dueAt, nowMs, timeZone);
               return (
-                <li key={d.contactId} className="flex items-baseline gap-3 px-3 py-1.5 text-[13px]" data-testid="due-item">
+                <li key={d.contactId} className="flex items-baseline gap-3 px-4 py-2 text-body" data-testid="due-item">
                   <Link
                     href={`/network/${d.contactId}`}
                     className="font-medium text-ink hover:underline decoration-faint underline-offset-2"
@@ -187,12 +199,12 @@ export default function NetworkView({
                   </Link>
                   {d.company && <span className="text-dim">{d.company}</span>}
                   <span className="text-ink">{DUE_LABELS[d.kind]}</span>
-                  <span className={`ml-auto font-mono text-[12px] ${when.overdue ? "text-bad" : "text-dim"}`}>
+                  <span className={`ml-auto text-callout tabular-nums ${when.overdue ? "text-bad" : "text-dim"}`}>
                     {when.text}
                   </span>
                   <Link
                     href={`/network/${d.contactId}?draft=${draftTypeForDue(d.kind)}`}
-                    className="shrink-0 text-[12px] text-accent hover:underline"
+                    className="shrink-0 text-callout text-accent hover:underline"
                   >
                     {DRAFT_LABELS[d.kind]}
                   </Link>
@@ -204,8 +216,8 @@ export default function NetworkView({
       </section>
 
       {form && (
-        <section aria-label="Add contact" className="rounded border border-line bg-panel px-3 py-3">
-          <h2 className="mb-2 text-[13px] font-medium">Add contact</h2>
+        <section aria-label="Add contact" className="card px-4 py-4">
+          <h2 className="mb-3 text-title font-semibold">Add contact</h2>
           <ContactForm
             form={form}
             onChange={setForm}
@@ -222,8 +234,8 @@ export default function NetworkView({
         </section>
       )}
 
-      <div className="flex flex-wrap items-center gap-1" aria-label="Filter by kind">
-        <span className="mr-1 text-[11px] text-faint">kind</span>
+      <div className="flex flex-wrap items-center gap-1.5" aria-label="Filter by kind">
+        <span className="mr-1 text-callout text-faint">Kind</span>
         {CONTACT_KINDS.map((k) => (
           <Chip
             key={k}
@@ -234,7 +246,7 @@ export default function NetworkView({
             {KIND_LABELS[k]}
           </Chip>
         ))}
-        <span className="mr-1 ml-3 text-[11px] text-faint">status</span>
+        <span className="mr-1 ml-3 text-callout text-faint">Status</span>
         {CONTACT_STATUSES.map((s) => (
           <Chip
             key={s}
@@ -247,19 +259,19 @@ export default function NetworkView({
         ))}
       </div>
 
-      <div className="rounded border border-line bg-panel">
+      <div className="card overflow-hidden">
         <table className="w-full table-fixed border-collapse" data-testid="contacts-table">
           <colgroup>
-            <col className="w-[12rem]" />
             <col className="w-[11rem]" />
+            <col className="w-[9rem]" />
             <col />
-            <col className="w-[7.5rem]" />
-            <col className="w-[10rem]" />
             <col className="w-[8rem]" />
-            <col className="w-[5rem]" />
-            <col className="w-[7rem]" />
+            <col className="w-[10.5rem]" />
+            <col className="w-[9.5rem]" />
+            <col className="w-[4rem]" />
+            <col className="w-[6rem]" />
           </colgroup>
-          <thead className="border-b border-line">
+          <thead className="border-b border-line-soft">
             <tr>
               <th className={TH}>name</th>
               <th className={TH}>company</th>
@@ -274,7 +286,7 @@ export default function NetworkView({
           <tbody>
             {shown.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-2 py-6 text-center text-[12px] text-dim">
+                <td colSpan={8} className="px-2 py-6 text-center text-callout text-dim">
                   {contacts.length === 0
                     ? "No contacts yet. Add the people you meet at career fairs, through alumni, or on LinkedIn."
                     : "No contacts match these filters."}
@@ -285,7 +297,7 @@ export default function NetworkView({
               const li = linkedinHref(c.linkedinUrl);
               const mail = mailtoHref(c.email);
               return (
-                <tr key={c.id} data-testid="contact-row" className="border-b border-line-soft hover:bg-raised/50">
+                <tr key={c.id} data-testid="contact-row" className="border-b border-line-soft last:border-b-0 hover:bg-raised/50">
                   <td className={TD}>
                     <div className="flex min-w-0 items-center gap-1">
                       <Link
@@ -308,16 +320,16 @@ export default function NetworkView({
                   <td className={`${TD} truncate text-dim`} title={c.title ?? undefined}>
                     {c.title ?? <span className="text-faint">—</span>}
                   </td>
-                  <td className={`${TD} text-[12px] text-dim`}>{KIND_LABELS[c.kind]}</td>
-                  <td className={`${TD} text-[12px] ${CONTACT_STATUS_TONE[c.status]}`}>
+                  <td className={`${TD} text-callout text-dim`}>{KIND_LABELS[c.kind]}</td>
+                  <td className={`${TD} text-callout ${CONTACT_STATUS_TONE[c.status]}`}>
                     {CONTACT_STATUS_LABELS[c.status]}
                     {c.status === "PENDING_CONNECTION" && c.pendingSince && (
-                      <span className="ml-1 font-mono text-faint" title={`Connection note sent ${absoluteDate(c.pendingSince)}`}>
+                      <span className="ml-1 text-faint tabular-nums" title={`Connection note sent ${absoluteDate(c.pendingSince)}`}>
                         {relativeAge(c.pendingSince, nowMs)}
                       </span>
                     )}
                   </td>
-                  <td className={`${TD} text-[12px]`}>
+                  <td className={`${TD} text-callout`}>
                     {c.nextFollowUpAt ? (
                       (() => {
                         const when = dueWhen(c.nextFollowUpAt, nowMs, timeZone);
@@ -327,16 +339,16 @@ export default function NetworkView({
                       <span className="text-faint">—</span>
                     )}
                   </td>
-                  <td className={`${TD} text-[12px] text-dim`}>
+                  <td className={`${TD} text-callout text-dim`}>
                     <time
                       dateTime={c.lastMessageAt ?? undefined}
                       title={absoluteDate(c.lastMessageAt)}
-                      className="font-mono tabular-nums"
+                      className="tabular-nums"
                     >
                       {relativeAge(c.lastMessageAt, nowMs)}
                     </time>
                   </td>
-                  <td className={`${TD} text-[12px]`}>
+                  <td className={`${TD} text-callout`}>
                     <div className="flex gap-2">
                       {mail && (
                         <a href={mail} className="text-accent hover:underline" title={c.email ?? undefined}>

@@ -35,7 +35,7 @@ export function EmptyHint() {
       <Link href="/" className="text-accent hover:underline">
         Listings
       </Link>{" "}
-      (focus a row, press <kbd className="rounded border border-line px-1 font-mono text-[11px]">a</kbd>), or
+      (focus a row, press <kbd className="rounded border border-line px-1 font-mono text-subhead">a</kbd>), or
       bulk-add ones you already sent via{" "}
       <Link href="/import" className="text-accent hover:underline">
         Import
@@ -172,41 +172,38 @@ export default function TrackerView({ apps, view, nowIso }: Props) {
   const manualCount = shown.filter((a) => a.listingId === null).length;
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <div role="group" aria-label="View" className="flex rounded border border-line bg-panel p-px">
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div role="group" aria-label="View" className="seg">
           {(["kanban", "list"] as const).map((mode) => (
             <Link
               key={mode}
               href={mode === "kanban" ? "/tracker" : "/tracker?view=list"}
               scroll={false}
               aria-current={view === mode ? "page" : undefined}
-              className={`rounded-sm px-2 py-0.5 text-[12px] ${
-                view === mode ? "bg-accent text-accent-ink" : "text-dim hover:text-ink"
-              }`}
             >
               {mode === "kanban" ? "Kanban" : "List"}
             </Link>
           ))}
         </div>
-        <span className="font-mono text-[11px] text-faint">
+        <span className="text-callout text-faint tabular-nums">
           {shown.length} application{shown.length === 1 ? "" : "s"}
           {manualCount > 0 && ` · ${manualCount} manual`}
         </span>
-        <div className="ml-auto flex items-center gap-2 text-[12px]">
-          <span className="text-[11px] text-faint">
+        <div className="ml-auto flex items-center gap-2 text-callout">
+          <span className="text-subhead text-faint">
             An export can be re-imported to restore statuses and notes.
           </span>
           <a
             href="/api/applications/export"
             download
-            className="rounded border border-line bg-panel px-2 py-0.5 text-dim hover:text-ink"
+            className="btn"
           >
             Export CSV
           </a>
           <Link
             href="/import"
-            className="rounded border border-line bg-panel px-2 py-0.5 text-dim hover:text-ink"
+            className="btn"
           >
             Import CSV
           </Link>
@@ -216,7 +213,7 @@ export default function TrackerView({ apps, view, nowIso }: Props) {
       {statusError && (
         <div
           role="alert"
-          className="flex items-center gap-2 rounded border border-bad/50 bg-panel px-2 py-1 text-[12px] text-bad"
+          className="flex items-center gap-2 rounded-lg border border-bad/25 bg-panel px-2 py-1 text-callout text-bad"
         >
           <span className="min-w-0 flex-1">{statusError}</span>
           <button type="button" onClick={() => setStatusError(null)} className="text-faint hover:text-ink">
@@ -228,7 +225,7 @@ export default function TrackerView({ apps, view, nowIso }: Props) {
       {view === "kanban" ? (
         <>
           {shown.length === 0 && (
-            <p data-testid="empty-hint" className="text-[12px] text-dim">
+            <p data-testid="empty-hint" className="text-callout text-dim">
               <EmptyHint />
             </p>
           )}

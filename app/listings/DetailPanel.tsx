@@ -1,9 +1,11 @@
 "use client";
 
+import { ExternalLink, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { AppStatus } from "@/generated/prisma/enums";
 import Badge from "@/components/Badge";
+import ScoreRing from "@/components/ScoreRing";
 import type { ComponentDetail, ListingDetail, ResumeMatchState } from "@/lib/listings/detail";
 import { CONTACT_STATUS_LABELS, CONTACT_STATUS_TONE, KIND_LABELS } from "@/lib/networking/schema";
 import { addContactHref } from "@/app/network/state";
@@ -17,6 +19,7 @@ import {
   formatScore,
   rankMovement,
   safeHttpUrl,
+  scoreTone,
   STATUS_FILTER_LABELS,
   STATUS_ORDER,
   type TableRow,
@@ -72,11 +75,11 @@ export default function DetailPanel({
     <aside
       aria-label="Listing detail"
       data-detail-panel=""
-      className="dp-panel flex w-[27rem] shrink-0 flex-col overflow-y-auto border-l border-line bg-panel"
+      className="dp-panel flex w-full flex-col overflow-y-auto border-l border-line bg-panel"
     >
-      <header className="sticky top-0 z-10 flex items-start gap-2 border-b border-line bg-panel px-3 py-2">
+      <header className="sticky top-0 z-10 flex items-start gap-2 border-b border-line-soft bg-panel/85 px-5 pt-4 pb-3.5 backdrop-blur-xl">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1 text-[13px] font-medium text-ink">
+          <div className="flex items-center gap-1 text-callout font-medium text-dim">
             {row.faangPlus && (
               <span className="text-warn" title="FAANG+ company">
                 ★
@@ -86,38 +89,39 @@ export default function DetailPanel({
               {row.company}
             </span>
           </div>
-          <div className="text-[12px] leading-snug text-dim">{row.title}</div>
+          <h2 className="mt-0.5 text-title leading-snug font-semibold text-ink">{row.title}</h2>
         </div>
         <button
           type="button"
           onClick={onClose}
           aria-label="Close detail panel"
-          className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[11px] text-faint hover:bg-raised hover:text-ink"
+          title="Close (esc)"
+          className="-mr-1 flex size-7 shrink-0 items-center justify-center rounded-full text-faint hover:bg-raised hover:text-ink"
         >
-          esc
+          <X aria-hidden size={16} />
         </button>
       </header>
 
-      <div className="space-y-4 px-3 py-3">
+      <div className="content-in space-y-6 px-5 py-5">
         <Summary row={row} detail={detail} href={href} />
 
         <StatusControls row={row} onCommand={onCommand} />
 
         {load.status === "loading" && (
-          <p className="text-[12px] text-faint" role="status">
+          <p className="text-callout text-faint" role="status">
             Loading details…
           </p>
         )}
         {load.status === "missing" && (
-          <p className="text-[12px] text-bad">This listing no longer exists.</p>
+          <p className="text-callout text-bad">This listing no longer exists.</p>
         )}
         {load.status === "error" && (
-          <div className="rounded border border-bad/50 px-2 py-1.5 text-[12px] text-bad" role="alert">
+          <div className="rounded-lg bg-bad/10 px-3 py-2 text-callout text-bad" role="alert">
             <p>Couldn&apos;t load the details: {load.message}</p>
             <button
               type="button"
               onClick={onRetry}
-              className="mt-1 rounded border border-line px-1.5 py-0.5 text-dim hover:text-ink"
+              className="btn mt-1.5"
             >
               Retry
             </button>
@@ -155,12 +159,10 @@ export default function DetailPanel({
 
 function Section({ title, children, aside }: { title: string; children: ReactNode; aside?: ReactNode }) {
   return (
-    <section className="border-t border-line-soft pt-3" aria-label={title}>
-      <div className="mb-1.5 flex items-baseline gap-2">
-        <h3 className="font-mono text-[10px] font-semibold tracking-wide text-faint uppercase">
-          {title}
-        </h3>
-        {aside && <div className="ml-auto text-[11px] text-faint">{aside}</div>}
+    <section className="border-t border-line-soft pt-4" aria-label={title}>
+      <div className="mb-2 flex items-baseline gap-2">
+        <h3 className="eyebrow">{title}</h3>
+        {aside && <div className="ml-auto text-subhead text-faint">{aside}</div>}
       </div>
       {children}
     </section>
@@ -185,42 +187,37 @@ function Summary({
   const rule = detail?.ruleScore ?? null;
 
   return (
-    <div className="space-y-2.5">
-      <div className="flex items-end gap-3">
-        <div>
-          <div
-            className={`font-mono text-[28px] leading-none tabular-nums ${
-              row.disqualified ? "text-faint line-through" : "text-ink"
-            }`}
-            title="Final score (0–100)"
-          >
-            {formatScore(row.score)}
-          </div>
-          <div className="mt-1 font-mono text-[10px] text-faint">
-            {rule !== null ? `rules ${formatScore(rule)}` : "rules —"}
-            {" · "}
-            {llm !== null ? (
-              <span className="text-info" title="Stage-2 Claude adjustment, clamped to ±15">
-                claude {signed(llm)}
-              </span>
-            ) : (
-              <span title="No stage-2 Claude adjustment applied">claude —</span>
-            )}
-          </div>
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="font-mono text-[12px] text-dim">
-            {row.rank !== null ? `rank #${row.rank}` : "unranked"}
+    <div className="space-y-3.5">
+      <div className="flex items-center gap-4">
+        <ScoreRing
+          score={row.score}
+          tone={row.disqualified ? "none" : scoreTone(row.score)}
+          struck={row.disqualified}
+        />
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="text-body font-medium text-ink">
+            {row.rank !== null ? `Ranked #${row.rank}` : "Unranked"}
             {movement && (
               <span
-                className={`ml-1.5 ${movement.direction === "up" ? "text-ok" : "text-warn"}`}
+                className={`ml-1.5 text-callout ${movement.direction === "up" ? "text-ok" : "text-warn"}`}
                 title={movement.label}
               >
                 {movement.text}
               </span>
             )}
           </span>
-          <div className="flex flex-wrap gap-1">
+          <span className="text-callout text-faint tabular-nums">
+            {rule !== null ? `Rules ${formatScore(rule)}` : "Rules —"}
+            {" · "}
+            {llm !== null ? (
+              <span className="text-info" title="Stage-2 Claude adjustment, clamped to ±15">
+                Claude {signed(llm)}
+              </span>
+            ) : (
+              <span title="No stage-2 Claude adjustment applied">Claude —</span>
+            )}
+          </span>
+          <div className="flex flex-wrap gap-1 empty:hidden">
             {row.saved && <Badge tone="accent">saved</Badge>}
             {row.dismissed && <Badge tone="dim">dismissed</Badge>}
             {row.likelyClosed && <Badge tone="dim">closed?</Badge>}
@@ -238,12 +235,13 @@ function Summary({
           href={href}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center rounded border border-accent/60 bg-raised px-2 py-1 text-[12px] text-accent transition-colors hover:border-accent"
+          className="btn btn-primary h-8 w-full"
         >
-          Open the apply link ↗
+          Open the apply link
+          <ExternalLink aria-hidden size={13} />
         </a>
       ) : (
-        <p className="text-[12px] text-faint">No usable apply link on this listing.</p>
+        <p className="text-callout text-faint">No usable apply link on this listing.</p>
       )}
     </div>
   );
@@ -257,8 +255,8 @@ function StatusControls({
   onCommand: (command: RowCommand) => void;
 }) {
   return (
-    <div className="space-y-1.5" aria-label="Status controls" role="group">
-      <div className="flex flex-wrap gap-1">
+    <div className="space-y-2" aria-label="Status controls" role="group">
+      <div className="flex flex-wrap gap-0.5 rounded-lg bg-raised p-0.5">
         {STATUS_ORDER.map((status: AppStatus) => {
           const active = row.statusKey === status;
           return (
@@ -267,10 +265,10 @@ function StatusControls({
               type="button"
               aria-pressed={active}
               onClick={() => onCommand({ kind: "setStatus", status })}
-              className={`rounded border px-1.5 py-[2px] text-[11px] transition-colors ${
+              className={`rounded-md px-2 py-1 text-callout transition-colors ${
                 active
-                  ? "border-accent bg-accent text-accent-ink"
-                  : "border-line text-dim hover:border-faint hover:text-ink"
+                  ? "bg-canvas font-medium text-ink shadow-sm"
+                  : "text-dim hover:bg-canvas/50 hover:text-ink"
               }`}
             >
               {STATUS_FILTER_LABELS[status]}
@@ -278,22 +276,22 @@ function StatusControls({
           );
         })}
       </div>
-      <div className="flex gap-1">
+      <div className="flex gap-1.5">
         <button
           type="button"
           aria-pressed={row.saved}
           onClick={() => onCommand({ kind: "toggleSaved" })}
-          className="rounded border border-line px-1.5 py-[2px] text-[11px] text-dim hover:border-faint hover:text-ink"
+          className="btn"
         >
-          {row.saved ? "Unsave" : "Save"} <kbd className="ml-1 font-mono text-faint">s</kbd>
+          {row.saved ? "Unsave" : "Save"} <kbd className="font-mono text-footnote font-normal text-faint">s</kbd>
         </button>
         <button
           type="button"
           aria-pressed={row.dismissed}
           onClick={() => onCommand({ kind: "toggleDismissed" })}
-          className="rounded border border-line px-1.5 py-[2px] text-[11px] text-dim hover:border-faint hover:text-ink"
+          className="btn"
         >
-          {row.dismissed ? "Undismiss" : "Dismiss"} <kbd className="ml-1 font-mono text-faint">d</kbd>
+          {row.dismissed ? "Undismiss" : "Dismiss"} <kbd className="font-mono text-footnote font-normal text-faint">d</kbd>
         </button>
       </div>
     </div>
@@ -338,11 +336,11 @@ function Facts({ detail, now }: { detail: ListingDetail; now: number }) {
   if (detail.requisitionId) facts.push(["Req. ID", detail.requisitionId]);
 
   return (
-    <dl className="grid grid-cols-[5.5rem_1fr] gap-x-2 gap-y-1 text-[12px]">
+    <dl className="grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-1.5 text-callout">
       {facts.map(([k, v]) => (
         <div key={k} className="contents">
           <dt className="text-faint">{k}</dt>
-          <dd className="min-w-0 break-words text-dim">{v}</dd>
+          <dd className="min-w-0 break-words text-ink">{v}</dd>
         </div>
       ))}
     </dl>
@@ -351,7 +349,7 @@ function Facts({ detail, now }: { detail: ListingDetail; now: number }) {
 
 function Disqualified({ detail }: { detail: ListingDetail }) {
   return (
-    <div className="rounded border border-bad/45 px-2.5 py-2 text-[12px]" role="note">
+    <div className="rounded-lg bg-bad/8 px-3 py-2.5 text-callout ring-1 ring-bad/25 ring-inset" role="note">
       <p className="font-medium text-bad">
         Disqualified
         {detail.disqualifyReasons.length > 1 ? ` on ${detail.disqualifyReasons.length} grounds` : ""}
@@ -396,7 +394,7 @@ function Breakdown({ detail }: { detail: ListingDetail }) {
   if (detail.components.length === 0) {
     return (
       <Section title="Score breakdown">
-        <p className="text-[12px] text-faint">This listing hasn&apos;t been scored yet.</p>
+        <p className="text-callout text-faint">This listing hasn&apos;t been scored yet.</p>
       </Section>
     );
   }
@@ -406,7 +404,7 @@ function Breakdown({ detail }: { detail: ListingDetail }) {
       title="Score breakdown"
       aside={detail.scoredAt ? `scored ${absoluteDate(new Date(detail.scoredAt).getTime())}` : undefined}
     >
-      <div className="grid grid-cols-[1fr_3.5rem_2.75rem_3.25rem] gap-x-2 border-b border-line-soft pb-1 font-mono text-[10px] text-faint">
+      <div className="grid grid-cols-[1fr_3.5rem_2.75rem_3.25rem] gap-x-2 border-b border-line-soft pb-1 th">
         <span>component</span>
         <span className="text-right">points</span>
         <span className="text-right">weight</span>
@@ -417,7 +415,7 @@ function Breakdown({ detail }: { detail: ListingDetail }) {
           <ComponentRow key={c.name} c={c} />
         ))}
       </ul>
-      <div className="grid grid-cols-[1fr_3.5rem_2.75rem_3.25rem] gap-x-2 border-t border-line pt-1 font-mono text-[11px] text-dim">
+      <div className="grid grid-cols-[1fr_3.5rem_2.75rem_3.25rem] gap-x-2 border-t border-line pt-1 text-subhead font-medium text-dim tabular-nums">
         <span>total{detail.disqualified ? " (before disqualification)" : ""}</span>
         <span />
         <span />
@@ -431,16 +429,16 @@ function ComponentRow({ c }: { c: ComponentDetail }) {
   const inactive = c.weight <= 0;
   return (
     <li className={`py-1.5 ${inactive ? "opacity-60" : ""}`}>
-      <div className="grid grid-cols-[1fr_3.5rem_2.75rem_3.25rem] items-baseline gap-x-2 text-[12px]">
+      <div className="grid grid-cols-[1fr_3.5rem_2.75rem_3.25rem] items-baseline gap-x-2 text-callout">
         <span className="text-ink">{componentLabel(c.name)}</span>
-        <span className="text-right font-mono text-[11px] text-dim tabular-nums">
+        <span className="text-right text-subhead text-dim tabular-nums">
           {fmt1(c.points)}/{fmt1(c.max)}
         </span>
-        <span className="text-right font-mono text-[11px] text-faint tabular-nums">
+        <span className="text-right text-subhead text-faint tabular-nums">
           {fmt1(c.weight)}
         </span>
         <span
-          className={`text-right font-mono text-[11px] tabular-nums ${
+          className={`text-right text-subhead tabular-nums ${
             c.contribution > 0 ? "text-ok" : "text-faint"
           }`}
         >
@@ -448,7 +446,7 @@ function ComponentRow({ c }: { c: ComponentDetail }) {
         </span>
       </div>
       {c.evidence.length > 0 ? (
-        <ul className="mt-0.5 space-y-0.5 pl-2 text-[11px] leading-snug text-faint">
+        <ul className="mt-0.5 space-y-0.5 pl-2 text-subhead leading-snug text-faint">
           {c.evidence.map((line, i) => (
             <li key={i} className="dp-evidence break-words">
               {line}
@@ -456,7 +454,7 @@ function ComponentRow({ c }: { c: ComponentDetail }) {
           ))}
         </ul>
       ) : (
-        <p className="mt-0.5 pl-2 text-[11px] text-faint italic">no evidence recorded</p>
+        <p className="mt-0.5 pl-2 text-subhead text-faint italic">no evidence recorded</p>
       )}
     </li>
   );
@@ -467,8 +465,8 @@ function LlmSection({ detail }: { detail: ListingDetail }) {
   return (
     <Section title="Claude assessment">
       {llm ? (
-        <div className="space-y-1 text-[12px]">
-          <p className="font-mono text-[11px] text-dim">
+        <div className="space-y-1 text-callout">
+          <p className="text-subhead text-dim">
             <span className={llm.adjustment >= 0 ? "text-ok" : "text-warn"}>
               {signed(llm.adjustment)}
             </span>{" "}
@@ -479,7 +477,7 @@ function LlmSection({ detail }: { detail: ListingDetail }) {
           </p>
         </div>
       ) : (
-        <p className="text-[12px] text-faint" data-testid="llm-none">
+        <p className="text-callout text-faint" data-testid="llm-none">
           No Claude assessment has run for this posting&apos;s current text
           {detail.hasPostingText
             ? ", so the score is the rule-based score alone."
@@ -495,7 +493,7 @@ function FetchSection({ detail }: { detail: ListingDetail }) {
   return (
     <Section title="Posting text" aside={detail.atsKind ?? undefined}>
       <div
-        className={`text-[12px] ${fetch.failed ? "rounded border border-warn/50 px-2 py-1.5" : ""}`}
+        className={`text-callout ${fetch.failed ? "rounded-lg border border-warn/25 px-2 py-1.5" : ""}`}
         data-testid="fetch-status"
       >
         <p className={fetch.failed ? "font-medium text-warn" : "text-dim"}>{fetch.label}</p>
@@ -518,7 +516,7 @@ function KeywordList({ words, tone }: { words: string[]; tone: "hit" | "miss" | 
         <li
           key={w}
           data-keyword={tone}
-          className={`rounded-sm border px-1 font-mono text-[10.5px] leading-[16px] ${cls}`}
+          className={`rounded-full border px-2 text-subhead leading-[18px] ${cls}`}
         >
           {tone === "hit" ? "✓ " : tone === "miss" ? "✗ " : ""}
           {w}
@@ -535,7 +533,7 @@ function CoverLetterSection({ detail }: { detail: ListingDetail }) {
   return (
     <Section title="Cover letter">
       {letter ? (
-        <p className="flex items-baseline gap-2 text-[12px]" data-testid="cover-letter">
+        <p className="flex items-baseline gap-2 text-callout" data-testid="cover-letter">
           <span className="text-dim">
             {letter.words} words · saved {absoluteDay(new Date(letter.updatedAt).getTime())}
           </span>
@@ -544,7 +542,7 @@ function CoverLetterSection({ detail }: { detail: ListingDetail }) {
           </Link>
         </p>
       ) : (
-        <p className="flex items-baseline gap-2 text-[12px]" data-testid="cover-letter-empty">
+        <p className="flex items-baseline gap-2 text-callout" data-testid="cover-letter-empty">
           <span className="text-faint">
             {detail.hasPostingText
               ? "Claude can draft one from this posting and your resume."
@@ -573,11 +571,11 @@ function PeopleSection({ detail }: { detail: ListingDetail }) {
   return (
     <Section title={`People at ${detail.company}`} aside={add}>
       {detail.people.length === 0 ? (
-        <p className="text-[12px] text-faint" data-testid="people-empty">
+        <p className="text-callout text-faint" data-testid="people-empty">
           No contacts here yet.
         </p>
       ) : (
-        <ul className="space-y-1 text-[12px]" data-testid="people">
+        <ul className="space-y-1 text-callout" data-testid="people">
           {detail.people.map((p) => (
             <li key={p.id} className="flex min-w-0 items-baseline gap-2">
               <Link
@@ -597,7 +595,7 @@ function PeopleSection({ detail }: { detail: ListingDetail }) {
                   dnc
                 </Badge>
               )}
-              <span className="w-[4.5rem] shrink-0 text-right font-mono text-faint tabular-nums" title="Last message">
+              <span className="w-[4.5rem] shrink-0 text-right text-faint tabular-nums" title="Last message">
                 {p.lastMessageAt ? absoluteDay(new Date(p.lastMessageAt).getTime()) : "—"}
               </span>
               {!p.doNotContact && (
@@ -620,7 +618,7 @@ function PeopleSection({ detail }: { detail: ListingDetail }) {
 function ResumeSection({ match }: { match: ResumeMatchState }) {
   return (
     <Section title="Resume keywords">
-      <div className="space-y-2 text-[12px]" data-testid="resume-match" data-state={match.state}>
+      <div className="space-y-2 text-callout" data-testid="resume-match" data-state={match.state}>
         {match.state === "no-posting-text" && (
           <p className="text-faint">
             No posting text to compare against — keyword matching needs the description.
@@ -649,7 +647,7 @@ function ResumeSection({ match }: { match: ResumeMatchState }) {
               your resume (uploaded {absoluteDay(new Date(match.resumeUploadedAt).getTime())}).
             </p>
             <div>
-              <h4 className="mb-1 text-[11px] text-ok">On your resume</h4>
+              <h4 className="mb-1 text-subhead text-ok">On your resume</h4>
               {match.hits.length ? (
                 <KeywordList words={match.hits} tone="hit" />
               ) : (
@@ -657,7 +655,7 @@ function ResumeSection({ match }: { match: ResumeMatchState }) {
               )}
             </div>
             <div>
-              <h4 className="mb-1 text-[11px] text-bad">Missing from your resume</h4>
+              <h4 className="mb-1 text-subhead text-bad">Missing from your resume</h4>
               {match.misses.length ? (
                 <KeywordList words={match.misses} tone="miss" />
               ) : (
@@ -720,7 +718,7 @@ function MergedSources({
   return (
     <div ref={anchor}>
       <Section title="Merged-in sources" aside={`${detail.merges.length} merged`}>
-        <div className="space-y-2 text-[12px]" data-testid="merged-sources">
+        <div className="space-y-2 text-callout" data-testid="merged-sources">
           {detail.merges.length > 0 && (
             <p className="text-faint">
               Dedup folded these records into this listing. If one of them is a different
@@ -738,21 +736,21 @@ function MergedSources({
                   className="rounded border border-line-soft px-2 py-1.5"
                 >
                   <div className="flex items-baseline gap-2">
-                    <span className="font-mono text-[11px] text-ink">{m.source}</span>
-                    <span className="truncate font-mono text-[10.5px] text-faint" title={m.sourceUid}>
+                    <span className="font-mono text-subhead text-ink">{m.source}</span>
+                    <span className="truncate font-mono text-subhead text-faint" title={m.sourceUid}>
                       {m.sourceUid}
                     </span>
                     <button
                       type="button"
                       disabled={busy !== null}
                       onClick={() => void split(m.source, m.sourceUid)}
-                      className="ml-auto shrink-0 rounded border border-line px-1.5 py-[2px] text-[11px] text-dim hover:border-faint hover:text-ink disabled:opacity-50"
+                      className="ml-auto shrink-0 rounded border border-line px-1.5 py-[2px] text-subhead text-dim hover:border-faint hover:text-ink disabled:opacity-50"
                     >
                       {busy === key ? "Splitting…" : "Split out"}
                     </button>
                   </div>
                   <p className="mt-0.5 break-words text-faint">{m.reason}</p>
-                  <p className="mt-0.5 font-mono text-[10.5px] text-faint">
+                  <p className="mt-0.5 font-mono text-subhead text-faint">
                     merged {absoluteDate(new Date(m.mergedAt).getTime())}
                   </p>
                   {href ? (
@@ -760,13 +758,13 @@ function MergedSources({
                       href={href}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="mt-0.5 block truncate text-[11px] text-accent"
+                      className="mt-0.5 block truncate text-subhead text-accent"
                       title={href}
                     >
                       {href}
                     </a>
                   ) : (
-                    <p className="mt-0.5 text-[11px] text-faint">no usable link on that record</p>
+                    <p className="mt-0.5 text-subhead text-faint">no usable link on that record</p>
                   )}
                 </li>
               );
@@ -930,10 +928,10 @@ function Notes({
         rows={4}
         placeholder="Recruiter name, referral, what to mention…"
         aria-label="Listing notes"
-        className="block w-full resize-y rounded border border-line bg-canvas px-2 py-1.5 text-[12px] text-ink placeholder:text-faint focus:border-accent focus:outline-none"
+        className="block w-full resize-y rounded-md border border-line bg-canvas px-2 py-1.5 text-callout text-ink placeholder:text-faint focus:border-accent focus:outline-none"
       />
       {state === "error" && (
-        <div className="mt-1 flex items-start gap-2 text-[11px] text-bad" role="alert">
+        <div className="mt-1 flex items-start gap-2 text-subhead text-bad" role="alert">
           <span className="flex-1">Couldn&apos;t save — your text is kept here. {error}</span>
           <button
             type="button"
@@ -957,9 +955,9 @@ function Timeline({ detail }: { detail: ListingDetail }) {
   return (
     <Section title="Status timeline">
       {events.length === 0 ? (
-        <p className="text-[12px] text-faint">No status changes yet — this listing is untracked.</p>
+        <p className="text-callout text-faint">No status changes yet — this listing is untracked.</p>
       ) : (
-        <ol className="space-y-1 border-l border-line pl-3 text-[12px]" data-testid="timeline">
+        <ol className="space-y-1 border-l border-line pl-3 text-callout" data-testid="timeline">
           {events.map((e, i) => (
             <li key={i} className="relative">
               <span className="absolute top-[7px] -left-[15.5px] h-1.5 w-1.5 rounded-full bg-faint" />
@@ -968,10 +966,10 @@ function Timeline({ detail }: { detail: ListingDetail }) {
               </span>
               <span className="mx-1 text-faint">→</span>
               <span className="text-ink">{STATUS_FILTER_LABELS[e.toStatus]}</span>
-              <span className="ml-2 font-mono text-[10.5px] text-faint">
+              <span className="ml-2 font-mono text-subhead text-faint">
                 {absoluteDate(new Date(e.occurredAt).getTime())}
               </span>
-              {e.note && <p className="text-[11px] break-words text-faint">{e.note}</p>}
+              {e.note && <p className="text-subhead break-words text-faint">{e.note}</p>}
             </li>
           ))}
         </ol>

@@ -34,7 +34,7 @@ export function NotesPreview({ app, notes }: { app: TrackerApplication; notes: N
       aria-expanded={notes.isOpen(app.id)}
       aria-label={`Notes for ${app.company}, ${app.role}`}
       title={text || undefined}
-      className="block w-full min-w-0 rounded px-1 py-0.5 text-left text-[12px] text-dim hover:bg-raised"
+      className="block w-full min-w-0 rounded px-1 py-0.5 text-left text-callout text-dim hover:bg-raised"
     >
       {text ? (
         <span data-testid="notes-preview" className="line-clamp-2 break-words whitespace-pre-wrap">
@@ -44,7 +44,7 @@ export function NotesPreview({ app, notes }: { app: TrackerApplication; notes: N
         <span className="text-faint">+ note</span>
       )}
       {(dirty || err) && (
-        <span className={`mt-0.5 block font-mono text-[10px] ${err ? "text-bad" : "text-warn"}`}>
+        <span className={`mt-0.5 block font-mono text-footnote ${err ? "text-bad" : "text-warn"}`}>
           {err ? "not saved" : "unsaved"}
         </span>
       )}
@@ -84,9 +84,9 @@ export function NotesEditor({ app, notes }: { app: TrackerApplication; notes: No
             notes.close(app.id);
           }
         }}
-        className="w-full resize-y rounded border border-line bg-canvas px-1.5 py-1 text-[12px] leading-snug text-ink"
+        className="w-full resize-y rounded-md border border-line bg-canvas px-1.5 py-1 text-callout leading-snug text-ink"
       />
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-subhead">
         <button
           type="button"
           title="Save (⌘/Ctrl+Enter). Clicking away or Esc also saves."
@@ -108,12 +108,12 @@ export function NotesEditor({ app, notes }: { app: TrackerApplication; notes: No
             discard
           </button>
         )}
-        <span className={`ml-auto font-mono text-[10px] ${dirty ? "text-warn" : "text-faint"}`}>
+        <span className={`ml-auto font-mono text-footnote ${dirty ? "text-warn" : "text-faint"}`}>
           {dirty ? "unsaved" : "saved"}
         </span>
       </div>
       {err && (
-        <p role="alert" className="text-[11px] text-bad">
+        <p role="alert" className="text-subhead text-bad">
           {err} — your text is kept; retry when ready.
         </p>
       )}

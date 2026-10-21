@@ -16,7 +16,7 @@ export default async function LetterSettingsPage() {
   const fonts = letterFontsInfo(await loadLetterFonts());
   const { signature, ...fields } = profile;
   return (
-    <div className="px-4 py-3">
+    <div className="px-6 py-7 lg:px-10 lg:py-9">
       <LetterProfileForm
         fields={fields}
         fonts={fonts}

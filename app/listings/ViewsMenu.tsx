@@ -87,7 +87,7 @@ export default function ViewsMenu({ views, currentQuery, onApply, onChange }: Pr
                     title={view.query ? `?${view.query}` : "No filters, default sort"}
                   >
                     {view.name}
-                    {view.isDefault && <span className="ml-1.5 text-[10px] text-accent">default</span>}
+                    {view.isDefault && <span className="ml-1.5 text-footnote text-accent">default</span>}
                   </button>
                   <button
                     type="button"
@@ -121,7 +121,7 @@ export default function ViewsMenu({ views, currentQuery, onApply, onChange }: Pr
               save();
             }}
           >
-            <label className="block px-1 text-[11px] text-faint">
+            <label className="block px-1 text-subhead text-faint">
               Save the current filters and sort as
               <input
                 type="text"
@@ -129,7 +129,7 @@ export default function ViewsMenu({ views, currentQuery, onApply, onChange }: Pr
                 maxLength={60}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Summer 2027 backend"
-                className="mt-1 w-full rounded border border-line bg-canvas px-1.5 py-[3px] text-[12px] text-ink placeholder:text-faint focus:border-accent focus:outline-none"
+                className="mt-1 w-full rounded-md border border-line bg-canvas px-1.5 py-[3px] text-callout text-ink placeholder:text-faint focus:border-accent focus:outline-none"
               />
             </label>
             <label className="mt-1.5 flex cursor-pointer items-center gap-2 px-1 text-dim">
@@ -141,7 +141,7 @@ export default function ViewsMenu({ views, currentQuery, onApply, onChange }: Pr
               />
               Open this view by default
             </label>
-            <p className="mt-1 px-1 text-[11px] text-faint">Saving under an existing name updates it.</p>
+            <p className="mt-1 px-1 text-subhead text-faint">Saving under an existing name updates it.</p>
             <button
               type="submit"
               disabled={pending || name.trim() === ""}
@@ -150,7 +150,7 @@ export default function ViewsMenu({ views, currentQuery, onApply, onChange }: Pr
               {pending ? "Saving…" : "Save view"}
             </button>
             {error && (
-              <p role="alert" className="mt-1.5 px-1 text-[11px] text-bad">
+              <p role="alert" className="mt-1.5 px-1 text-subhead text-bad">
                 {error}
               </p>
             )}

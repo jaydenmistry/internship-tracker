@@ -1,79 +1,127 @@
 @import "tailwindcss";
 
 /* Tailwind v4 keeps its configuration here — there is no tailwind.config file.
-   Dark mode is class-strategy: `<html class="dark">` in app/layout.tsx. Dark is
-   this tool's default, but both themes are defined so removing the class works. */
-@custom-variant dark (&:where(.dark, .dark *));
+   Two themes, chosen in the app (sidebar toggle) and remembered in a cookie,
+   so the server renders the right one with no flash: `data-theme` on <html>,
+   dark by default. `dark:` utilities key off the same attribute.
+
+   Colours are named by role, after Apple's semantic colours: every text
+   colour (ink, dim, faint, accent and the four signals) clears 4.5:1 on
+   every surface (canvas, panel, raised, sidebar) in both themes, and white
+   on the button blue (accent-fill) is 4.7:1. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 :root {
-  --canvas: oklch(99% 0 0);
-  --panel: oklch(97.2% 0.002 260);
-  --raised: oklch(94.5% 0.004 260);
-  --line: oklch(89% 0.005 260);
-  --line-soft: oklch(93% 0.004 260);
-  --ink: oklch(21% 0.01 260);
-  --dim: oklch(48% 0.012 260);
-  --faint: oklch(63% 0.012 260);
-  --accent: oklch(52% 0.17 255);
-  --accent-ink: oklch(99% 0 0);
-  --ok: oklch(52% 0.14 152);
-  --warn: oklch(58% 0.14 72);
-  --bad: oklch(55% 0.19 25);
-  --info: oklch(53% 0.13 230);
+  --canvas: #ffffff; /* content: the table, the page body */
+  --panel: #f7f7f9; /* grouped surfaces: cards, the inspector */
+  --raised: #eeeef1; /* sunken tracks, hovered and selected rows */
+  --control: #ffffff; /* button faces */
+  --sidebar: #f2f2f5;
+  --line: #e1e1e6;
+  --line-soft: #ececf0;
+  --ink: #1d1d1f;
+  --dim: #48484d;
+  --faint: #68686e;
+  --accent: #0066cc;
+  --accent-fill: #0071e3;
+  --accent-ink: #ffffff;
+  --ok: #1a7a35;
+  --warn: #a85200;
+  --bad: #cc1f2b;
+  --info: #00739e;
+  --shadow-color: 230 10% 20%;
+  --highlight: rgb(255 255 255 / 0.7); /* the lit top edge of a raised control */
+  color-scheme: light;
 }
 
-.dark {
-  --canvas: oklch(15.5% 0.006 260);
-  --panel: oklch(19% 0.007 260);
-  --raised: oklch(23.5% 0.008 260);
-  --line: oklch(31% 0.01 260);
-  --line-soft: oklch(25% 0.009 260);
-  --ink: oklch(94% 0.004 260);
-  --dim: oklch(72% 0.011 260);
-  --faint: oklch(58% 0.012 260);
-  --accent: oklch(72% 0.14 250);
-  --accent-ink: oklch(16% 0.02 260);
-  --ok: oklch(76% 0.15 155);
-  --warn: oklch(80% 0.14 78);
-  --bad: oklch(70% 0.17 25);
-  --info: oklch(74% 0.12 230);
+:root[data-theme="dark"] {
+  --canvas: #0f0f11;
+  --panel: #18181b;
+  --raised: #232327;
+  --control: #26262b;
+  --sidebar: #141416;
+  --line: #2b2b30;
+  --line-soft: #1f1f23;
+  --ink: #f4f4f6;
+  --dim: #acacb4;
+  --faint: #8a8a93;
+  --accent: #4ea2ff;
+  --accent-fill: #0071e3;
+  --accent-ink: #ffffff;
+  --ok: #40d87f;
+  --warn: #ffb340;
+  --bad: #ff6b64;
+  --info: #5ac8fa;
+  --shadow-color: 0 0% 0%;
+  --highlight: rgb(255 255 255 / 0.06);
+  color-scheme: dark;
 }
 
 @theme inline {
   --color-canvas: var(--canvas);
   --color-panel: var(--panel);
   --color-raised: var(--raised);
+  --color-control: var(--control);
+  --color-sidebar: var(--sidebar);
   --color-line: var(--line);
   --color-line-soft: var(--line-soft);
   --color-ink: var(--ink);
   --color-dim: var(--dim);
   --color-faint: var(--faint);
   --color-accent: var(--accent);
+  --color-accent-fill: var(--accent-fill);
   --color-accent-ink: var(--accent-ink);
   --color-ok: var(--ok);
   --color-warn: var(--warn);
   --color-bad: var(--bad);
   --color-info: var(--info);
 
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  /* The system font on Apple devices (SF Pro — used as the system font, not
+     embedded, which its licence allows), Inter with its optical-size axis
+     everywhere else. Mono is kept for data that is literally code-like. */
+  --font-sans: -apple-system, BlinkMacSystemFont, var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
-}
 
-html {
-  color-scheme: light;
-}
+  /* Type scale, in rem so text follows the browser's font-size setting as
+     well as zoom. A step above macOS's text styles (typography.md ›
+     Specifications) — this is read on a desktop screen at arm's length.
+     Nothing goes below footnote (11px at the default 16px root). */
+  --text-large: 2rem; /* 32 — big numbers */
+  --text-headline: 1.625rem; /* 26 — page titles */
+  --text-title: 1rem; /* 16 — section and panel titles */
+  --text-body: 0.875rem; /* 14 — body */
+  --text-callout: 0.8125rem; /* 13 — controls, table rows */
+  --text-subhead: 0.75rem; /* 12 — secondary text */
+  --text-footnote: 0.6875rem; /* 11 — badges, fine print */
 
-html.dark {
-  color-scheme: dark;
+  /* Softer corners than Tailwind's defaults, closer to macOS controls. */
+  --radius-sm: 0.375rem;
+  --radius: 0.5rem;
+  --radius-md: 0.5625rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+
+  --shadow-sm: 0 1px 2px hsl(var(--shadow-color) / 0.1), 0 0 0 0.5px hsl(var(--shadow-color) / 0.06);
+  --shadow-md: 0 4px 12px hsl(var(--shadow-color) / 0.12), 0 0 0 0.5px hsl(var(--shadow-color) / 0.08);
+  --shadow-lg: 0 12px 32px hsl(var(--shadow-color) / 0.22), 0 0 0 0.5px hsl(var(--shadow-color) / 0.12);
+  --shadow-2xl: 0 24px 64px hsl(var(--shadow-color) / 0.36), 0 0 0 0.5px hsl(var(--shadow-color) / 0.14);
+
+  /* Apple's sheet curve: a quick start that settles softly. */
+  --ease-out: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-spring: cubic-bezier(0.34, 1.36, 0.64, 1);
 }
 
 body {
   background: var(--canvas);
   color: var(--ink);
   font-family: var(--font-sans);
-  /* Dense tool, not a marketing page: small base type, tight rhythm. */
-  font-size: 13px;
-  line-height: 1.45;
+  font-optical-sizing: auto;
+  font-size: var(--text-body);
+  line-height: 1.5;
+  letter-spacing: -0.006em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 /* Native form controls should follow the theme rather than the OS default. */
@@ -83,32 +131,286 @@ select,
 button {
   font: inherit;
   color: inherit;
+  letter-spacing: inherit;
 }
 
 ::selection {
-  background: color-mix(in oklab, var(--accent) 35%, transparent);
+  background: color-mix(in oklab, var(--accent) 30%, transparent);
+}
+
+/* Fields get a soft ring instead of a bare outline when focused, and every
+   control shows a pointer — this is a pointer-and-keyboard tool. */
+input:not([type="checkbox"], [type="radio"], [type="file"]),
+textarea,
+select {
+  transition: border-color 150ms, box-shadow 150ms;
+}
+input:not([type="checkbox"], [type="radio"], [type="file"]):focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  border-color: color-mix(in oklab, var(--accent) 70%, transparent);
+  box-shadow: 0 0 0 3.5px color-mix(in oklab, var(--accent) 24%, transparent);
+}
+button:not(:disabled),
+select:not(:disabled),
+summary,
+label:has(input[type="checkbox"]) {
+  cursor: pointer;
+}
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent-fill);
+}
+
+/* Theme switches cross-fade (the View Transitions API) instead of snapping. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 280ms;
+  animation-timing-function: ease;
+}
+
+/* --- Shared building blocks ----------------------------------------------
+   In the components layer, so a utility on the element still wins. */
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    height: 2rem;
+    padding-inline: 0.875rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+    background: var(--control);
+    color: var(--ink);
+    font-size: var(--text-callout);
+    font-weight: 500;
+    white-space: nowrap;
+    box-shadow: inset 0 1px 0 var(--highlight), var(--shadow-sm);
+    transition:
+      background-color 150ms,
+      border-color 150ms,
+      box-shadow 150ms,
+      transform 120ms var(--ease-out);
+  }
+  .btn:hover:not(:disabled) {
+    background: color-mix(in oklab, var(--control) 92%, var(--ink));
+  }
+  .btn:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+  .btn:disabled {
+    opacity: 0.45;
+  }
+  .btn-primary {
+    border-color: color-mix(in oklab, var(--accent-fill) 70%, black);
+    background: linear-gradient(180deg, color-mix(in oklab, var(--accent-fill) 88%, white), var(--accent-fill));
+    color: var(--accent-ink);
+    font-weight: 600;
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.22),
+      0 1px 2px hsl(var(--shadow-color) / 0.25),
+      0 2px 8px color-mix(in oklab, var(--accent-fill) 25%, transparent);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: linear-gradient(180deg, color-mix(in oklab, var(--accent-fill) 80%, white), color-mix(in oklab, var(--accent-fill) 94%, white));
+  }
+  /* Segmented control: the selected segment is a raised chip on a sunken
+     track (aria-current, aria-pressed or aria-checked marks it). */
+  .seg {
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    border-radius: var(--radius-md);
+    background: var(--raised);
+  }
+  .seg > * {
+    display: inline-flex;
+    align-items: center;
+    height: 1.625rem;
+    padding-inline: 0.75rem;
+    border-radius: var(--radius-sm);
+    font-size: var(--text-callout);
+    color: var(--dim);
+    transition: background-color 150ms, color 150ms, box-shadow 150ms;
+  }
+  .seg > *:hover {
+    color: var(--ink);
+  }
+  .seg > [aria-current="page"],
+  .seg > [aria-pressed="true"],
+  .seg > [aria-checked="true"] {
+    background: var(--control);
+    color: var(--ink);
+    font-weight: 500;
+    box-shadow: inset 0 1px 0 var(--highlight), var(--shadow-sm);
+  }
+  .card {
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--line-soft);
+    background: var(--panel);
+    box-shadow: inset 0 1px 0 var(--highlight);
+  }
+  .eyebrow {
+    font-size: var(--text-footnote);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+}
+
+/* --- Motion ---------------------------------------------------------------
+   Brief, purposeful, and off under Reduce Motion (bottom of the file). */
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(8px);
+  }
+}
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+@keyframes content-in {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+}
+@keyframes ring-draw {
+  from {
+    stroke-dashoffset: var(--ring-c);
+  }
+}
+.page-in {
+  animation: page-in 320ms var(--ease-out) both;
+}
+.pop-in {
+  transform-origin: top;
+  animation: pop-in 180ms var(--ease-out) both;
+}
+.fade-in {
+  animation: fade-in 200ms ease both;
+}
+.sheet-in {
+  animation: sheet-in 260ms var(--ease-out) both;
+}
+.rise-in {
+  animation: rise-in 300ms var(--ease-out) both;
+}
+.content-in {
+  animation: content-in 260ms var(--ease-out) both;
+}
+.ring-draw {
+  animation: ring-draw 1100ms var(--ease-out) both;
+}
+
+/* The inspector slides in over the table from the right edge, and back out.
+   It stays mounted while closed (inert), so it can animate both ways. */
+.dp-shell {
+  transform: translateX(calc(100% + 24px));
+  transition:
+    transform 460ms var(--ease-out),
+    box-shadow 460ms var(--ease-out);
+  box-shadow: none;
+}
+.dp-shell[data-open] {
+  transform: none;
+  box-shadow: -24px 0 48px -12px hsl(var(--shadow-color) / 0.35);
 }
 
 /* --- Listings table ------------------------------------------------------
    The header row and every virtualized body row share one grid template, so
    the columns stay aligned without a table element (rows are absolutely
    positioned by the virtualizer and can't participate in table layout).
-   Sized to fit 1440px with no horizontal scroll; role takes the slack. */
+   Columns drop out by the width the TABLE has (a container query), not the
+   window's: opening the inspector or the sidebar narrows it the same way a
+   small window does. Least useful first — source, age, location, then
+   deadline and status; all of it stays in the inspector. */
+.lt-wrap {
+  container: lt / inline-size;
+}
 .lt-grid {
   display: grid;
   grid-template-columns:
     3rem /* rank */
-    3.25rem /* score */
-    minmax(7rem, 11rem) /* company */
+    3rem /* score */
+    minmax(7rem, 12rem) /* company */
     minmax(10rem, 1fr) /* role */
-    minmax(6.5rem, 10rem) /* location */
+    minmax(6.5rem, 11rem) /* location */
     3.25rem /* age */
-    4.75rem /* deadline */
-    5.25rem /* status */
-    5.5rem; /* source */
+    5rem /* deadline */
+    6.5rem /* status */
+    5.75rem; /* source */
   align-items: center;
-  column-gap: 0.625rem;
-  padding-inline: 0.75rem;
+  column-gap: 0.875rem;
+  padding-inline: 1.25rem;
+}
+@container lt (max-width: 57.99rem) {
+  .lt-grid {
+    grid-template-columns: 3rem 3rem minmax(7rem, 12rem) minmax(10rem, 1fr) minmax(6.5rem, 11rem) 3.25rem 5rem 6.5rem;
+  }
+  .lt-c-source {
+    display: none;
+  }
+}
+@container lt (max-width: 51.49rem) {
+  .lt-grid {
+    grid-template-columns: 3rem 3rem minmax(7rem, 12rem) minmax(10rem, 1fr) minmax(6.5rem, 11rem) 5rem 6.5rem;
+  }
+  .lt-c-age {
+    display: none;
+  }
+}
+@container lt (max-width: 47.49rem) {
+  .lt-grid {
+    grid-template-columns: 3rem 3rem minmax(7rem, 12rem) minmax(8rem, 1fr) 5rem 6.5rem;
+  }
+  .lt-c-location {
+    display: none;
+  }
+}
+@container lt (max-width: 39.99rem) {
+  .lt-grid {
+    grid-template-columns: 2rem 3rem minmax(5rem, 7rem) minmax(0, 1fr);
+    column-gap: 0.5rem;
+    padding-inline: 0.75rem;
+  }
+  .lt-c-deadline,
+  .lt-c-status {
+    display: none;
+  }
+}
+
+/* Column headings everywhere: title-style nouns (lists-and-tables.md ›
+   Content), quieter than the rows. */
+.th {
+  font-size: var(--text-subhead);
+  font-weight: 500;
+  color: var(--faint);
+  text-align: left;
+  text-transform: capitalize;
 }
 
 /* One line, ellipsised — a wrapped cell would break the fixed row height the
@@ -142,7 +444,7 @@ button {
 /* Rank movement sits beside the rank inside the 3rem rank column: small
    enough that a 4-digit rank plus a 3-digit move still fits unclipped. */
 .lt-rank-move {
-  font-size: 9px;
+  font-size: var(--text-footnote);
   line-height: 1;
   letter-spacing: -0.02em;
 }
@@ -150,7 +452,7 @@ button {
 /* Highlighted menu item — driven by the keyboard reducer and by hover alike,
    so there is exactly one highlight at a time. */
 .ctx-item[data-active] {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-ink);
 }
 .ctx-item[data-active] .text-faint,
@@ -172,4 +474,17 @@ button {
 .dp-panel {
   scrollbar-color: var(--line) transparent;
   scrollbar-width: thin;
+}
+
+/* Motion here is only colour fades and a few slides; with Reduce Motion on,
+   they happen instantly. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

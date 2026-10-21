@@ -51,18 +51,19 @@ import { useListingDetail } from "./useListingDetail";
 import { useRowActions } from "./useRowActions";
 
 /** Fixed row height — the virtualizer measures nothing, so cells never wrap. */
-const ROW_HEIGHT = 26;
+const ROW_HEIGHT = 36;
 
-const COLUMNS: Array<{ key: SortKey; label: string; align?: "right" }> = [
+/** `col`: a column that drops out when the table is narrow (globals.css). */
+const COLUMNS: Array<{ key: SortKey; label: string; align?: "right"; col?: string }> = [
   { key: "rank", label: "#", align: "right" },
   { key: "score", label: "score", align: "right" },
   { key: "company", label: "company" },
   { key: "role", label: "role" },
-  { key: "location", label: "location" },
-  { key: "age", label: "age", align: "right" },
-  { key: "deadline", label: "deadline" },
-  { key: "status", label: "status" },
-  { key: "source", label: "source" },
+  { key: "location", label: "location", col: "lt-c-location" },
+  { key: "age", label: "age", align: "right", col: "lt-c-age" },
+  { key: "deadline", label: "deadline", col: "lt-c-deadline" },
+  { key: "status", label: "status", col: "lt-c-status" },
+  { key: "source", label: "source", col: "lt-c-source" },
 ];
 
 interface Props {
@@ -248,6 +249,10 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views }: Pro
     () => (openId ? (patched.find((r) => r.id === openId) ?? null) : null),
     [openId, patched],
   );
+  // The listing the inspector shows: the open one, or — while it slides
+  // closed — the last one that was open.
+  const [panelRow, setPanelRow] = useState<TableRow | null>(null);
+  if (openRow !== null && openRow !== panelRow) setPanelRow(openRow);
 
   const menuRow = useMemo(
     () => (menu ? (patched.find((r) => r.id === menu.rowId) ?? null) : null),
@@ -439,12 +444,12 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views }: Pro
         onShowHelp={() => setShowHelp(true)}
       />
 
-      <div className="flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-1 flex-col">
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+        <div className="lt-wrap flex min-w-0 flex-1 flex-col">
           {/* Header — same grid template as the rows, so nothing drifts. */}
           <div
             role="row"
-            className="lt-grid shrink-0 border-b border-line bg-panel/80 py-1 font-mono text-[10px] tracking-wide text-faint uppercase"
+            className="lt-grid th shrink-0 border-b border-line bg-canvas py-2.5"
           >
             {COLUMNS.map((col) => {
               const active = sort.key === col.key;
@@ -455,12 +460,12 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views }: Pro
                   aria-sort={
                     active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"
                   }
-                  className="lt-cell"
+                  className={`lt-cell ${col.col ?? ""}`}
                 >
                   <button
                     type="button"
                     onClick={() => setSort((s) => nextSort(s, col.key))}
-                    className={`flex w-full items-center gap-0.5 rounded-sm text-left uppercase hover:text-ink ${
+                    className={`flex w-full items-center gap-0.5 rounded-sm text-left capitalize hover:text-ink ${
                       col.align === "right" ? "justify-end" : ""
                     } ${active ? "text-ink" : ""}`}
                   >
@@ -483,7 +488,7 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views }: Pro
             className="lt-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
           >
             {visible.length === 0 ? (
-              <p className="px-3 py-8 text-center text-[12px] text-faint">
+              <p className="px-3 py-12 text-center text-body text-faint">
                 Nothing matches these filters.
               </p>
             ) : (
@@ -512,21 +517,31 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views }: Pro
           </div>
         </div>
 
-        {openRow && (
-          <DetailPanel
-            row={openRow}
-            load={detail.load}
-            now={now}
-            focus={detailFocus}
-            onCommand={(command) => act(openRow, command)}
-            onSaveNotes={saveNotes}
-            onRetry={detail.retry}
-            onClose={() => {
-              setOpenId(null);
-              scrollRef.current?.focus({ preventScroll: true });
-            }}
-          />
-        )}
+        {/* The inspector overlays the table and slides in from the right.
+            Closing keeps the last listing mounted (inert) so it can slide
+            back out instead of vanishing. */}
+        <div
+          className="dp-shell absolute inset-y-0 right-0 z-20 flex w-[27rem] max-w-full"
+          data-open={openRow ? "" : undefined}
+          inert={!openRow}
+        >
+          {panelRow && (
+            <DetailPanel
+              key={panelRow.id}
+              row={panelRow}
+              load={detail.load}
+              now={now}
+              focus={detailFocus}
+              onCommand={(command) => act(panelRow, command)}
+              onSaveNotes={saveNotes}
+              onRetry={detail.retry}
+              onClose={() => {
+                setOpenId(null);
+                scrollRef.current?.focus({ preventScroll: true });
+              }}
+            />
+          )}
+        </div>
       </div>
 
       {menu && menuRow && (
@@ -547,7 +562,7 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views }: Pro
         <div
           key={toast.id}
           role={toast.kind === "error" ? "alert" : "status"}
-          className={`fixed bottom-3 left-3 z-[60] flex max-w-md items-start gap-2 rounded border bg-panel px-3 py-2 text-[12px] shadow-lg ${
+          className={`rise-in fixed bottom-5 left-1/2 z-[60] flex max-w-md -translate-x-1/2 items-start gap-2 rounded-lg border bg-panel px-3.5 py-2.5 text-body shadow-lg ${
             toast.kind === "error" ? "border-bad/60 text-bad" : "border-ok/50 text-ok"
           }`}
         >
@@ -577,7 +592,7 @@ const SCORE_TONE_CLASS = {
 
 const STATUS_TONE_CLASS: Record<string, string> = {
   NOT_APPLIED: "text-faint",
-  APPLIED: "text-accent",
+  APPLIED: "text-ink",
   OA: "text-info",
   PHONE_SCREEN: "text-info",
   INTERVIEW: "text-info",
@@ -641,16 +656,16 @@ const Row = memo(function Row({
         height: ROW_HEIGHT,
         transform: `translateY(${offset}px)`,
       }}
-      className={`lt-grid cursor-default border-b border-line-soft/60 text-[12px] ${
+      className={`lt-grid cursor-default border-b border-line-soft text-callout transition-colors duration-150 ${
         focused
-          ? "bg-raised shadow-[inset_2px_0_0_var(--accent)]"
+          ? "bg-accent/10 shadow-[inset_3px_0_0_var(--accent)]"
           : open
-            ? "bg-raised/60"
-            : "hover:bg-panel"
+            ? "bg-raised"
+            : "hover:bg-raised/50"
       } ${muted ? "opacity-55" : ""}`}
     >
       <span
-        className="lt-cell flex items-baseline justify-end gap-[3px] font-mono tabular-nums"
+        className="lt-cell flex items-baseline justify-end gap-[3px] tabular-nums"
         title={row.rank === null ? "no rank — disqualified" : movement?.label}
       >
         {movement && (
@@ -661,11 +676,11 @@ const Row = memo(function Row({
             {movement.text}
           </span>
         )}
-        <span className="text-[10.5px] text-faint">{row.rank ?? "—"}</span>
+        <span className="text-subhead text-faint">{row.rank ?? "—"}</span>
       </span>
 
       <span
-        className={`lt-cell text-right font-mono tabular-nums ${
+        className={`lt-cell text-right font-semibold tabular-nums ${
           row.disqualified ? "text-faint line-through" : SCORE_TONE_CLASS[scoreTone(row.score)]
         }`}
         title={
@@ -675,7 +690,7 @@ const Row = memo(function Row({
         {formatScore(row.score)}
       </span>
 
-      <span className="lt-cell text-ink" title={row.company}>
+      <span className="lt-cell font-medium text-ink" title={row.company}>
         {row.faangPlus && (
           <span className="mr-1 text-warn" title="FAANG+ company">
             ★
@@ -685,7 +700,7 @@ const Row = memo(function Row({
       </span>
 
       <span className="lt-cell flex items-center gap-1.5" title={row.title}>
-        <span className={`truncate ${row.likelyClosed ? "text-dim line-through" : "text-dim"}`}>
+        <span className={`truncate ${row.likelyClosed ? "text-dim line-through" : "text-ink"}`}>
           {row.title}
         </span>
         {row.saved && (
@@ -712,7 +727,7 @@ const Row = memo(function Row({
       </span>
 
       <span
-        className="lt-cell text-dim"
+        className="lt-cell lt-c-location text-dim"
         // Name the other locations: "+1" on a multi-country posting hides
         // whether any of them are US, which decides eligibility.
         title={
@@ -729,14 +744,14 @@ const Row = memo(function Row({
       </span>
 
       <span
-        className="lt-cell text-right font-mono text-[11px] text-faint tabular-nums"
+        className="lt-cell lt-c-age text-right text-subhead text-faint tabular-nums"
         title={`${row.postedAt ? "posted" : "first seen"} ${absoluteDate(row.ageTs)}`}
       >
         {relativeAge(row.ageTs, now)}
       </span>
 
       <span
-        className={`lt-cell font-mono text-[11px] tabular-nums ${
+        className={`lt-cell lt-c-deadline text-subhead tabular-nums ${
           urgency === "soon" ? "font-semibold text-warn" : urgency === "past" ? "text-faint line-through" : "text-faint"
         }`}
         title={row.deadlineTs ? `deadline ${absoluteDay(row.deadlineTs)}` : undefined}
@@ -744,11 +759,19 @@ const Row = memo(function Row({
         {formatDeadline(row.deadlineTs, now)}
       </span>
 
-      <span className={`lt-cell ${STATUS_TONE_CLASS[row.statusKey] ?? "text-dim"}`}>
-        {STATUS_LABELS[row.statusKey]}
+      <span className="lt-cell lt-c-status text-subhead">
+        {row.statusKey === "NOT_APPLIED" ? (
+          <span className="text-faint">—</span>
+        ) : (
+          // The dot carries the colour, the word carries the meaning.
+          <span className="inline-flex items-center gap-1.5 text-dim">
+            <span aria-hidden className={`size-1.5 shrink-0 rounded-full bg-current ${STATUS_TONE_CLASS[row.statusKey] ?? ""}`} />
+            {STATUS_LABELS[row.statusKey]}
+          </span>
+        )}
       </span>
 
-      <span className="lt-cell font-mono text-[10px] text-faint" title={row.sources.join(", ")}>
+      <span className="lt-cell lt-c-source text-subhead text-faint" title={row.sources.join(", ")}>
         {row.sources.join(" ")}
       </span>
     </div>

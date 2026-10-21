@@ -46,7 +46,7 @@ I built it for my own Summer 2027 search. It runs on my home server behind Traef
 - Alerts go to Discord and email, and each one is sent only once.
 
 **Interface**
-- A dense, virtualized table with filters, keyboard navigation (`j`/`k`, `/` to search, `?` for help), a detail panel, a context menu and a dark theme.
+- A dense, virtualized table with filters, keyboard navigation (`j`/`k`, `/` to search, `?` for help), a slide-in detail panel and a context menu, with light and dark themes and a collapsible sidebar.
 
 ---
 

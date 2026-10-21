@@ -54,7 +54,7 @@ export const CONTACT_STATUS_LABELS: Record<ContactStatus, string> = {
 export const CONTACT_STATUS_TONE: Record<ContactStatus, string> = {
   NOT_CONTACTED: "text-faint",
   PENDING_CONNECTION: "text-dim",
-  AWAITING_REPLY: "text-accent",
+  AWAITING_REPLY: "text-ink",
   REPLIED: "text-info",
   CHATTED: "text-info",
   REFERRED: "text-ok",

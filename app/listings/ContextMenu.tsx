@@ -159,7 +159,7 @@ export default function ContextMenu({ row, point, mergeCount, onCommand, onClose
         aria-activedescendant={activeId}
         onKeyDown={onKeyDown}
         onContextMenu={(e) => e.preventDefault()}
-        className="ctx-menu fixed z-50 min-w-[14rem] rounded-md border border-line bg-panel py-1 text-[12px] shadow-2xl outline-none"
+        className="ctx-menu pop-in fixed z-50 min-w-[14rem] rounded-xl border border-line bg-panel/90 p-1 text-body shadow-lg outline-none backdrop-blur-xl"
         style={{
           left: pos?.x ?? point.x,
           top: pos?.y ?? point.y,
@@ -194,13 +194,13 @@ export default function ContextMenu({ row, point, mergeCount, onCommand, onClose
                   }
                   run({ type: "activate", index: i });
                 }}
-                className={`ctx-item flex cursor-default items-center gap-3 px-3 py-[5px] ${
+                className={`ctx-item flex cursor-default items-center gap-3 rounded-md px-2.5 py-1 ${
                   item.disabled ? "text-faint opacity-60" : "text-ink"
                 }`}
               >
                 <span className="flex-1 whitespace-nowrap">{item.label}</span>
                 {item.hint && (
-                  <kbd className="font-mono text-[10px] text-faint">{item.hint}</kbd>
+                  <kbd className="font-mono text-footnote text-faint">{item.hint}</kbd>
                 )}
                 {item.submenu && <span className="text-faint">▸</span>}
               </div>
@@ -214,7 +214,7 @@ export default function ContextMenu({ row, point, mergeCount, onCommand, onClose
           ref={subRef}
           role="menu"
           aria-label="Set status"
-          className="ctx-menu fixed z-50 min-w-[10rem] rounded-md border border-line bg-panel py-1 text-[12px] shadow-2xl"
+          className="ctx-menu pop-in fixed z-50 min-w-[10rem] rounded-xl border border-line bg-panel/90 p-1 text-body shadow-lg backdrop-blur-xl"
           style={{
             left: subPos?.x ?? 0,
             top: subPos?.y ?? 0,
@@ -230,7 +230,7 @@ export default function ContextMenu({ row, point, mergeCount, onCommand, onClose
               data-active={nav.sub === i || undefined}
               onPointerEnter={() => setNav((n) => ({ ...n, sub: i }))}
               onClick={() => run({ type: "activateSub", index: i })}
-              className="ctx-item flex cursor-default items-center gap-2 px-3 py-[5px] text-ink"
+              className="ctx-item flex cursor-default items-center gap-2 rounded-md px-2.5 py-1 text-ink"
             >
               <span className="w-3 text-accent">{s.current ? "✓" : ""}</span>
               <span className="flex-1 whitespace-nowrap">{s.label}</span>

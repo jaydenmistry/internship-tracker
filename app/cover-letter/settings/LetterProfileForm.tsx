@@ -19,9 +19,9 @@ import {
  * greeting, and a signature image placed between the closing and your name.
  */
 
-const INPUT = "h-7 w-full rounded border border-line bg-raised px-2 text-[13px] text-ink placeholder:text-faint";
-const BTN = "rounded border border-line px-3 py-1 text-[12px] text-dim hover:text-ink disabled:opacity-60";
-const PRIMARY = "rounded border border-accent bg-accent px-3 py-1 text-[12px] text-accent-ink disabled:opacity-60";
+const INPUT = "h-8 w-full rounded-md border border-line bg-canvas px-2.5 text-body text-ink placeholder:text-faint";
+const BTN = "btn disabled:opacity-60";
+const PRIMARY = "btn btn-primary disabled:opacity-60";
 
 interface Props {
   fields: LetterProfileFields;
@@ -57,18 +57,18 @@ export default function LetterProfileForm({ fields, fonts, signature }: Props) {
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-3">
       <header className="flex items-baseline gap-3">
-        <Link href="/" className="text-[12px] text-faint hover:text-ink">
+        <Link href="/" className="text-callout text-faint hover:text-ink">
           ← Listings
         </Link>
-        <h1 className="text-[15px] font-medium text-ink">Cover letter letterhead</h1>
+        <h1 className="text-headline leading-tight font-bold tracking-[-0.025em] text-ink">Cover letter letterhead</h1>
       </header>
-      <p className="text-[12px] text-dim">
+      <p className="text-callout text-dim">
         Used on every exported PDF and .docx. Your name goes in capitals at the top, the contact lines centred under
         it, and your name again under the signature.
       </p>
 
       <form
-        className="flex flex-col gap-3 rounded border border-line bg-panel p-3 text-[12px]"
+        className="flex flex-col gap-3 card p-3 text-callout"
         onSubmit={(e) => {
           e.preventDefault();
           run(() => saveLetterProfileAction({ ...f, contactLines: f.contactLines.map((l) => l.trim()) }), "Saved.");
@@ -84,7 +84,7 @@ export default function LetterProfileForm({ fields, fonts, signature }: Props) {
             className={INPUT}
           />
           {!fields.name.trim() && (
-            <span className="text-[11px] text-warn">
+            <span className="text-subhead text-warn">
               Not set — downloads print no name at the top or under the signature until you save one.
             </span>
           )}
@@ -107,7 +107,7 @@ export default function LetterProfileForm({ fields, fonts, signature }: Props) {
           <label className="flex flex-col gap-1">
             <span className="text-dim">Recipient (first line)</span>
             <input value={f.recipient} maxLength={100} onChange={(e) => set("recipient", e.target.value)} className={INPUT} />
-            <span className="text-[11px] text-faint">The company name goes on the line under it.</span>
+            <span className="text-subhead text-faint">The company name goes on the line under it.</span>
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-dim">Closing</span>
@@ -117,7 +117,7 @@ export default function LetterProfileForm({ fields, fonts, signature }: Props) {
         <label className="flex flex-col gap-1">
           <span className="text-dim">Default greeting</span>
           <input value={f.greeting} maxLength={200} onChange={(e) => set("greeting", e.target.value)} className={INPUT} />
-          <span className="text-[11px] text-faint">
+          <span className="text-subhead text-faint">
             <code>{"{company}"}</code> becomes the company name. Each letter can override it.
           </span>
         </label>
@@ -128,8 +128,8 @@ export default function LetterProfileForm({ fields, fonts, signature }: Props) {
         </div>
       </form>
 
-      <section aria-label="Signature" className="flex flex-col gap-2 rounded border border-line bg-panel p-3 text-[12px]">
-        <h2 className="font-mono text-[10px] font-semibold tracking-wide text-faint uppercase">Signature</h2>
+      <section aria-label="Signature" className="flex flex-col gap-2 card p-3 text-callout">
+        <h2 className="eyebrow">Signature</h2>
         {signature ? (
           // A data: URL from our own database; the bytes were checked to be a PNG/JPEG on upload.
           // eslint-disable-next-line @next/next/no-img-element
@@ -157,7 +157,7 @@ export default function LetterProfileForm({ fields, fonts, signature }: Props) {
             name="signature"
             accept="image/png,image/jpeg"
             required
-            className="text-[12px] text-dim file:mr-2 file:rounded file:border file:border-line file:bg-raised file:px-2 file:py-0.5 file:text-dim"
+            className="text-callout text-dim file:mr-2 file:rounded file:border file:border-line file:bg-raised file:px-2 file:py-0.5 file:text-dim"
           />
           <button type="submit" disabled={pending} className={BTN}>
             Upload
@@ -168,14 +168,14 @@ export default function LetterProfileForm({ fields, fonts, signature }: Props) {
             </button>
           )}
         </form>
-        <p className="text-[11px] text-faint">
+        <p className="text-subhead text-faint">
           PNG or JPEG, under {Math.round(SIGNATURE_MAX_BYTES / 1024)} KB. A scan on a white background works; it&apos;s drawn
           about 2&quot; wide.
         </p>
       </section>
 
-      <section aria-label="PDF font" className="flex flex-col gap-2 rounded border border-line bg-panel p-3 text-[12px]">
-        <h2 className="font-mono text-[10px] font-semibold tracking-wide text-faint uppercase">PDF font</h2>
+      <section aria-label="PDF font" className="flex flex-col gap-2 card p-3 text-callout">
+        <h2 className="eyebrow">PDF font</h2>
         <p className="text-dim">
           PDFs use Helvetica unless you upload your own font — upload Aptos to match Word. It stays in this app&apos;s
           database (fonts can&apos;t be shipped with the app). Word files ask Word for the regular font&apos;s family
@@ -208,7 +208,7 @@ export default function LetterProfileForm({ fields, fonts, signature }: Props) {
                 accept=".ttf,.otf,font/ttf,font/otf"
                 required
                 aria-label={`${weight === "regular" ? "Regular" : "Bold"} font file`}
-                className="w-52 text-[12px] text-dim file:mr-2 file:rounded file:border file:border-line file:bg-raised file:px-2 file:py-0.5 file:text-dim"
+                className="w-52 text-callout text-dim file:mr-2 file:rounded file:border file:border-line file:bg-raised file:px-2 file:py-0.5 file:text-dim"
               />
               <button type="submit" disabled={pending} className={BTN}>
                 Upload
@@ -226,7 +226,7 @@ export default function LetterProfileForm({ fields, fonts, signature }: Props) {
             </form>
           );
         })}
-        <p className="text-[11px] text-faint">
+        <p className="text-subhead text-faint">
           A single .ttf or .otf, under {Math.round(FONT_MAX_BYTES / 1024 / 1024)} MB. Without a bold font your name is
           emboldened from the regular one. Aptos is free from Microsoft&apos;s Aptos font download; on Windows with
           Office, the regular face is often already in
@@ -236,7 +236,7 @@ export default function LetterProfileForm({ fields, fonts, signature }: Props) {
       </section>
 
       {message && (
-        <p role={message.ok ? "status" : "alert"} className={`text-[12px] ${message.ok ? "text-ok" : "text-bad"}`}>
+        <p role={message.ok ? "status" : "alert"} className={`text-callout ${message.ok ? "text-ok" : "text-bad"}`}>
           {message.text}
         </p>
       )}

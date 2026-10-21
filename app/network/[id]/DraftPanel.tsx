@@ -45,9 +45,9 @@ interface Props {
   onClose: () => void;
 }
 
-const INPUT = "h-7 w-full rounded border border-line bg-raised px-2 text-[13px]";
-const BTN = "rounded border border-line px-3 py-1 text-[12px] text-dim hover:text-ink disabled:opacity-60";
-const PRIMARY = "rounded border border-accent bg-accent px-3 py-1 text-[12px] text-accent-ink disabled:opacity-60";
+const INPUT = "h-8 w-full rounded-md border border-line bg-canvas px-2.5 text-body";
+const BTN = "btn disabled:opacity-60";
+const PRIMARY = "btn btn-primary disabled:opacity-60";
 
 export default function DraftPanel({
   contactId,
@@ -123,17 +123,17 @@ export default function DraftPanel({
   };
 
   return (
-    <section aria-label="Draft" className="flex flex-col gap-3 rounded border border-line bg-panel px-3 py-3" data-testid="draft-panel">
+    <section aria-label="Draft" className="flex flex-col gap-3 card px-3 py-3" data-testid="draft-panel">
       <div className="flex items-baseline gap-2">
-        <h2 className="text-[13px] font-medium">Draft a message to {contactName}</h2>
-        <button type="button" onClick={onClose} className="ml-auto text-[12px] text-faint hover:text-ink">
+        <h2 className="text-body font-medium">Draft a message to {contactName}</h2>
+        <button type="button" onClick={onClose} className="ml-auto text-callout text-faint hover:text-ink">
           close
         </button>
       </div>
 
       <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
         <label className="flex flex-col gap-1">
-          <span className="text-[12px] text-dim">Type</span>
+          <span className="text-callout text-dim">Type</span>
           <select
             value={e.type}
             onChange={(ev) => {
@@ -158,7 +158,7 @@ export default function DraftPanel({
           </select>
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-[12px] text-dim">Sending by</span>
+          <span className="text-callout text-dim">Sending by</span>
           <select
             value={e.channel}
             onChange={(ev) => set("channel", ev.target.value as OutreachChannel)}
@@ -174,7 +174,7 @@ export default function DraftPanel({
         </label>
         {listings.length > 0 && (
           <label className="flex flex-col gap-1 sm:col-span-2">
-            <span className="text-[12px] text-dim">About a role (optional)</span>
+            <span className="text-callout text-dim">About a role (optional)</span>
             <select value={e.listingId} onChange={(ev) => set("listingId", ev.target.value)} className={INPUT}>
               <option value="">— none —</option>
               {listings.map((l) => (
@@ -186,7 +186,7 @@ export default function DraftPanel({
           </label>
         )}
         <label className="flex flex-col gap-1 sm:col-span-2 lg:col-span-4">
-          <span className="text-[12px] text-dim">Nudge (optional)</span>
+          <span className="text-callout text-dim">Nudge (optional)</span>
           <input
             value={e.nudge}
             maxLength={300}
@@ -203,11 +203,11 @@ export default function DraftPanel({
             {drafting ? "Drafting…" : e.draftBody ? "Regenerate" : "Draft"}
           </button>
         ) : (
-          <span className="text-[12px] text-warn" data-testid="draft-unavailable">
+          <span className="text-callout text-warn" data-testid="draft-unavailable">
             {doNotContact ? `${contactName} is marked do-not-contact — drafting is off.` : availability.reason}
           </span>
         )}
-        <span className="text-[11px] text-faint" data-testid="draft-disclosure">
+        <span className="text-subhead text-faint" data-testid="draft-disclosure">
           Drafting sends to Anthropic, through your Claude account: this contact&apos;s name, title, company, how you
           met and your notes on them; your recent messages with them (including their replies); the role&apos;s
           posting text, if you picked one; your resume; your voice notes; and a few of your past edited messages.
@@ -216,7 +216,7 @@ export default function DraftPanel({
 
       {(hasText || e.draftBody) && (
         <div className="flex flex-col gap-2">
-          <p className="text-[11px] text-faint">Edit here before sending — this is how drafts learn your voice.</p>
+          <p className="text-subhead text-faint">Edit here before sending — this is how drafts learn your voice.</p>
           {draftUsesSubject(e.type) && e.channel === "EMAIL" && (
             <input
               aria-label="Subject"
@@ -232,15 +232,15 @@ export default function DraftPanel({
             maxLength={20_000}
             rows={10}
             onChange={(ev) => set("body", ev.target.value)}
-            className="w-full rounded border border-line bg-raised px-2 py-1 text-[13px] leading-snug"
+            className="w-full rounded-md border border-line bg-canvas px-2 py-1 text-body leading-snug"
           />
           <div className="flex flex-wrap items-center gap-2">
             {len && (
-              <span className={`font-mono text-[11px] ${len.over ? "text-bad" : "text-faint"}`} data-testid="length">
+              <span className={`font-mono text-subhead ${len.over ? "text-bad" : "text-faint"}`} data-testid="length">
                 {len.text}
               </span>
             )}
-            {e.warning && <span className="text-[12px] text-warn">{e.warning}</span>}
+            {e.warning && <span className="text-callout text-warn">{e.warning}</span>}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {e.channel === "EMAIL" &&
@@ -249,7 +249,7 @@ export default function DraftPanel({
                   Open in mail
                 </a>
               ) : (
-                <span className="text-[11px] text-faint">
+                <span className="text-subhead text-faint">
                   {email ? "Too long for a mail link — use Copy." : "No email on file — use Copy."}
                 </span>
               ))}
@@ -259,13 +259,13 @@ export default function DraftPanel({
             <button type="button" onClick={onMarkSent} disabled={!hasText || saving} className={PRIMARY}>
               {saving ? "Saving…" : "Mark sent"}
             </button>
-            <span className="text-[11px] text-faint">Nothing is logged until you click Mark sent.</span>
+            <span className="text-subhead text-faint">Nothing is logged until you click Mark sent.</span>
           </div>
         </div>
       )}
 
       {error && (
-        <p role="alert" className="text-[12px] text-bad">
+        <p role="alert" className="text-callout text-bad">
           {error}
         </p>
       )}

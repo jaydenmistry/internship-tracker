@@ -686,7 +686,7 @@ app/                       Next.js App Router (auth: proxy.ts + requireSession()
   cover-letter/            /cover-letter — draft, edit, save, download PDF/.docx;
                            settings/ letterhead + signature
   api/applications/export/ GET → applications CSV (round-trips via /import)
-  layout.tsx, globals.css  shell, nav, dark theme tokens (Tailwind v4, CSS config)
+  layout.tsx, globals.css  shell (sidebar nav), light + dark theme tokens, type scale (Tailwind v4, CSS config)
 components/                small shared UI primitives
 lib/
   db.ts                    Prisma client; passes ?schema= to the adapter

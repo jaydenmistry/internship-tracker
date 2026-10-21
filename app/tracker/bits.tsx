@@ -63,7 +63,7 @@ export function Markers({ app }: { app: TrackerApplication }) {
         {app.hasCoverLetter ? (
           <Badge tone="ok">cover letter</Badge>
         ) : (
-          <span className="text-[11px] text-faint hover:text-ink">+ letter</span>
+          <span className="text-subhead text-faint hover:text-ink">+ letter</span>
         )}
       </Link>
       {app.contactCount > 0 && app.contactCompanyKey && (
@@ -103,7 +103,7 @@ export function StatusSelect({
       aria-label={`Status for ${app.company}, ${app.role}`}
       value={app.status}
       onChange={(e) => onChange(e.target.value as AppStatus)}
-      className={`h-6 min-w-0 rounded border border-line bg-raised px-1 text-[12px] ${
+      className={`h-6 min-w-0 rounded-md border border-line bg-canvas px-1 text-callout ${
         STATUS_TONE[app.status]
       } ${className}`}
     >

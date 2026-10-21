@@ -38,9 +38,9 @@ export default async function ResumePage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 px-4 py-4">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-6 py-7 lg:px-10 lg:py-9">
       <header>
-        <h1 className="text-base font-semibold tracking-tight">Resume</h1>
+        <h1 className="text-headline leading-tight font-bold tracking-[-0.025em]">Resume</h1>
         <p className="mt-1 max-w-prose text-dim">
           One resume at a time. Its text is matched against each posting to show
           which keywords you already cover and which you don&apos;t — a tailoring
@@ -49,9 +49,9 @@ export default async function ResumePage() {
       </header>
 
       {resume ? (
-        <section className="rounded border border-line bg-panel">
-          <div className="flex items-center justify-between border-b border-line-soft px-3 py-1.5">
-            <span className="font-mono text-[11px] tracking-wide text-faint uppercase">
+        <section className="card">
+          <div className="flex items-center justify-between border-b border-line-soft px-4 py-2.5">
+            <span className="eyebrow">
               active resume
             </span>
             <Badge tone="ok" solid>
@@ -59,29 +59,29 @@ export default async function ResumePage() {
             </Badge>
           </div>
 
-          <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-1 px-3 py-3">
-            <dt className="text-[11px] text-faint uppercase">File</dt>
+          <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-6 gap-y-1.5 px-4 py-4">
+            <dt className="text-callout text-faint">File</dt>
             {/* Browser-supplied name: sanitized at save, rendered as text. */}
-            <dd className="min-w-0 truncate font-mono text-[12px]">{resume.filename}</dd>
+            <dd className="min-w-0 truncate font-mono text-callout">{resume.filename}</dd>
 
-            <dt className="text-[11px] text-faint uppercase">Uploaded</dt>
+            <dt className="text-callout text-faint">Uploaded</dt>
             <dd>
               <time dateTime={resume.uploadedAt.toISOString()} title={absolute(resume.uploadedAt)}>
                 {relative(resume.uploadedAt)}
               </time>
             </dd>
 
-            <dt className="text-[11px] text-faint uppercase">Extracted</dt>
-            <dd className="font-mono tabular-nums">
+            <dt className="text-callout text-faint">Extracted</dt>
+            <dd className="tabular-nums">
               {resume.text.length.toLocaleString("en-US")} chars
               {resume.text.length >= MAX_RESUME_CHARS && (
-                <span className="ml-2 font-sans text-[11px] text-warn">
+                <span className="ml-2 text-subhead text-warn">
                   at the {MAX_RESUME_CHARS.toLocaleString("en-US")} character cap
                 </span>
               )}
             </dd>
 
-            <dt className="text-[11px] text-faint uppercase">Keywords</dt>
+            <dt className="text-callout text-faint">Keywords</dt>
             <dd>
               {keywords === null ? (
                 <span className="text-faint">unavailable (scoring config could not be read)</span>
@@ -90,23 +90,23 @@ export default async function ResumePage() {
                   none recognised — the text extracted, but none of the tracked skills appear in it
                 </span>
               ) : (
-                <span className="font-mono tabular-nums">{keywords.length} found</span>
+                <span className="tabular-nums">{keywords.length} found</span>
               )}
             </dd>
           </dl>
 
           {keywords !== null && keywords.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1 border-t border-line-soft px-3 py-2">
+            <div className="flex flex-wrap items-center gap-1.5 border-t border-line-soft px-4 py-3">
               {keywords.slice(0, KEYWORD_PREVIEW).map((label) => (
                 <span
                   key={label}
-                  className="rounded border border-ok/40 px-1.5 py-[1px] font-mono text-[11px] text-ok"
+                  className="rounded-full bg-ok/12 px-2.5 py-0.5 text-callout font-medium text-ok"
                 >
                   {label}
                 </span>
               ))}
               {keywords.length > KEYWORD_PREVIEW && (
-                <span className="text-[11px] text-faint">
+                <span className="text-subhead text-faint">
                   +{keywords.length - KEYWORD_PREVIEW} more
                 </span>
               )}
@@ -114,11 +114,11 @@ export default async function ResumePage() {
           )}
 
           <details className="border-t border-line-soft px-3 py-2">
-            <summary className="cursor-pointer text-[12px] text-dim hover:text-ink">
+            <summary className="cursor-pointer text-callout text-dim hover:text-ink">
               Extracted text preview
             </summary>
             {/* PDF text layers are untrusted input; React escapes it as text. */}
-            <p className="mt-2 max-h-40 overflow-y-auto font-mono text-[11px] leading-5 whitespace-pre-wrap text-faint">
+            <p className="mt-2 max-h-40 overflow-y-auto font-mono text-subhead leading-5 whitespace-pre-wrap text-faint">
               {resume.text.slice(0, TEXT_PREVIEW_CHARS)}
               {resume.text.length > TEXT_PREVIEW_CHARS && " …"}
             </p>
@@ -134,23 +134,23 @@ export default async function ResumePage() {
       <UploadForm replacing={resume !== null} />
 
       {history.length > 0 && (
-        <section className="rounded border border-line bg-panel">
-          <div className="border-b border-line-soft px-3 py-1.5 font-mono text-[11px] tracking-wide text-faint uppercase">
+        <section className="card">
+          <div className="border-b border-line-soft px-4 py-2.5 eyebrow">
             replaced
           </div>
           <ul className="divide-y divide-line-soft">
             {history.map((old) => (
               <li key={old.id} className="flex items-baseline gap-3 px-3 py-1.5">
-                <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-dim">
+                <span className="min-w-0 flex-1 truncate font-mono text-callout text-dim">
                   {old.filename}
                 </span>
-                <span className="shrink-0 font-mono text-[11px] tabular-nums text-faint">
+                <span className="shrink-0 font-mono text-subhead tabular-nums text-faint">
                   {old.chars.toLocaleString("en-US")} chars
                 </span>
                 <time
                   dateTime={old.uploadedAt.toISOString()}
                   title={absolute(old.uploadedAt)}
-                  className="shrink-0 text-[11px] text-faint"
+                  className="shrink-0 text-subhead text-faint"
                 >
                   {relative(old.uploadedAt)}
                 </time>

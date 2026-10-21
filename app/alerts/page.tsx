@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { loadAlertSettings } from "@/lib/alerts/config";
 import { loadRecentAlerts } from "@/lib/alerts/data";
 import { channelAvailability } from "@/lib/alerts/send";
+import PageHeader from "@/components/PageHeader";
 import AlertsView from "./AlertsView";
 
 export const metadata: Metadata = {
@@ -25,7 +26,11 @@ export default async function AlertsPage() {
   const channels = channelAvailability(settings);
 
   return (
-    <div className="flex flex-col gap-3 px-4 py-3">
+    <div className="flex flex-col gap-5 px-6 py-7 lg:px-10 lg:py-9">
+      <PageHeader
+        title="Alerts"
+        description="When the worker tells you about new listings, high scores and deadlines, and where it sends them."
+      />
       <AlertsView settings={settings} recent={recent} channels={channels} />
     </div>
   );

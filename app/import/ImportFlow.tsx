@@ -105,7 +105,7 @@ export default function ImportFlow() {
 
   return (
     <section className="mx-auto w-full max-w-2xl">
-      <h1 className="text-base font-semibold tracking-tight">Import complete</h1>
+      <h1 className="text-headline leading-tight font-bold tracking-[-0.025em]">Import complete</h1>
       <dl className="mt-3 grid grid-cols-4 gap-2">
         {(
           [
@@ -115,21 +115,21 @@ export default function ImportFlow() {
             ["already tracked", result?.unchanged ?? 0, "text-faint"],
           ] as const
         ).map(([label, value, tone]) => (
-          <div key={label} className="rounded border border-line bg-panel px-3 py-2">
+          <div key={label} className="card px-3 py-2">
             <dd className={`font-mono text-xl ${tone}`}>{value}</dd>
-            <dt className="text-[11px] text-faint">{label}</dt>
+            <dt className="text-subhead text-faint">{label}</dt>
           </div>
         ))}
       </dl>
 
       {result && result.failed.length > 0 && (
-        <div className="mt-3 rounded border border-bad/40 bg-bad/10 px-3 py-2">
-          <p className="text-[12px] font-medium text-bad">
+        <div className="mt-3 rounded-lg border border-bad/25 bg-bad/10 px-3 py-2">
+          <p className="text-callout font-medium text-bad">
             {result.failed.length} row{result.failed.length === 1 ? "" : "s"} failed
           </p>
           <ul className="mt-1 space-y-0.5">
             {result.failed.map((failure) => (
-              <li key={failure.lineNumber} className="font-mono text-[11px] text-dim">
+              <li key={failure.lineNumber} className="font-mono text-subhead text-dim">
                 line {failure.lineNumber}: {failure.reason}
               </li>
             ))}
@@ -141,13 +141,13 @@ export default function ImportFlow() {
         <button
           type="button"
           onClick={restart}
-          className="rounded bg-accent px-3 py-1 font-medium text-accent-ink"
+          className="btn btn-primary"
         >
           Import more
         </button>
         <Link
           href="/"
-          className="rounded border border-line bg-raised px-3 py-1 text-dim hover:text-ink"
+          className="rounded-md border border-line bg-canvas px-3 py-1 text-dim hover:text-ink"
         >
           Back to listings
         </Link>

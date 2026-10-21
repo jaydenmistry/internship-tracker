@@ -13,7 +13,7 @@ export const metadata: Metadata = {
  */
 export default function ImportPage() {
   return (
-    <div className="flex flex-1 flex-col px-4 py-4">
+    <div className="flex flex-1 flex-col px-6 py-7 lg:px-10 lg:py-9">
       <ImportFlow />
     </div>
   );
