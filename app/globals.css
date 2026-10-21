@@ -303,8 +303,12 @@ input[type="radio"] {
     stroke-dashoffset: var(--ring-c);
   }
 }
+/* `backwards`, not `both`: a fill that outlives the animation keeps a
+   transform on the page, which makes it the containing block for every
+   position: fixed descendant — menus, the toast and the help sheet would then
+   be placed (and overflow) relative to the page instead of the viewport. */
 .page-in {
-  animation: page-in 320ms var(--ease-out) both;
+  animation: page-in 320ms var(--ease-out) backwards;
 }
 .pop-in {
   transform-origin: top;
@@ -344,65 +348,100 @@ input[type="radio"] {
    The header row and every virtualized body row share one grid template, so
    the columns stay aligned without a table element (rows are absolutely
    positioned by the virtualizer and can't participate in table layout).
-   Columns drop out by the width the TABLE has (a container query), not the
-   window's: opening the inspector or the sidebar narrows it the same way a
-   small window does. Least useful first — source, age, location, then
-   deadline and status; all of it stays in the inspector. */
+   The template is the user's (column order, widths and visibility, from
+   table-layout.ts): .lt-wrap carries it as --lt-cols, and --lt-min is the
+   width below which the table scrolls sideways instead of squeezing. Role
+   fills whatever the fixed-width columns leave. */
 .lt-wrap {
   container: lt / inline-size;
+  --lt-gap: 0.875rem;
+  --lt-pad: 1.25rem;
 }
 .lt-grid {
   display: grid;
-  grid-template-columns:
-    3rem /* rank */
-    3rem /* score */
-    minmax(7rem, 12rem) /* company */
-    minmax(10rem, 1fr) /* role */
-    minmax(6.5rem, 11rem) /* location */
-    3.25rem /* age */
-    5rem /* deadline */
-    6.5rem /* status */
-    5.75rem; /* source */
+  grid-template-columns: var(--lt-cols);
+  min-width: var(--lt-min);
   align-items: center;
-  column-gap: 0.875rem;
-  padding-inline: 1.25rem;
+  column-gap: var(--lt-gap);
+  padding-inline: var(--lt-pad);
 }
-@container lt (max-width: 57.99rem) {
-  .lt-grid {
-    grid-template-columns: 3rem 3rem minmax(7rem, 12rem) minmax(10rem, 1fr) minmax(6.5rem, 11rem) 3.25rem 5rem 6.5rem;
-  }
-  .lt-c-source {
-    display: none;
-  }
+.lt-body {
+  min-width: var(--lt-min);
 }
-@container lt (max-width: 51.49rem) {
-  .lt-grid {
-    grid-template-columns: 3rem 3rem minmax(7rem, 12rem) minmax(10rem, 1fr) minmax(6.5rem, 11rem) 5rem 6.5rem;
-  }
-  .lt-c-age {
-    display: none;
-  }
-}
-@container lt (max-width: 47.49rem) {
-  .lt-grid {
-    grid-template-columns: 3rem 3rem minmax(7rem, 12rem) minmax(8rem, 1fr) 5rem 6.5rem;
-  }
-  .lt-c-location {
-    display: none;
-  }
-}
+
+/* Phone width: the core columns only (rank, score, company, role — the
+   `core` flag in table-layout.ts), in the user's order, with no resizing or
+   dragging. Everything else stays in the inspector. */
 @container lt (max-width: 39.99rem) {
-  .lt-grid {
-    grid-template-columns: 2rem 3rem minmax(5rem, 7rem) minmax(0, 1fr);
-    column-gap: 0.5rem;
-    padding-inline: 0.75rem;
+  .lt-wrap {
+    --lt-gap: 0.5rem;
+    --lt-pad: 0.75rem;
   }
-  .lt-c-deadline,
-  .lt-c-status {
+  .lt-grid {
+    grid-template-columns: var(--lt-cols-compact);
+    min-width: 0;
+  }
+  .lt-body {
+    min-width: 0;
+  }
+  .lt-grid > :is([data-col="location"], [data-col="age"], [data-col="deadline"], [data-col="status"], [data-col="source"]) {
+    display: none;
+  }
+  .lt-resize {
     display: none;
   }
 }
 
+/* The grip between two headings. Invisible until the header is hovered, so
+   the header stays as quiet as the rows; the hit area is wider than the line. */
+.lt-resize {
+  position: absolute;
+  top: -0.625rem;
+  bottom: -0.625rem;
+  right: calc(var(--lt-gap) / -2 - 5px);
+  z-index: 3;
+  width: 10px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.lt-resize::after {
+  content: "";
+  position: absolute;
+  inset: 0.5rem 4.5px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background-color 150ms;
+}
+.lt-head:hover .lt-resize::after {
+  background: var(--line);
+}
+.lt-head .lt-resize:hover::after,
+.lt-resize[data-active]::after {
+  background: var(--accent);
+}
+.lt-head[data-dragging] .lt-resize {
+  visibility: hidden;
+}
+
+/* Moving a column: the one under the pointer is lifted — a raised-colour
+   strip from header to last row — and the others slide out of its way
+   (transforms written by TableHeader into a <style> keyed by data-col). */
+.lt-head .lt-th {
+  cursor: grab;
+}
+:root[data-col-drag],
+:root[data-col-drag] * {
+  cursor: grabbing !important;
+}
+:root[data-col-resize],
+:root[data-col-resize] * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+:root[data-col-drag] .lt-grid > [data-col] {
+  position: relative;
+  will-change: transform;
+}
 /* Column headings everywhere: title-style nouns (lists-and-tables.md ›
    Content), quieter than the rows. */
 .th {
@@ -447,6 +486,12 @@ input[type="radio"] {
   font-size: var(--text-footnote);
   line-height: 1;
   letter-spacing: -0.02em;
+}
+
+/* A menu takes focus so it can own the keyboard; the highlighted item is the
+   focus indicator, so the menu itself draws no ring. */
+.ctx-menu:focus-visible {
+  outline: none;
 }
 
 /* Highlighted menu item — driven by the keyboard reducer and by hover alike,

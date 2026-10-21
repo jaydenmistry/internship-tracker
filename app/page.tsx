@@ -1,6 +1,8 @@
+import { cookies } from "next/headers";
 import { loadListingRows } from "@/lib/listings/query";
 import { loadSavedViews } from "@/lib/listings/views";
 import ListingsTable from "./listings/ListingsTable";
+import { LAYOUT_COOKIE, parseLayout } from "./listings/table-layout";
 import { VIEW_QUERY_KEYS } from "./listings/table-state";
 
 /**
@@ -13,14 +15,17 @@ import { VIEW_QUERY_KEYS } from "./listings/table-state";
  *
  * Filters and sort live in the URL query, so a reload or a bookmark keeps
  * them. A bare `/` opens the saved view marked as default, if there is one.
+ * Column order, widths and visibility come from a cookie, so the first paint
+ * is already the user's layout.
  */
 export const dynamic = "force-dynamic";
 
 export default async function Home({ searchParams }: PageProps<"/">) {
-  const [rows, views, params] = await Promise.all([
+  const [rows, views, params, jar] = await Promise.all([
     loadListingRows(),
     loadSavedViews(),
     searchParams,
+    cookies(),
   ]);
 
   // Only parameters the table understands count: a stray `?utm_source=` must
@@ -40,6 +45,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
       nowIso={new Date().toISOString()}
       initialQuery={initialQuery}
       views={views}
+      initialLayout={parseLayout(jar.get(LAYOUT_COOKIE)?.value)}
     />
   );
 }

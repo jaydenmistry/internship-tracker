@@ -8,18 +8,40 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import Badge from "@/components/Badge";
+import { writePreference } from "@/components/preferences";
 import type { ListingRow } from "@/lib/listings/query";
 import type { SavedView } from "@/lib/listings/views";
+import ChecklistMenu from "./ChecklistMenu";
 import ContextMenu from "./ContextMenu";
+import type { Point } from "./context-menu";
 import DetailPanel from "./DetailPanel";
 import HelpOverlay from "./HelpOverlay";
 import { isActivatable, isEditable, isPlainKey } from "./keys";
 import type { DetailFocus, RowCommand, Toast } from "./row-actions";
+import TableHeader from "./TableHeader";
 import Toolbar from "./Toolbar";
+import {
+  columnName,
+  compactTemplate,
+  DEFAULT_LAYOUT,
+  gridMinWidth,
+  gridTemplate,
+  LAYOUT_COOKIE,
+  serializeLayout,
+  toggleColumn,
+  toggleToolbarItem,
+  TOOLBAR_ITEMS,
+  visibleColumns,
+  type ColumnId,
+  type TableLayout,
+  type ToolbarItemId,
+} from "./table-layout";
 import {
   absoluteDate,
   absoluteDay,
@@ -32,7 +54,6 @@ import {
   HIGH_SCORE_THRESHOLD,
   isClosingSoon,
   isTrackedApplied,
-  nextSort,
   prepareRows,
   rankMovement,
   relativeAge,
@@ -41,7 +62,6 @@ import {
   STATUS_LABELS,
   makeRowPredicate,
   type FilterState,
-  type SortKey,
   type SortState,
   type TableRow,
   viewFromQuery,
@@ -53,19 +73,6 @@ import { useRowActions } from "./useRowActions";
 /** Fixed row height — the virtualizer measures nothing, so cells never wrap. */
 const ROW_HEIGHT = 36;
 
-/** `col`: a column that drops out when the table is narrow (globals.css). */
-const COLUMNS: Array<{ key: SortKey; label: string; align?: "right"; col?: string }> = [
-  { key: "rank", label: "#", align: "right" },
-  { key: "score", label: "score", align: "right" },
-  { key: "company", label: "company" },
-  { key: "role", label: "role" },
-  { key: "location", label: "location", col: "lt-c-location" },
-  { key: "age", label: "age", align: "right", col: "lt-c-age" },
-  { key: "deadline", label: "deadline", col: "lt-c-deadline" },
-  { key: "status", label: "status", col: "lt-c-status" },
-  { key: "source", label: "source", col: "lt-c-source" },
-];
-
 interface Props {
   rows: ListingRow[];
   /** Rendered "now", handed down by the server so SSR and hydration agree. */
@@ -73,9 +80,11 @@ interface Props {
   /** Filters + sort to open with: the URL's query, or the default saved view's. */
   initialQuery: string;
   views: SavedView[];
+  /** Column order, widths and visibility, and toolbar items — from the cookie. */
+  initialLayout: TableLayout;
 }
 
-export default function ListingsTable({ rows, nowIso, initialQuery, views }: Props) {
+export default function ListingsTable({ rows, nowIso, initialQuery, views, initialLayout }: Props) {
   const base = useMemo(() => prepareRows(rows), [rows]);
 
   const [filter, setFilter] = useState<FilterState>(() => viewFromQuery(initialQuery).filter);
@@ -88,9 +97,32 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views }: Pro
   const [showHelp, setShowHelp] = useState(false);
   const [toast, setToast] = useState<(Toast & { id: number }) | null>(null);
   const [menu, setMenu] = useState<{ rowId: string; x: number; y: number } | null>(null);
+  const [layout, setLayoutState] = useState<TableLayout>(initialLayout);
+  const [layoutMenu, setLayoutMenu] = useState<{ kind: "columns" | "toolbar"; point: Point } | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const headRef = useRef<HTMLDivElement>(null);
+
+  const setLayout = useCallback((next: TableLayout) => {
+    setLayoutState(next);
+    writePreference(LAYOUT_COOKIE, serializeLayout(next));
+  }, []);
+  const columns = useMemo(() => visibleColumns(layout), [layout]);
+  const columnIds = useMemo(() => columns.map((c) => c.id), [columns]);
+  const toolbarHidden = useMemo(() => new Set(layout.toolbarHidden), [layout.toolbarHidden]);
+  const wrapStyle = useMemo(
+    () =>
+      ({
+        "--lt-cols": gridTemplate(layout),
+        "--lt-cols-compact": compactTemplate(layout),
+        "--lt-min": gridMinWidth(layout),
+        // A row's content height (its bottom border excluded).
+        "--lt-row": `${ROW_HEIGHT - 1}px`,
+      }) as CSSProperties,
+    [layout],
+  );
 
   const notify = useCallback((t: Toast) => {
     setToast({ ...t, id: Date.now() + Math.random() });
@@ -387,6 +419,8 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views }: Pro
         case "F10": {
           // The keyboard's menu key, or Shift+F10: open at the cursor row.
           if (event.key === "F10" && !event.shiftKey) return;
+          // On a column heading or the toolbar, the menu key customizes them.
+          if ((event.target as HTMLElement | null)?.closest?.("[role=columnheader], [data-toolbar]")) return;
           if (!row || at === null) return;
           event.preventDefault();
           const el = document.querySelector<HTMLElement>(
@@ -442,42 +476,24 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views }: Pro
         onApplyView={applyView}
         onViewsChange={setSavedViews}
         onShowHelp={() => setShowHelp(true)}
+        hidden={toolbarHidden}
+        onCustomize={(point) => setLayoutMenu({ kind: "toolbar", point })}
       />
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        <div className="lt-wrap flex min-w-0 flex-1 flex-col">
-          {/* Header — same grid template as the rows, so nothing drifts. */}
-          <div
-            role="row"
-            className="lt-grid th shrink-0 border-b border-line bg-canvas py-2.5"
-          >
-            {COLUMNS.map((col) => {
-              const active = sort.key === col.key;
-              return (
-                <div
-                  key={col.key}
-                  role="columnheader"
-                  aria-sort={
-                    active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"
-                  }
-                  className={`lt-cell ${col.col ?? ""}`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setSort((s) => nextSort(s, col.key))}
-                    className={`flex w-full items-center gap-0.5 rounded-sm text-left capitalize hover:text-ink ${
-                      col.align === "right" ? "justify-end" : ""
-                    } ${active ? "text-ink" : ""}`}
-                  >
-                    {col.label}
-                    <span className={active ? "text-accent" : "invisible"}>
-                      {sort.dir === "asc" ? "▲" : "▼"}
-                    </span>
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+        <div ref={wrapRef} style={wrapStyle} className="lt-wrap flex min-w-0 flex-1 flex-col">
+          {/* Header — same grid template as the rows, so nothing drifts. It
+              sits outside the scroller and follows its sideways scroll. */}
+          <TableHeader
+            ref={headRef}
+            layout={layout}
+            columns={columns}
+            sort={sort}
+            onSort={setSort}
+            onLayoutChange={setLayout}
+            onColumnsMenu={(point) => setLayoutMenu({ kind: "columns", point })}
+            wrapRef={wrapRef}
+          />
 
           <div
             ref={scrollRef}
@@ -485,7 +501,10 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views }: Pro
             role="grid"
             aria-label="Ranked internship listings"
             aria-rowcount={visible.length}
-            className="lt-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+            onScroll={(e) => {
+              if (headRef.current) headRef.current.scrollLeft = e.currentTarget.scrollLeft;
+            }}
+            className="lt-scroll min-h-0 flex-1 overflow-auto"
           >
             {visible.length === 0 ? (
               <p className="px-3 py-12 text-center text-body text-faint">
@@ -493,6 +512,7 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views }: Pro
               </p>
             ) : (
               <div
+                className="lt-body"
                 style={{ height: virtualizer.getTotalSize(), position: "relative" }}
               >
                 {items.map((item) => {
@@ -502,6 +522,7 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views }: Pro
                     <Row
                       key={item.key}
                       row={row}
+                      columns={columnIds}
                       index={item.index}
                       offset={item.start}
                       now={now}
@@ -578,6 +599,66 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views }: Pro
         </div>
       )}
 
+      {layoutMenu?.kind === "columns" && (
+        <ChecklistMenu
+          label="Columns"
+          point={layoutMenu.point}
+          sections={[
+            {
+              label: "Columns",
+              items: layout.order.map((id) => ({
+                id,
+                label: columnName(id),
+                checked: !layout.hidden.includes(id),
+                disabled: id === "role",
+                title: id === "role" ? "Always shown" : undefined,
+              })),
+            },
+          ]}
+          onToggle={(id) => setLayout(toggleColumn(layout, id as ColumnId))}
+          actions={[
+            {
+              label: "Reset column widths",
+              disabled: Object.keys(layout.widths).length === 0,
+              onSelect: () => setLayout({ ...layout, widths: {} }),
+            },
+            {
+              label: "Restore default columns",
+              disabled:
+                layout.hidden.length === 0 &&
+                Object.keys(layout.widths).length === 0 &&
+                layout.order.join() === DEFAULT_LAYOUT.order.join(),
+              onSelect: () => setLayout({ ...DEFAULT_LAYOUT, toolbarHidden: layout.toolbarHidden }),
+            },
+          ]}
+          onClose={() => setLayoutMenu(null)}
+        />
+      )}
+
+      {layoutMenu?.kind === "toolbar" && (
+        <ChecklistMenu
+          label="Toolbar items"
+          point={layoutMenu.point}
+          sections={(["Quick filters", "Filters", "Controls"] as const).map((group) => ({
+            label: group,
+            items: TOOLBAR_ITEMS.filter((t) => t.group === group).map((t) => ({
+              id: t.id,
+              label: t.label,
+              checked: !toolbarHidden.has(t.id),
+            })),
+          }))}
+          onToggle={(id) => setLayout(toggleToolbarItem(layout, id as ToolbarItemId))}
+          actions={[
+            {
+              label: "Show everything",
+              disabled: layout.toolbarHidden.length === 0,
+              onSelect: () => setLayout({ ...layout, toolbarHidden: [] }),
+            },
+          ]}
+          onClose={() => setLayoutMenu(null)}
+        />
+      )}
+
       {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
     </div>
   );
@@ -604,6 +685,8 @@ const STATUS_TONE_CLASS: Record<string, string> = {
 
 interface RowProps {
   row: TableRow;
+  /** Visible columns, in order. */
+  columns: readonly ColumnId[];
   index: number;
   offset: number;
   now: number;
@@ -622,6 +705,7 @@ interface RowProps {
  */
 const Row = memo(function Row({
   row,
+  columns,
   index,
   offset,
   now,
@@ -635,6 +719,141 @@ const Row = memo(function Row({
   const dq = row.disqualified ? dqBadge(row.disqualifyReasons) : null;
   const urgency = deadlineUrgency(row.deadlineTs, now);
   const muted = row.disqualified || row.dismissed;
+
+  // Every cell, keyed by column; the row renders the visible ones in the
+  // user's order. `data-col` is what a column drag moves (TableHeader).
+  const cells: Record<ColumnId, ReactNode> = {
+    rank: (
+      <span
+        key="rank"
+        data-col="rank"
+        className="lt-cell flex items-baseline justify-end gap-[3px] tabular-nums"
+        title={row.rank === null ? "no rank — disqualified" : movement?.label}
+      >
+        {movement && (
+          <span
+            data-testid="rank-move"
+            className={`lt-rank-move ${movement.direction === "up" ? "text-ok" : "text-warn"}`}
+          >
+            {movement.text}
+          </span>
+        )}
+        <span className="text-subhead text-faint">{row.rank ?? "—"}</span>
+      </span>
+    ),
+    score: (
+      <span
+        key="score"
+        data-col="score"
+        className={`lt-cell text-right font-semibold tabular-nums ${
+          row.disqualified ? "text-faint line-through" : SCORE_TONE_CLASS[scoreTone(row.score)]
+        }`}
+        title={
+          row.llmAdjustment !== null ? `includes LLM adjustment ${row.llmAdjustment}` : undefined
+        }
+      >
+        {formatScore(row.score)}
+      </span>
+    ),
+    company: (
+      <span key="company" data-col="company" className="lt-cell font-medium text-ink" title={row.company}>
+        {row.faangPlus && (
+          <span className="mr-1 text-warn" title="FAANG+ company">
+            ★
+          </span>
+        )}
+        {row.company}
+      </span>
+    ),
+    role: (
+      <span key="role" data-col="role" className="lt-cell flex items-center gap-1.5" title={row.title}>
+        <span className={`truncate ${row.likelyClosed ? "text-dim line-through" : "text-ink"}`}>
+          {row.title}
+        </span>
+        {row.saved && (
+          <Badge tone="accent" title="Saved">
+            saved
+          </Badge>
+        )}
+        {badge && (
+          <Badge tone={badge.tone} title={badge.title} solid>
+            {badge.label}
+          </Badge>
+        )}
+        {row.likelyClosed && (
+          <Badge tone="dim" title="No longer present in any source — probably closed">
+            closed?
+          </Badge>
+        )}
+        {row.dismissed && <Badge tone="dim">dismissed</Badge>}
+        {dq && (
+          <Badge tone="bad" title={dq.title}>
+            {dq.text}
+          </Badge>
+        )}
+      </span>
+    ),
+    location: (
+      <span
+        key="location"
+        data-col="location"
+        className="lt-cell text-dim"
+        // Name the other locations: "+1" on a multi-country posting hides
+        // whether any of them are US, which decides eligibility.
+        title={
+          row.locationCount > 1
+            ? row.allLocations.join(" · ") +
+              (row.locationCount > row.allLocations.length ? " · …" : "")
+            : row.location
+        }
+      >
+        {row.location}
+        {row.locationCount > 1 && (
+          <span className="ml-1 text-faint">+{row.locationCount - 1}</span>
+        )}
+      </span>
+    ),
+    age: (
+      <span
+        key="age"
+        data-col="age"
+        className="lt-cell text-right text-subhead text-faint tabular-nums"
+        title={`${row.postedAt ? "posted" : "first seen"} ${absoluteDate(row.ageTs)}`}
+      >
+        {relativeAge(row.ageTs, now)}
+      </span>
+    ),
+    deadline: (
+      <span
+        key="deadline"
+        data-col="deadline"
+        className={`lt-cell text-subhead tabular-nums ${
+          urgency === "soon" ? "font-semibold text-warn" : urgency === "past" ? "text-faint line-through" : "text-faint"
+        }`}
+        title={row.deadlineTs ? `deadline ${absoluteDay(row.deadlineTs)}` : undefined}
+      >
+        {formatDeadline(row.deadlineTs, now)}
+      </span>
+    ),
+    status: (
+      <span key="status" data-col="status" className="lt-cell text-subhead">
+        {row.statusKey === "NOT_APPLIED" ? (
+          <span className="text-faint">—</span>
+        ) : (
+          // The dot carries the colour, the word carries the meaning.
+          <span className="inline-flex items-center gap-1.5 text-dim">
+            <span aria-hidden className={`size-1.5 shrink-0 rounded-full bg-current ${STATUS_TONE_CLASS[row.statusKey] ?? ""}`} />
+            {STATUS_LABELS[row.statusKey]}
+          </span>
+        )}
+      </span>
+    ),
+    source: (
+      <span key="source" data-col="source" className="lt-cell text-subhead text-faint" title={row.sources.join(", ")}>
+        {row.sources.join(" ")}
+      </span>
+    ),
+  };
 
   return (
     <div
@@ -664,116 +883,7 @@ const Row = memo(function Row({
             : "hover:bg-raised/50"
       } ${muted ? "opacity-55" : ""}`}
     >
-      <span
-        className="lt-cell flex items-baseline justify-end gap-[3px] tabular-nums"
-        title={row.rank === null ? "no rank — disqualified" : movement?.label}
-      >
-        {movement && (
-          <span
-            data-testid="rank-move"
-            className={`lt-rank-move ${movement.direction === "up" ? "text-ok" : "text-warn"}`}
-          >
-            {movement.text}
-          </span>
-        )}
-        <span className="text-subhead text-faint">{row.rank ?? "—"}</span>
-      </span>
-
-      <span
-        className={`lt-cell text-right font-semibold tabular-nums ${
-          row.disqualified ? "text-faint line-through" : SCORE_TONE_CLASS[scoreTone(row.score)]
-        }`}
-        title={
-          row.llmAdjustment !== null ? `includes LLM adjustment ${row.llmAdjustment}` : undefined
-        }
-      >
-        {formatScore(row.score)}
-      </span>
-
-      <span className="lt-cell font-medium text-ink" title={row.company}>
-        {row.faangPlus && (
-          <span className="mr-1 text-warn" title="FAANG+ company">
-            ★
-          </span>
-        )}
-        {row.company}
-      </span>
-
-      <span className="lt-cell flex items-center gap-1.5" title={row.title}>
-        <span className={`truncate ${row.likelyClosed ? "text-dim line-through" : "text-ink"}`}>
-          {row.title}
-        </span>
-        {row.saved && (
-          <Badge tone="accent" title="Saved">
-            saved
-          </Badge>
-        )}
-        {badge && (
-          <Badge tone={badge.tone} title={badge.title} solid>
-            {badge.label}
-          </Badge>
-        )}
-        {row.likelyClosed && (
-          <Badge tone="dim" title="No longer present in any source — probably closed">
-            closed?
-          </Badge>
-        )}
-        {row.dismissed && <Badge tone="dim">dismissed</Badge>}
-        {dq && (
-          <Badge tone="bad" title={dq.title}>
-            {dq.text}
-          </Badge>
-        )}
-      </span>
-
-      <span
-        className="lt-cell lt-c-location text-dim"
-        // Name the other locations: "+1" on a multi-country posting hides
-        // whether any of them are US, which decides eligibility.
-        title={
-          row.locationCount > 1
-            ? row.allLocations.join(" · ") +
-              (row.locationCount > row.allLocations.length ? " · …" : "")
-            : row.location
-        }
-      >
-        {row.location}
-        {row.locationCount > 1 && (
-          <span className="ml-1 text-faint">+{row.locationCount - 1}</span>
-        )}
-      </span>
-
-      <span
-        className="lt-cell lt-c-age text-right text-subhead text-faint tabular-nums"
-        title={`${row.postedAt ? "posted" : "first seen"} ${absoluteDate(row.ageTs)}`}
-      >
-        {relativeAge(row.ageTs, now)}
-      </span>
-
-      <span
-        className={`lt-cell lt-c-deadline text-subhead tabular-nums ${
-          urgency === "soon" ? "font-semibold text-warn" : urgency === "past" ? "text-faint line-through" : "text-faint"
-        }`}
-        title={row.deadlineTs ? `deadline ${absoluteDay(row.deadlineTs)}` : undefined}
-      >
-        {formatDeadline(row.deadlineTs, now)}
-      </span>
-
-      <span className="lt-cell lt-c-status text-subhead">
-        {row.statusKey === "NOT_APPLIED" ? (
-          <span className="text-faint">—</span>
-        ) : (
-          // The dot carries the colour, the word carries the meaning.
-          <span className="inline-flex items-center gap-1.5 text-dim">
-            <span aria-hidden className={`size-1.5 shrink-0 rounded-full bg-current ${STATUS_TONE_CLASS[row.statusKey] ?? ""}`} />
-            {STATUS_LABELS[row.statusKey]}
-          </span>
-        )}
-      </span>
-
-      <span className="lt-cell lt-c-source text-subhead text-faint" title={row.sources.join(", ")}>
-        {row.sources.join(" ")}
-      </span>
+      {columns.map((id) => cells[id])}
     </div>
   );
 });

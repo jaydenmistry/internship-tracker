@@ -1,11 +1,13 @@
 "use client";
 
-import { Search, SlidersHorizontal } from "lucide-react";
+import { Ellipsis, Search, SlidersHorizontal } from "lucide-react";
 import { useMemo, useState, type RefObject } from "react";
 import Chip from "@/components/Chip";
 import type { SavedView } from "@/lib/listings/views";
 import FilterMenu, { CheckRow, PanelHeader, RadioRow } from "./FilterMenu";
 import ViewsMenu from "./ViewsMenu";
+import type { Point } from "./context-menu";
+import type { ToolbarItemId } from "./table-layout";
 import {
   DEADLINE_FILTER_LABELS,
   describeFilters,
@@ -50,6 +52,9 @@ interface Props {
   onApplyView: (query: string) => void;
   onViewsChange: (views: SavedView[]) => void;
   onShowHelp: () => void;
+  /** Toolbar items the user turned off (right-click the toolbar). */
+  hidden: ReadonlySet<ToolbarItemId>;
+  onCustomize: (point: Point) => void;
 }
 
 const inputClass =
@@ -72,23 +77,27 @@ export default function Toolbar({
   onApplyView,
   onViewsChange,
   onShowHelp,
+  hidden,
+  onCustomize,
 }: Props) {
+  const show = (id: ToolbarItemId) => !hidden.has(id);
   const set = (patch: Partial<FilterState>) => onChange({ ...filter, ...patch });
   const active = describeFilters(filter);
 
-  const facet = (field: FacetField, label: string) => (
-    <FilterMenu label={label} summary={listSummary(field, filter[field])}>
-      {() => (
-        <FacetPanel
-          rows={rows}
-          filter={filter}
-          field={field}
-          now={now}
-          onChange={(values) => set({ [field]: values })}
-        />
-      )}
-    </FilterMenu>
-  );
+  const facet = (id: ToolbarItemId, field: FacetField, label: string) =>
+    show(id) && (
+      <FilterMenu label={label} summary={listSummary(field, filter[field])}>
+        {() => (
+          <FacetPanel
+            rows={rows}
+            filter={filter}
+            field={field}
+            now={now}
+            onChange={(values) => set({ [field]: values })}
+          />
+        )}
+      </FilterMenu>
+    );
 
   const locationSummary = [
     filter.remoteOnly ? "remote" : null,
@@ -115,8 +124,27 @@ export default function Toolbar({
     filter.showDismissed,
   ].filter(Boolean).length;
 
+  const anyChip = (["chip-saved", "chip-applied", "chip-closing", "chip-high"] as const).some(show);
+  const anyFilter = (
+    ["f-status", "f-source", "f-category", "f-term", "f-location", "f-posted", "f-deadline", "f-score", "f-more"] as const
+  ).some(show);
+
   return (
-    <div className="shrink-0 border-b border-line bg-canvas">
+    <div
+      data-toolbar=""
+      className="shrink-0 border-b border-line bg-canvas"
+      // Right-click (or the menu key) anywhere but a text field customizes
+      // the toolbar; text fields keep the browser's own menu for copy/paste.
+      onContextMenu={(e) => {
+        const t = e.target as HTMLElement;
+        if (t.closest("input, textarea, [role=dialog]")) return;
+        e.preventDefault();
+        if (e.clientX === 0 && e.clientY === 0) {
+          const r = t.getBoundingClientRect();
+          onCustomize({ x: r.left, y: r.bottom + 4 });
+        } else onCustomize({ x: e.clientX, y: e.clientY });
+      }}
+    >
       {/* Row 1 — search, result count, quick chips, sort, views. */}
       <div className="flex flex-wrap items-center gap-2 px-5 pt-4 pb-2.5">
         <div className="relative">
@@ -142,250 +170,291 @@ export default function Toolbar({
           </kbd>
         </div>
 
-        <span className="px-1 text-callout text-faint tabular-nums" aria-live="polite">
-          <span className="font-semibold text-ink">{shown.toLocaleString("en-US")}</span>
-          {" "}of {total.toLocaleString("en-US")}
-        </span>
+        {show("count") && (
+          <span className="px-1 text-callout text-faint tabular-nums" aria-live="polite">
+            <span className="font-semibold text-ink">{shown.toLocaleString("en-US")}</span>
+            {" "}of {total.toLocaleString("en-US")}
+          </span>
+        )}
 
-        <span className="mx-1 h-4 w-px bg-line" />
+        {anyChip && <span className="mx-1 h-4 w-px bg-line" />}
 
-        <Chip
-          active={filter.chipSaved}
-          onClick={() => set({ chipSaved: !filter.chipSaved })}
-          count={counts.saved}
-          title="Only listings you saved"
-        >
-          saved
-        </Chip>
-        <Chip
-          active={filter.chipApplied}
-          onClick={() => set({ chipApplied: !filter.chipApplied })}
-          count={counts.applied}
-          title="Applied, OA, phone screen, interview or offer"
-        >
-          applied
-        </Chip>
-        <Chip
-          active={filter.chipClosingSoon}
-          onClick={() => set({ chipClosingSoon: !filter.chipClosingSoon })}
-          count={counts.closingSoon}
-          title="Deadline within 7 days"
-        >
-          closing soon
-        </Chip>
-        <Chip
-          active={filter.chipHighScore}
-          onClick={() => set({ chipHighScore: !filter.chipHighScore })}
-          count={counts.highScore}
-          title={`Score ${HIGH_SCORE_THRESHOLD} or above`}
-        >
-          high score
-        </Chip>
-
+        {show("chip-saved") && (
+          <Chip
+            active={filter.chipSaved}
+            onClick={() => set({ chipSaved: !filter.chipSaved })}
+            count={counts.saved}
+            title="Only listings you saved"
+          >
+            saved
+          </Chip>
+        )}
+        {show("chip-applied") && (
+          <Chip
+            active={filter.chipApplied}
+            onClick={() => set({ chipApplied: !filter.chipApplied })}
+            count={counts.applied}
+            title="Applied, OA, phone screen, interview or offer"
+          >
+            applied
+          </Chip>
+        )}
+        {show("chip-closing") && (
+          <Chip
+            active={filter.chipClosingSoon}
+            onClick={() => set({ chipClosingSoon: !filter.chipClosingSoon })}
+            count={counts.closingSoon}
+            title="Deadline within 7 days"
+          >
+            closing soon
+          </Chip>
+        )}
+        {show("chip-high") && (
+          <Chip
+            active={filter.chipHighScore}
+            onClick={() => set({ chipHighScore: !filter.chipHighScore })}
+            count={counts.highScore}
+            title={`Score ${HIGH_SCORE_THRESHOLD} or above`}
+          >
+            high score
+          </Chip>
+        )}
       </div>
 
       {/* Row 2 — one dropdown per filter. Filters combine with AND; boxes
           ticked inside one dropdown combine with OR. */}
       <div className="flex flex-wrap items-center gap-1.5 px-5 pb-3.5 text-callout">
-        <SlidersHorizontal aria-hidden size={14} className="mr-1 text-faint" />
-        <span className="sr-only">Filter</span>
-        {facet("statuses", "Status")}
-        {facet("sources", "Source")}
-        {facet("categories", "Category")}
-        {facet("terms", "Term")}
+        {anyFilter && (
+          <>
+            <SlidersHorizontal aria-hidden size={14} className="mr-1 text-faint" />
+            <span className="sr-only">Filter</span>
+          </>
+        )}
+        {facet("f-status", "statuses", "Status")}
+        {facet("f-source", "sources", "Source")}
+        {facet("f-category", "categories", "Category")}
+        {facet("f-term", "terms", "Term")}
 
-        <FilterMenu label="Location" summary={locationSummary || null}>
-          {() => (
-            <div className="w-60">
-              <PanelHeader
-                hint="Where the role is"
-                onClear={
-                  locationSummary
-                    ? () => set({ remoteOnly: false, usOnly: false, locationText: "" })
-                    : null
-                }
-              />
-              <CheckRow checked={filter.remoteOnly} onChange={(v) => set({ remoteOnly: v })}>
-                Remote only
-              </CheckRow>
-              <CheckRow checked={filter.usOnly} onChange={(v) => set({ usOnly: v })}>
-                In the US
-              </CheckRow>
-              <label className="mt-1.5 block px-1 text-subhead text-faint">
-                City or state contains
-                <input
-                  type="text"
-                  value={filter.locationText}
-                  placeholder="e.g. GA, Atlanta, New York"
-                  onChange={(e) => set({ locationText: e.target.value })}
-                  className={`mt-1 w-full ${inputClass}`}
+        {show("f-location") && (
+          <FilterMenu label="Location" summary={locationSummary || null}>
+            {() => (
+              <div className="w-60">
+                <PanelHeader
+                  hint="Where the role is"
+                  onClear={
+                    locationSummary
+                      ? () => set({ remoteOnly: false, usOnly: false, locationText: "" })
+                      : null
+                  }
                 />
-              </label>
-            </div>
-          )}
-        </FilterMenu>
-
-        <FilterMenu
-          label="Posted"
-          summary={
-            filter.postedWithinDays === null
-              ? null
-              : (POSTED_WITHIN_OPTIONS.find((o) => o.days === filter.postedWithinDays)?.label ??
-                `last ${filter.postedWithinDays} days`)
-          }
-        >
-          {(close) => (
-            <div>
-              <PanelHeader hint="Posted (or first seen)" />
-              <RadioRow
-                name="posted"
-                checked={filter.postedWithinDays === null}
-                onSelect={() => {
-                  set({ postedWithinDays: null });
-                  close();
-                }}
-              >
-                any time
-              </RadioRow>
-              {POSTED_WITHIN_OPTIONS.map((option) => (
-                <RadioRow
-                  key={option.days}
-                  name="posted"
-                  checked={filter.postedWithinDays === option.days}
-                  onSelect={() => {
-                    set({ postedWithinDays: option.days });
-                    close();
-                  }}
-                >
-                  {option.label}
-                </RadioRow>
-              ))}
-            </div>
-          )}
-        </FilterMenu>
-
-        <FilterMenu
-          label="Deadline"
-          summary={filter.deadline === "any" ? null : DEADLINE_FILTER_LABELS[filter.deadline]}
-        >
-          {(close) => (
-            <div>
-              <PanelHeader hint="Application deadline" />
-              {(Object.keys(DEADLINE_FILTER_LABELS) as DeadlineFilter[]).map((value) => (
-                <RadioRow
-                  key={value}
-                  name="deadline"
-                  checked={filter.deadline === value}
-                  onSelect={() => {
-                    set({ deadline: value });
-                    close();
-                  }}
-                >
-                  {DEADLINE_FILTER_LABELS[value]}
-                </RadioRow>
-              ))}
-            </div>
-          )}
-        </FilterMenu>
-
-        <FilterMenu label="Score" summary={scoreSummary}>
-          {() => (
-            <ScorePanel
-              minScore={filter.minScore}
-              maxScore={filter.maxScore}
-              onChange={(minScore, maxScore) => set({ minScore, maxScore })}
-            />
-          )}
-        </FilterMenu>
-
-        <FilterMenu label="More" summary={moreCount ? String(moreCount) : null}>
-          {() => (
-            <div className="w-64">
-              <PanelHeader hint="Other filters" />
-              <CheckRow checked={filter.faangOnly} onChange={(v) => set({ faangOnly: v })}>
-                FAANG+ companies only
-              </CheckRow>
-              <CheckRow checked={filter.textOnly} onChange={(v) => set({ textOnly: v })}>
-                Has the full posting text
-              </CheckRow>
-              {(counts.fetchIssues > 0 || filter.fetchIssuesOnly) && (
-                <CheckRow
-                  tone="warn"
-                  checked={filter.fetchIssuesOnly}
-                  onChange={(v) => set({ fetchIssuesOnly: v })}
-                  count={counts.fetchIssues}
-                >
-                  Posting couldn&apos;t be fetched
+                <CheckRow checked={filter.remoteOnly} onChange={(v) => set({ remoteOnly: v })}>
+                  Remote only
                 </CheckRow>
-              )}
-              <div className="my-1.5 border-t border-line-soft" />
-              <CheckRow
-                checked={filter.showDisqualified}
-                onChange={(v) => set({ showDisqualified: v })}
-                count={counts.disqualified}
-              >
-                Show disqualified
-              </CheckRow>
-              <CheckRow
-                checked={filter.showDismissed}
-                onChange={(v) => set({ showDismissed: v })}
-                count={counts.dismissed}
-              >
-                Show dismissed
-              </CheckRow>
-            </div>
-          )}
-        </FilterMenu>
-        <div className="ml-auto flex items-center gap-2">
-          <FilterMenu
-            label="Sort"
-            summary={sortLabel(sort)}
-            active={false}
-            align="right"
-            title="Sort order — clicking a column header works too"
-          >
-            {(close) => (
-              <div>
-                <PanelHeader hint="Sort listings by" />
-                {SORT_PRESETS.map((preset) => (
-                  <RadioRow
-                    key={preset.label}
-                    name="sort"
-                    checked={preset.sort.key === sort.key && preset.sort.dir === sort.dir}
-                    onSelect={() => {
-                      onSortChange(preset.sort);
-                      close();
-                    }}
-                  >
-                    {preset.label}
-                  </RadioRow>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => onSortChange({ ...sort, dir: sort.dir === "asc" ? "desc" : "asc" })}
-                  className="mt-1.5 w-full rounded-md border border-line px-2 py-1 text-left text-dim hover:bg-raised hover:text-ink"
-                >
-                  ⇅ Reverse order
-                </button>
+                <CheckRow checked={filter.usOnly} onChange={(v) => set({ usOnly: v })}>
+                  In the US
+                </CheckRow>
+                <label className="mt-1.5 block px-1 text-subhead text-faint">
+                  City or state contains
+                  <input
+                    type="text"
+                    value={filter.locationText}
+                    placeholder="e.g. GA, Atlanta, New York"
+                    onChange={(e) => set({ locationText: e.target.value })}
+                    className={`mt-1 w-full ${inputClass}`}
+                  />
+                </label>
               </div>
             )}
           </FilterMenu>
+        )}
 
-          <ViewsMenu
-            views={views}
-            currentQuery={currentQuery}
-            onApply={onApplyView}
-            onChange={onViewsChange}
-          />
+        {show("f-posted") && (
+          <FilterMenu
+            label="Posted"
+            summary={
+              filter.postedWithinDays === null
+                ? null
+                : (POSTED_WITHIN_OPTIONS.find((o) => o.days === filter.postedWithinDays)?.label ??
+                  `last ${filter.postedWithinDays} days`)
+            }
+          >
+            {(close) => (
+              <div>
+                <PanelHeader hint="Posted (or first seen)" />
+                <RadioRow
+                  name="posted"
+                  checked={filter.postedWithinDays === null}
+                  onSelect={() => {
+                    set({ postedWithinDays: null });
+                    close();
+                  }}
+                >
+                  any time
+                </RadioRow>
+                {POSTED_WITHIN_OPTIONS.map((option) => (
+                  <RadioRow
+                    key={option.days}
+                    name="posted"
+                    checked={filter.postedWithinDays === option.days}
+                    onSelect={() => {
+                      set({ postedWithinDays: option.days });
+                      close();
+                    }}
+                  >
+                    {option.label}
+                  </RadioRow>
+                ))}
+              </div>
+            )}
+          </FilterMenu>
+        )}
 
+        {show("f-deadline") && (
+          <FilterMenu
+            label="Deadline"
+            summary={filter.deadline === "any" ? null : DEADLINE_FILTER_LABELS[filter.deadline]}
+          >
+            {(close) => (
+              <div>
+                <PanelHeader hint="Application deadline" />
+                {(Object.keys(DEADLINE_FILTER_LABELS) as DeadlineFilter[]).map((value) => (
+                  <RadioRow
+                    key={value}
+                    name="deadline"
+                    checked={filter.deadline === value}
+                    onSelect={() => {
+                      set({ deadline: value });
+                      close();
+                    }}
+                  >
+                    {DEADLINE_FILTER_LABELS[value]}
+                  </RadioRow>
+                ))}
+              </div>
+            )}
+          </FilterMenu>
+        )}
+
+        {show("f-score") && (
+          <FilterMenu label="Score" summary={scoreSummary}>
+            {() => (
+              <ScorePanel
+                minScore={filter.minScore}
+                maxScore={filter.maxScore}
+                onChange={(minScore, maxScore) => set({ minScore, maxScore })}
+              />
+            )}
+          </FilterMenu>
+        )}
+
+        {show("f-more") && (
+          <FilterMenu label="More" summary={moreCount ? String(moreCount) : null}>
+            {() => (
+              <div className="w-64">
+                <PanelHeader hint="Other filters" />
+                <CheckRow checked={filter.faangOnly} onChange={(v) => set({ faangOnly: v })}>
+                  FAANG+ companies only
+                </CheckRow>
+                <CheckRow checked={filter.textOnly} onChange={(v) => set({ textOnly: v })}>
+                  Has the full posting text
+                </CheckRow>
+                {(counts.fetchIssues > 0 || filter.fetchIssuesOnly) && (
+                  <CheckRow
+                    tone="warn"
+                    checked={filter.fetchIssuesOnly}
+                    onChange={(v) => set({ fetchIssuesOnly: v })}
+                    count={counts.fetchIssues}
+                  >
+                    Posting couldn&apos;t be fetched
+                  </CheckRow>
+                )}
+                <div className="my-1.5 border-t border-line-soft" />
+                <CheckRow
+                  checked={filter.showDisqualified}
+                  onChange={(v) => set({ showDisqualified: v })}
+                  count={counts.disqualified}
+                >
+                  Show disqualified
+                </CheckRow>
+                <CheckRow
+                  checked={filter.showDismissed}
+                  onChange={(v) => set({ showDismissed: v })}
+                  count={counts.dismissed}
+                >
+                  Show dismissed
+                </CheckRow>
+              </div>
+            )}
+          </FilterMenu>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          {show("sort") && (
+            <FilterMenu
+              label="Sort"
+              summary={sortLabel(sort)}
+              active={false}
+              align="right"
+              title="Sort order — clicking a column header works too"
+            >
+              {(close) => (
+                <div>
+                  <PanelHeader hint="Sort listings by" />
+                  {SORT_PRESETS.map((preset) => (
+                    <RadioRow
+                      key={preset.label}
+                      name="sort"
+                      checked={preset.sort.key === sort.key && preset.sort.dir === sort.dir}
+                      onSelect={() => {
+                        onSortChange(preset.sort);
+                        close();
+                      }}
+                    >
+                      {preset.label}
+                    </RadioRow>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => onSortChange({ ...sort, dir: sort.dir === "asc" ? "desc" : "asc" })}
+                    className="mt-1.5 w-full rounded-md border border-line px-2 py-1 text-left text-dim hover:bg-raised hover:text-ink"
+                  >
+                    ⇅ Reverse order
+                  </button>
+                </div>
+              )}
+            </FilterMenu>
+          )}
+
+          {show("views") && (
+            <ViewsMenu
+              views={views}
+              currentQuery={currentQuery}
+              onApply={onApplyView}
+              onChange={onViewsChange}
+            />
+          )}
+
+          {show("help") && (
+            <button
+              type="button"
+              onClick={onShowHelp}
+              title="Keyboard shortcuts"
+              aria-label="Keyboard shortcuts"
+              className="flex size-7 items-center justify-center rounded-full border border-line text-callout font-medium text-dim hover:bg-raised hover:text-ink"
+            >
+              ?
+            </button>
+          )}
           <button
             type="button"
-            onClick={onShowHelp}
-            title="Keyboard shortcuts"
-            aria-label="Keyboard shortcuts"
-            className="flex size-7 items-center justify-center rounded-full border border-line text-callout font-medium text-dim hover:bg-raised hover:text-ink"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              onCustomize({ x: r.right - 208, y: r.bottom + 6 });
+            }}
+            title="Choose what the toolbar shows (or right-click it)"
+            aria-label="Customize toolbar"
+            className="flex size-7 items-center justify-center rounded-full text-faint hover:bg-raised hover:text-ink"
           >
-            ?
+            <Ellipsis aria-hidden size={16} />
           </button>
         </div>
       </div>
