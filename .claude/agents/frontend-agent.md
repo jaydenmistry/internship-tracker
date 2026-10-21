@@ -13,6 +13,6 @@ Rules:
 - Columns: rank, score, company, role, location, age, deadline, status — all sortable and filterable. Disqualified listings are hidden by default behind a toggle.
 - Keyboard shortcuts for status changes: single-key, active when a row is focused, with a visible `?` cheat sheet. Never intercept browser/system shortcuts; ignore keystrokes while an input is focused.
 - Detail panel shows: full score breakdown (per-component points + evidence strings), resume keyword hits/misses, apply link, notes, and the status timeline.
-- Tailwind v4 — configuration lives in CSS (`app/globals.css`), there is no tailwind.config. Dark mode via class strategy on `<html>`; style both themes from the start.
+- Tailwind v4 — configuration lives in CSS (`app/globals.css`), there is no tailwind.config. Light and dark are chosen in-app (sidebar toggle, `data-theme` on `<html>` from a cookie the root layout reads, dark by default — `components/preferences.ts`); colours are role tokens in `globals.css` that clear 4.5:1 on every surface in both themes — style with those, never raw colours. Text sizes use the named scale (`text-body`, `text-callout`, …), not pixel values.
 - Dates via date-fns; show relative age ("3d") with the absolute date on hover. Deadlines within 7 days get a visual urgency treatment.
 - Sanitize anything sourced from scraped HTML before rendering — listing text is untrusted input (XSS).

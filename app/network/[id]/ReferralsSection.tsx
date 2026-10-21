@@ -46,13 +46,13 @@ export default function ReferralsSection({ contactId, contactName, companyKey, r
   };
 
   return (
-    <section aria-label="Referrals" className="rounded border border-line bg-panel" data-testid="referrals">
-      <h2 className="border-b border-line px-3 py-2 font-mono text-[10px] font-semibold tracking-wide text-faint uppercase">
+    <section aria-label="Referrals" className="card" data-testid="referrals">
+      <h2 className="border-b border-line-soft px-4 py-2.5 eyebrow">
         Referrals
       </h2>
-      <div className="flex flex-col gap-2 px-3 py-2 text-[13px]">
+      <div className="flex flex-col gap-2 px-3 py-2 text-body">
         {referrals.length === 0 ? (
-          <p className="text-[12px] text-faint">{contactName} hasn&apos;t referred you for anything yet.</p>
+          <p className="text-callout text-faint">{contactName} hasn&apos;t referred you for anything yet.</p>
         ) : (
           <ul className="space-y-1">
             {referrals.map((r) => (
@@ -63,7 +63,7 @@ export default function ReferralsSection({ contactId, contactName, companyKey, r
                   type="button"
                   disabled={pending}
                   onClick={() => run(r.applicationId, null)}
-                  className="ml-auto shrink-0 text-[12px] text-faint hover:text-bad"
+                  className="ml-auto shrink-0 text-callout text-faint hover:text-bad"
                 >
                   remove
                 </button>
@@ -77,7 +77,7 @@ export default function ReferralsSection({ contactId, contactName, companyKey, r
               aria-label="Application they referred you for"
               value={choice}
               onChange={(e) => setChoice(e.target.value)}
-              className="h-7 min-w-0 max-w-full flex-1 rounded border border-line bg-raised px-1 text-[12px]"
+              className="h-7 min-w-0 max-w-full flex-1 rounded-md border border-line bg-canvas px-1 text-callout"
             >
               <option value="">Record a referral for…</option>
               {options.map((a) => (
@@ -91,18 +91,18 @@ export default function ReferralsSection({ contactId, contactName, companyKey, r
               type="button"
               disabled={pending || choice === ""}
               onClick={() => run(choice, contactId, () => setChoice(""))}
-              className="rounded border border-line px-3 py-1 text-[12px] text-dim hover:text-ink disabled:opacity-60"
+              className="btn disabled:opacity-60"
             >
               {pending ? "Saving…" : "Record"}
             </button>
           </div>
         ) : (
           referrals.length === 0 && (
-            <p className="text-[12px] text-faint">Track an application first (Listings or /import) to record a referral on it.</p>
+            <p className="text-callout text-faint">Track an application first (Listings or /import) to record a referral on it.</p>
           )
         )}
         {error && (
-          <p role="alert" className="text-[12px] text-bad">
+          <p role="alert" className="text-callout text-bad">
             {error}
           </p>
         )}

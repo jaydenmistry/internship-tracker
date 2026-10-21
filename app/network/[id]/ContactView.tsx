@@ -141,20 +141,20 @@ export default function ContactView({
 
   return (
     <div className="flex max-w-5xl flex-col gap-3">
-      <nav className="text-[12px] text-dim">
+      <nav className="text-callout text-dim">
         <Link href="/network" className="hover:text-ink">
           ← Network
         </Link>
       </nav>
 
       <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="text-[16px] font-medium">{contact.name}</h1>
+        <h1 className="text-headline leading-tight font-bold tracking-[-0.025em]">{contact.name}</h1>
         {(contact.title || contact.company) && (
-          <span className="text-[13px] text-dim">
+          <span className="text-body text-dim">
             {[contact.title, contact.company].filter(Boolean).join(" · ")}
           </span>
         )}
-        <span className={`text-[12px] ${CONTACT_STATUS_TONE[contact.status]}`}>
+        <span className={`text-callout ${CONTACT_STATUS_TONE[contact.status]}`}>
           {CONTACT_STATUS_LABELS[contact.status]}
         </span>
         {contact.doNotContact && (
@@ -171,7 +171,7 @@ export default function ContactView({
                 setConfirmingDelete(false);
                 setForm(formFromContact(contact));
               }}
-              className="rounded border border-line px-3 py-1 text-[12px] text-dim hover:text-ink"
+              className="btn"
             >
               Edit
             </button>
@@ -205,15 +205,15 @@ export default function ContactView({
         />
       )}
 
-      <section aria-label="Messages" className="rounded border border-line bg-panel">
+      <section aria-label="Messages" className="card">
         <div className="flex items-center gap-2 border-b border-line px-3 py-2">
-          <h2 className="font-mono text-[10px] font-semibold tracking-wide text-faint uppercase">Messages</h2>
+          <h2 className="eyebrow">Messages</h2>
           <div className="ml-auto flex gap-2">
             {!draft && !contact.doNotContact && (
               <button
                 type="button"
                 onClick={() => openDraft(draftTypeForDue(dueKind))}
-                className="rounded border border-line px-3 py-1 text-[12px] text-dim hover:text-ink"
+                className="btn"
               >
                 Draft
               </button>
@@ -222,7 +222,7 @@ export default function ContactView({
               <button
                 type="button"
                 onClick={() => openLog()}
-                className="rounded border border-accent bg-accent px-3 py-1 text-[12px] text-accent-ink"
+                className="btn btn-primary"
               >
                 Log message
               </button>
@@ -254,7 +254,7 @@ export default function ContactView({
       />
 
       {form ? (
-        <section aria-label="Edit contact" className="rounded border border-line bg-panel px-3 py-3">
+        <section aria-label="Edit contact" className="card px-3 py-3">
           <ContactForm
             form={form}
             onChange={setForm}
@@ -270,15 +270,15 @@ export default function ContactView({
           />
         </section>
       ) : (
-        <section aria-label="Details" className="rounded border border-line bg-panel px-3 py-3">
-          <dl className="grid grid-cols-[8rem_1fr] gap-x-4 gap-y-1.5 text-[13px]">
+        <section aria-label="Details" className="card px-3 py-3">
+          <dl className="grid grid-cols-[8rem_1fr] gap-x-4 gap-y-1.5 text-body">
             <Fact label="Kind">{KIND_LABELS[contact.kind]}</Fact>
             <Fact label="Company">
               {contact.company ? (
                 <>
                   {contact.company}
                   {contact.companyListingCount > 0 && (
-                    <span className="ml-2 text-[12px] text-faint">
+                    <span className="ml-2 text-callout text-faint">
                       {contact.companyListingCount} listing{contact.companyListingCount === 1 ? "" : "s"} tracked
                     </span>
                   )}
@@ -310,8 +310,8 @@ export default function ContactView({
           </dl>
           {contact.notes && (
             <div className="mt-3 border-t border-line-soft pt-3">
-              <h2 className="mb-1 font-mono text-[10px] font-semibold tracking-wide text-faint uppercase">Notes</h2>
-              <p className="text-[13px] leading-snug whitespace-pre-wrap">{contact.notes}</p>
+              <h2 className="mb-1 eyebrow">Notes</h2>
+              <p className="text-body leading-snug whitespace-pre-wrap">{contact.notes}</p>
             </div>
           )}
         </section>
@@ -321,14 +321,14 @@ export default function ContactView({
         <section aria-label="Danger zone" className="flex flex-wrap items-center gap-2">
           {confirmingDelete ? (
             <>
-              <span className="text-[12px] text-bad">
+              <span className="text-callout text-bad">
                 Delete {contact.name} and every message logged with them? This can&apos;t be undone.
               </span>
               <button
                 type="button"
                 onClick={onDelete}
                 disabled={pending}
-                className="rounded border border-bad px-3 py-1 text-[12px] text-bad disabled:opacity-60"
+                className="btn border-bad/40 text-bad disabled:opacity-60"
               >
                 {pending ? "Deleting…" : "Delete permanently"}
               </button>
@@ -336,7 +336,7 @@ export default function ContactView({
                 type="button"
                 onClick={() => setConfirmingDelete(false)}
                 disabled={pending}
-                className="rounded border border-line px-3 py-1 text-[12px] text-dim hover:text-ink"
+                className="btn"
               >
                 Keep
               </button>
@@ -345,14 +345,14 @@ export default function ContactView({
             <button
               type="button"
               onClick={() => setConfirmingDelete(true)}
-              className="rounded border border-line px-3 py-1 text-[12px] text-faint hover:border-bad hover:text-bad"
+              className="rounded border border-line px-3 py-1 text-callout text-faint hover:border-bad hover:text-bad"
               title="Mark do-not-contact instead to stop outreach but keep the record"
             >
               Delete contact
             </button>
           )}
           {error && !form && (
-            <p role="alert" className="text-[12px] text-bad">
+            <p role="alert" className="text-callout text-bad">
               {error}
             </p>
           )}
@@ -365,7 +365,7 @@ export default function ContactView({
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <>
-      <dt className="text-[12px] text-faint">{label}</dt>
+      <dt className="text-callout text-faint">{label}</dt>
       <dd className="min-w-0">{children ?? <span className="text-faint">—</span>}</dd>
     </>
   );

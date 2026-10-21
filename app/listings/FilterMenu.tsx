@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronDown } from "lucide-react";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 /**
@@ -75,17 +76,15 @@ export default function FilterMenu({
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
         onClick={() => setOpen((v) => !v)}
-        className={`inline-flex max-w-64 items-center gap-1 rounded border px-2 py-[3px] text-[12px] transition-colors ${
+        className={`inline-flex h-7 max-w-64 items-center gap-1 rounded-full border px-3 text-callout transition-colors ${
           isActive
-            ? "border-accent/70 bg-accent/15 text-ink"
-            : "border-line bg-panel text-dim hover:border-faint hover:text-ink"
+            ? "border-accent/40 bg-accent/10 text-ink"
+            : "border-line bg-canvas text-dim hover:bg-raised hover:text-ink"
         }`}
       >
         <span className="shrink-0">{label}</span>
-        {summary && <span className="min-w-0 truncate text-accent">: {summary}</span>}
-        <span aria-hidden className="shrink-0 text-[9px] text-faint">
-          ▼
-        </span>
+        {summary && <span className="min-w-0 truncate font-medium text-accent">: {summary}</span>}
+        <ChevronDown aria-hidden size={13} className="-mr-1 shrink-0 text-faint" />
       </button>
       {open && (
         <div
@@ -96,7 +95,7 @@ export default function FilterMenu({
           // where the table's single-key shortcuts would fire.
           tabIndex={-1}
           aria-label={label}
-          className={`absolute top-full z-50 mt-1 ${widthClass} rounded border border-line bg-panel p-2 text-[12px] shadow-xl outline-none ${
+          className={`pop-in absolute top-full z-50 mt-1.5 ${widthClass} rounded-xl border border-line bg-panel/95 p-2 text-callout shadow-lg outline-none backdrop-blur-xl ${
             align === "right" ? "right-0" : "left-0"
           }`}
         >
@@ -116,7 +115,7 @@ export function PanelHeader({
   onClear?: (() => void) | null;
 }) {
   return (
-    <div className="mb-1.5 flex items-center justify-between gap-3 border-b border-line-soft pb-1.5 text-[11px] text-faint">
+    <div className="mb-1.5 flex items-center justify-between gap-3 border-b border-line-soft pb-1.5 text-subhead text-faint">
       <span>{hint}</span>
       {onClear && (
         <button type="button" onClick={onClear} className="text-dim hover:text-ink">
@@ -140,7 +139,7 @@ export function RadioRow({
   children: ReactNode;
 }) {
   return (
-    <label className="flex cursor-pointer items-center gap-2 rounded px-1 py-[3px] text-dim hover:bg-raised hover:text-ink">
+    <label className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-dim hover:bg-raised hover:text-ink">
       <input
         type="radio"
         name={name}
@@ -169,7 +168,7 @@ export function CheckRow({
 }) {
   return (
     <label
-      className={`flex cursor-pointer items-center gap-2 rounded px-1 py-[3px] hover:bg-raised ${
+      className={`flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-raised ${
         tone === "warn" ? "text-warn" : "text-dim hover:text-ink"
       }`}
     >
@@ -181,7 +180,7 @@ export function CheckRow({
       />
       <span className={`flex-1 ${checked && tone !== "warn" ? "text-ink" : ""}`}>{children}</span>
       {count !== undefined && (
-        <span className="font-mono text-[10px] text-faint tabular-nums">
+        <span className="font-mono text-footnote text-faint tabular-nums">
           {count.toLocaleString("en-US")}
         </span>
       )}

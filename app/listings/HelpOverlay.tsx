@@ -32,6 +32,7 @@ const GROUPS: Array<{ title: string; keys: Array<[string, string]> }> = [
       ["/", "focus the search box  (-word excludes a word)"],
       ["Esc", "close menu / panel, leave search"],
       ["?", "show or hide this sheet"],
+      ["Ctrl \\", "hide or show the sidebar (⌘\\ on a Mac)"],
     ],
   },
 ];
@@ -39,7 +40,7 @@ const GROUPS: Array<{ title: string; keys: Array<[string, string]> }> = [
 export default function HelpOverlay({ onClose }: { onClose: () => void }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4"
+      className="fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm"
       onClick={onClose}
       role="presentation"
     >
@@ -47,17 +48,15 @@ export default function HelpOverlay({ onClose }: { onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-label="Keyboard shortcuts"
-        className="w-full max-w-xl rounded-md border border-line bg-panel p-4 shadow-2xl"
+        className="sheet-in w-full max-w-xl rounded-2xl border border-line bg-panel p-6 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-baseline justify-between">
-          <h2 className="font-mono text-[11px] font-semibold tracking-wide text-dim uppercase">
-            Keyboard shortcuts
-          </h2>
+          <h2 className="text-title font-semibold">Keyboard shortcuts</h2>
           <button
             type="button"
             onClick={onClose}
-            className="rounded px-1.5 py-0.5 text-[11px] text-faint hover:bg-raised hover:text-ink"
+            className="rounded px-1.5 py-0.5 text-subhead text-faint hover:bg-raised hover:text-ink"
           >
             esc
           </button>
@@ -66,14 +65,14 @@ export default function HelpOverlay({ onClose }: { onClose: () => void }) {
         <div className="grid gap-4 sm:grid-cols-2">
           {GROUPS.map((group) => (
             <section key={group.title}>
-              <h3 className="mb-1.5 text-[11px] font-medium text-faint">{group.title}</h3>
+              <h3 className="mb-1.5 text-subhead font-medium text-faint">{group.title}</h3>
               <dl className="space-y-1">
                 {group.keys.map(([key, label]) => (
                   <div key={key} className="flex items-baseline gap-2">
-                    <dt className="w-[4.5rem] shrink-0 rounded-sm border border-line bg-raised px-1 text-center font-mono text-[11px] whitespace-nowrap text-ink">
+                    <dt className="w-[4.5rem] shrink-0 rounded-md border border-line bg-control px-1 text-center font-mono text-subhead whitespace-nowrap text-ink shadow-[inset_0_-1px_0_var(--line)]">
                       {key}
                     </dt>
-                    <dd className="text-[12px] text-dim">{label}</dd>
+                    <dd className="text-callout text-dim">{label}</dd>
                   </div>
                 ))}
               </dl>
@@ -81,9 +80,9 @@ export default function HelpOverlay({ onClose }: { onClose: () => void }) {
           ))}
         </div>
 
-        <p className="mt-4 border-t border-line-soft pt-2 text-[11px] text-faint">
-          Shortcuts are ignored while a text field has focus, and never fire with
-          ⌘, Ctrl or Alt held.
+        <p className="mt-4 border-t border-line-soft pt-2 text-subhead text-faint">
+          Single-key shortcuts are ignored while a text field has focus, and never
+          fire with ⌘, Ctrl or Alt held.
         </p>
       </div>
     </div>

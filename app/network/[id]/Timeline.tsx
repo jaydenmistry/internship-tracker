@@ -32,7 +32,7 @@ function formatWhen(iso: string, timeZone: string): string {
 
 export default function Timeline({ messages, timeZone }: Props) {
   if (messages.length === 0) {
-    return <p className="px-3 py-3 text-[12px] text-faint">Nothing logged yet.</p>;
+    return <p className="px-3 py-3 text-callout text-faint">Nothing logged yet.</p>;
   }
   return (
     <ol className="divide-y divide-line-soft" data-testid="timeline">
@@ -79,7 +79,7 @@ function TimelineItem({ m, timeZone }: { m: TimelineMessage; timeZone: string })
 
   return (
     <li className="px-3 py-2" data-testid="timeline-item" data-direction={m.direction}>
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px]">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-callout">
         <span className={m.direction === "IN" ? "text-info" : "text-ink"}>
           {m.direction === "IN" ? "←" : "→"} {eventLabel(m.direction, m.type)}
         </span>
@@ -122,7 +122,7 @@ function TimelineItem({ m, timeZone }: { m: TimelineMessage; timeZone: string })
             aria-label="When"
             value={editing.sentAtLocal}
             onChange={(e) => setEditing({ ...editing, sentAtLocal: e.target.value })}
-            className="h-7 w-56 rounded border border-line bg-raised px-2 font-mono text-[13px]"
+            className="h-7 w-56 rounded-md border border-line bg-canvas px-2 font-mono text-body"
           />
           {showsSubject(m.channel) && (
             <input
@@ -130,7 +130,7 @@ function TimelineItem({ m, timeZone }: { m: TimelineMessage; timeZone: string })
               value={editing.subject}
               maxLength={MESSAGE_LIMITS.subject}
               onChange={(e) => setEditing({ ...editing, subject: e.target.value })}
-              className="h-7 rounded border border-line bg-raised px-2 text-[13px]"
+              className="h-7 rounded-md border border-line bg-canvas px-2 text-body"
             />
           )}
           <textarea
@@ -139,14 +139,14 @@ function TimelineItem({ m, timeZone }: { m: TimelineMessage; timeZone: string })
             maxLength={MESSAGE_LIMITS.body}
             rows={5}
             onChange={(e) => setEditing({ ...editing, body: e.target.value })}
-            className="rounded border border-line bg-raised px-2 py-1 text-[13px] leading-snug"
+            className="rounded-md border border-line bg-canvas px-2 py-1 text-body leading-snug"
           />
           <div className="flex gap-2">
             <button
               type="button"
               onClick={onSave}
               disabled={pending}
-              className="rounded border border-accent bg-accent px-3 py-1 text-[12px] text-accent-ink disabled:opacity-60"
+              className="btn btn-primary disabled:opacity-60"
             >
               {pending ? "Saving…" : "Save"}
             </button>
@@ -154,7 +154,7 @@ function TimelineItem({ m, timeZone }: { m: TimelineMessage; timeZone: string })
               type="button"
               onClick={() => setEditing(null)}
               disabled={pending}
-              className="rounded border border-line px-3 py-1 text-[12px] text-dim"
+              className="rounded border border-line px-3 py-1 text-callout text-dim"
             >
               Cancel
             </button>
@@ -162,19 +162,19 @@ function TimelineItem({ m, timeZone }: { m: TimelineMessage; timeZone: string })
         </div>
       ) : (
         <>
-          {m.subject && <p className="mt-1 text-[13px] font-medium">{m.subject}</p>}
-          {m.body && <p className="mt-1 text-[13px] leading-snug whitespace-pre-wrap text-dim">{m.body}</p>}
+          {m.subject && <p className="mt-1 text-body font-medium">{m.subject}</p>}
+          {m.body && <p className="mt-1 text-body leading-snug whitespace-pre-wrap text-dim">{m.body}</p>}
         </>
       )}
 
       {confirming && (
-        <div className="mt-2 flex items-center gap-2 text-[12px]">
+        <div className="mt-2 flex items-center gap-2 text-callout">
           <span className="text-bad">Delete this message? Follow-up dates are recomputed without it.</span>
           <button
             type="button"
             disabled={pending}
             onClick={() => run(() => deleteMessageAction({ messageId: m.id }), () => setConfirming(false))}
-            className="rounded border border-bad px-2 py-0.5 text-bad"
+            className="btn h-6 border-bad/40 px-2 text-bad"
           >
             {pending ? "Deleting…" : "Delete"}
           </button>
@@ -184,7 +184,7 @@ function TimelineItem({ m, timeZone }: { m: TimelineMessage; timeZone: string })
         </div>
       )}
       {error && (
-        <p role="alert" className="mt-1 text-[12px] text-bad">
+        <p role="alert" className="mt-1 text-callout text-bad">
           {error}
         </p>
       )}

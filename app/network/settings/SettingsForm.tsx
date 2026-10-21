@@ -80,14 +80,14 @@ export default function SettingsForm({
 
   return (
     <div className="flex max-w-4xl flex-col gap-3">
-      <nav className="text-[12px] text-dim">
+      <nav className="text-callout text-dim">
         <Link href="/network" className="hover:text-ink">
           ← Network
         </Link>
       </nav>
-      <section className="rounded border border-line bg-panel" aria-label="Claude connection" data-testid="claude-status">
-        <h2 className="border-b border-line px-3 py-1.5 text-[13px] font-medium">Claude (drafting)</h2>
-        <div className="flex flex-col gap-1 px-3 py-2 text-[12px]">
+      <section className="card" aria-label="Claude connection" data-testid="claude-status">
+        <h2 className="border-b border-line-soft px-4 py-2.5 text-body font-semibold">Claude (drafting)</h2>
+        <div className="flex flex-col gap-1 px-3 py-2 text-callout">
           {claude.connected ? (
             <p>
               <span className="text-ok">Connected</span>
@@ -112,12 +112,12 @@ export default function SettingsForm({
           </p>
         </div>
       </section>
-      <section className="rounded border border-line bg-panel">
-        <h2 className="border-b border-line px-3 py-1.5 text-[13px] font-medium">Follow-up cadence</h2>
+      <section className="card">
+        <h2 className="border-b border-line-soft px-4 py-2.5 text-body font-semibold">Follow-up cadence</h2>
         <div className="grid gap-x-6 gap-y-3 px-3 py-3 sm:grid-cols-2">
           {FIELDS.map((f) => (
             <label key={f.key} className="flex flex-col gap-1">
-              <span className="text-[12px] text-dim">{f.label}</span>
+              <span className="text-callout text-dim">{f.label}</span>
               <input
                 type="number"
                 inputMode="numeric"
@@ -126,17 +126,17 @@ export default function SettingsForm({
                 step={1}
                 value={form[f.key]}
                 onChange={(e) => setForm((s) => ({ ...s, [f.key]: e.target.value }))}
-                className="h-7 w-24 rounded border border-line bg-raised px-2 font-mono text-[13px] tabular-nums"
+                className="h-7 w-24 rounded-md border border-line bg-canvas px-2 font-mono text-body tabular-nums"
               />
-              <span className="text-[11px] leading-snug text-faint">{f.hint}</span>
+              <span className="text-subhead leading-snug text-faint">{f.hint}</span>
             </label>
           ))}
         </div>
       </section>
-      <section className="rounded border border-line bg-panel">
-        <h2 className="border-b border-line px-3 py-1.5 text-[13px] font-medium">Your voice</h2>
+      <section className="card">
+        <h2 className="border-b border-line-soft px-4 py-2.5 text-body font-semibold">Your voice</h2>
         <label className="flex flex-col gap-1 px-3 py-3">
-          <span className="text-[12px] text-dim">
+          <span className="text-callout text-dim">
             How you write, in your own words. Every draft includes this.
           </span>
           <textarea
@@ -145,9 +145,9 @@ export default function SettingsForm({
             rows={6}
             onChange={(e) => setForm((s) => ({ ...s, voiceNotes: e.target.value }))}
             placeholder="No em dashes. Plain verbs, first person. Specific over general. Lead with the strongest point."
-            className="rounded border border-line bg-raised px-2 py-1 text-[13px] leading-snug"
+            className="rounded-md border border-line bg-canvas px-2 py-1 text-body leading-snug"
           />
-          <span className="text-right font-mono text-[11px] text-faint tabular-nums">
+          <span className="text-right font-mono text-subhead text-faint tabular-nums">
             {form.voiceNotes.length} / {VOICE_NOTES_MAX}
           </span>
         </label>
@@ -157,12 +157,12 @@ export default function SettingsForm({
           type="button"
           onClick={onSave}
           disabled={pending}
-          className="rounded border border-accent bg-accent px-3 py-1 text-[12px] text-accent-ink disabled:opacity-60"
+          className="btn btn-primary disabled:opacity-60"
         >
           {pending ? "Saving…" : "Save"}
         </button>
         {notice && (
-          <p role={notice.tone === "bad" ? "alert" : "status"} className={`text-[12px] ${notice.tone === "ok" ? "text-ok" : "text-bad"}`}>
+          <p role={notice.tone === "bad" ? "alert" : "status"} className={`text-callout ${notice.tone === "ok" ? "text-ok" : "text-bad"}`}>
             {notice.text}
           </p>
         )}

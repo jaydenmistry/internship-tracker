@@ -42,29 +42,29 @@ export default function PasteStep({
 
   return (
     <section className="mx-auto w-full max-w-3xl">
-      <h1 className="text-base font-semibold tracking-tight">Import applications</h1>
+      <h1 className="text-headline leading-tight font-bold tracking-[-0.025em]">Import applications</h1>
       <p className="mt-1 max-w-prose text-dim">
         Paste the roles you have already applied to. They get matched against the
         ranked catalog so they stop showing up as new.
       </p>
 
-      <div className="mt-4 rounded border border-line bg-panel">
-        <div className="flex items-center justify-between border-b border-line-soft px-3 py-1.5">
-          <span className="font-mono text-[11px] tracking-wide text-faint uppercase">
+      <div className="mt-4 card">
+        <div className="flex items-center justify-between border-b border-line-soft px-4 py-2.5">
+          <span className="eyebrow">
             paste or upload
           </span>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => onTextChange(EXAMPLE)}
-              className="rounded px-2 py-0.5 text-[12px] text-dim hover:bg-raised hover:text-ink"
+              className="rounded px-2 py-0.5 text-callout text-dim hover:bg-raised hover:text-ink"
             >
               Load example
             </button>
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
-              className="rounded px-2 py-0.5 text-[12px] text-dim hover:bg-raised hover:text-ink"
+              className="rounded px-2 py-0.5 text-callout text-dim hover:bg-raised hover:text-ink"
             >
               Upload .csv / .txt
             </button>
@@ -87,11 +87,11 @@ export default function PasteStep({
           spellCheck={false}
           rows={14}
           placeholder={"Company, Role, Location\nStripe, Software Engineer Intern, Seattle WA"}
-          className="block w-full resize-y bg-transparent px-3 py-2 font-mono text-[12px] leading-5 text-ink outline-none placeholder:text-faint"
+          className="block w-full resize-y bg-transparent px-3 py-2 font-mono text-callout leading-5 text-ink outline-none placeholder:text-faint"
         />
 
         <div className="flex items-center justify-between gap-3 border-t border-line-soft px-3 py-2">
-          <p className="text-[11px] text-faint">
+          <p className="text-subhead text-faint">
             One role per line. A header row in any column order, or positional{" "}
             <code className="font-mono text-dim">Company, Role, Location, ReqId, Url</code>.
             Commas, tabs, pipes or dashes all work.
@@ -100,7 +100,7 @@ export default function PasteStep({
             type="button"
             onClick={onAnalyze}
             disabled={pending || lineCount === 0}
-            className="shrink-0 rounded bg-accent px-3 py-1 font-medium text-accent-ink disabled:cursor-not-allowed disabled:opacity-40"
+            className="shrink-0 btn btn-primary disabled:cursor-not-allowed disabled:opacity-40"
           >
             {pending ? "Matching…" : `Match ${lineCount || ""} line${lineCount === 1 ? "" : "s"}`}
           </button>
@@ -108,7 +108,7 @@ export default function PasteStep({
       </div>
 
       {(error || fileError) && (
-        <p className="mt-3 rounded border border-bad/40 bg-bad/10 px-3 py-2 text-bad">
+        <p className="mt-3 rounded-lg border border-bad/25 bg-bad/10 px-3 py-2 text-bad">
           {error ?? fileError}
         </p>
       )}

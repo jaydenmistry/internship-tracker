@@ -26,7 +26,7 @@ export default function KanbanBoard({ apps, nowMs, onStatus, notes }: Props) {
   const [dropTarget, setDropTarget] = useState<AppStatus | null>(null);
 
   return (
-    <div className="grid grid-cols-8 gap-1.5" data-testid="kanban">
+    <div className="grid auto-cols-[minmax(10rem,1fr)] grid-flow-col gap-3 overflow-x-auto pb-1" data-testid="kanban">
       {columns.map((col) => (
         <section
           key={col.status}
@@ -48,23 +48,22 @@ export default function KanbanBoard({ apps, nowMs, onStatus, notes }: Props) {
             const app = apps.find((a) => a.id === id);
             if (app && app.status !== col.status) onStatus(id, col.status);
           }}
-          className={`flex min-h-40 min-w-0 flex-col rounded border bg-panel ${
-            dropTarget === col.status ? "border-accent" : "border-line"
+          className={`flex min-h-48 min-w-0 flex-col rounded-xl border bg-panel transition-colors ${
+            dropTarget === col.status ? "border-accent bg-accent/5" : "border-line-soft"
           }`}
         >
-          <header className="flex items-baseline justify-between gap-1 border-b border-line px-2 py-1">
-            <h2 className={`truncate text-[12px] font-medium ${STATUS_TONE[col.status]}`}>
-              {STATUS_LABELS[col.status]}
-            </h2>
+          <header className="flex items-center gap-1.5 px-3 pt-2.5 pb-1.5">
+            <span aria-hidden className={`size-2 shrink-0 rounded-full bg-current ${STATUS_TONE[col.status]}`} />
+            <h2 className="truncate text-callout font-semibold text-ink first-letter:uppercase">{STATUS_LABELS[col.status]}</h2>
             <span
-              className={`font-mono text-[11px] tabular-nums ${
-                col.apps.length ? "text-dim" : "text-faint"
+              className={`ml-auto rounded-full px-1.5 text-subhead font-medium tabular-nums ${
+                col.apps.length ? "bg-raised text-dim" : "text-faint"
               }`}
             >
               {col.apps.length}
             </span>
           </header>
-          <ol className="flex flex-col gap-1.5 p-1.5">
+          <ol className="flex flex-col gap-2 p-2 pt-0.5">
             {col.apps.map((app) => (
               <li key={app.id}>
                 <KanbanCard app={app} nowMs={nowMs} onStatus={onStatus} notes={notes} />
@@ -97,7 +96,7 @@ export function KanbanCard({
         e.dataTransfer.setData(DRAG_TYPE, app.id);
         e.dataTransfer.effectAllowed = "move";
       }}
-      className={`flex min-w-0 flex-col gap-1 rounded border bg-canvas p-1.5 ${
+      className={`flex min-w-0 cursor-grab flex-col gap-1 rounded-lg border bg-control p-3 shadow-sm transition-[transform,box-shadow] duration-200 hover:-translate-y-px hover:shadow-md active:cursor-grabbing ${
         app.listingId === null ? "border-dashed border-info/50" : "border-line-soft"
       }`}
     >
@@ -105,16 +104,16 @@ export function KanbanCard({
         <span className="truncate font-medium text-ink" title={app.company}>
           {app.company}
         </span>
-        <span className="truncate text-[12px] text-dim" title={app.role}>
+        <span className="truncate text-callout text-dim" title={app.role}>
           {app.role}
         </span>
       </ApplyLink>
       {app.location && (
-        <span className="truncate text-[11px] text-faint" title={app.location}>
+        <span className="truncate text-subhead text-faint" title={app.location}>
           {app.location}
         </span>
       )}
-      <div className="flex flex-wrap items-center gap-1 text-[11px] text-faint">
+      <div className="flex flex-wrap items-center gap-1 text-subhead text-faint">
         <Markers app={app} />
         {app.score !== null && (
           <span className="font-mono tabular-nums text-dim" title={`score ${app.score}, rank ${app.rank ?? "—"}`}>
@@ -123,7 +122,7 @@ export function KanbanCard({
           </span>
         )}
       </div>
-      <div className="flex items-center gap-2 text-[11px] text-faint">
+      <div className="flex items-center gap-2 text-subhead text-faint">
         <span title="Applied">
           <RelDate iso={app.appliedAt} nowMs={nowMs} prefix="ap " />
         </span>

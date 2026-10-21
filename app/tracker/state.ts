@@ -30,7 +30,7 @@ export const STATUS_LABELS: Record<AppStatus, string> = {
 /** Text colour per status — the same tokens the rest of the app uses. */
 export const STATUS_TONE: Record<AppStatus, string> = {
   NOT_APPLIED: "text-faint",
-  APPLIED: "text-accent",
+  APPLIED: "text-ink",
   OA: "text-info",
   PHONE_SCREEN: "text-info",
   INTERVIEW: "text-info",

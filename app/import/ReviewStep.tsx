@@ -155,16 +155,16 @@ export default function ReviewStep({
 
   return (
     <section className="flex w-full flex-1 flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded border border-line bg-panel px-3 py-2">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 card px-3 py-2">
         <button
           type="button"
           onClick={onBack}
-          className="rounded px-2 py-1 text-[12px] text-dim hover:bg-raised hover:text-ink"
+          className="rounded px-2 py-1 text-callout text-dim hover:bg-raised hover:text-ink"
         >
           ← Edit paste
         </button>
 
-        <p className="font-mono text-[12px]">
+        <p className="font-mono text-callout">
           <span className="text-ok">{summary.link} will link</span>
           <span className="text-faint"> · </span>
           <span className="text-info">{summary.manual} manual</span>
@@ -173,7 +173,7 @@ export default function ReviewStep({
         </p>
 
         {summary.untouched > 0 && (
-          <p className="text-[12px] text-warn">
+          <p className="text-callout text-warn">
             {summary.untouched} row{summary.untouched === 1 ? "" : "s"} still need a decision
           </p>
         )}
@@ -182,7 +182,7 @@ export default function ReviewStep({
           <button
             type="button"
             onClick={() => dispatch({ type: "bulk", rows: linkable, action: "link" })}
-            className="rounded border border-line bg-raised px-2 py-1 text-[11px] text-dim hover:text-ink"
+            className="rounded-md border border-line bg-canvas px-2 py-1 text-subhead text-dim hover:text-ink"
           >
             Link all matched
           </button>
@@ -190,24 +190,24 @@ export default function ReviewStep({
             type="button"
             onClick={() => dispatch({ type: "bulk", rows: unmatched, action: "manual" })}
             disabled={unmatched.length === 0}
-            className="rounded border border-line bg-raised px-2 py-1 text-[11px] text-dim hover:text-ink disabled:opacity-40"
+            className="rounded-md border border-line bg-canvas px-2 py-1 text-subhead text-dim hover:text-ink disabled:opacity-40"
           >
             Manual for {unmatched.length} unmatched
           </button>
           <button
             type="button"
             onClick={() => dispatch({ type: "bulk", rows, action: "skip" })}
-            className="rounded border border-line bg-raised px-2 py-1 text-[11px] text-dim hover:text-ink"
+            className="rounded-md border border-line bg-canvas px-2 py-1 text-subhead text-dim hover:text-ink"
           >
             Skip all
           </button>
 
-          <label className="flex items-center gap-1 text-[11px] text-faint">
+          <label className="flex items-center gap-1 text-subhead text-faint">
             status
             <select
               value={status}
               onChange={(e) => onStatusChange(e.target.value as AppStatus)}
-              className="rounded border border-line bg-raised px-1.5 py-1 text-[12px] text-ink"
+              className="rounded-md border border-line bg-canvas px-1.5 py-1 text-callout text-ink"
             >
               {Object.values(AppStatus).map((s) => (
                 <option key={s} value={s}>
@@ -221,7 +221,7 @@ export default function ReviewStep({
             type="button"
             onClick={() => setShowHelp((s) => !s)}
             title="Keyboard shortcuts"
-            className="rounded border border-line bg-raised px-2 py-1 font-mono text-[11px] text-dim hover:text-ink"
+            className="rounded-md border border-line bg-canvas px-2 py-1 font-mono text-subhead text-dim hover:text-ink"
           >
             ?
           </button>
@@ -230,7 +230,7 @@ export default function ReviewStep({
             type="button"
             onClick={onCommit}
             disabled={pending || summary.link + summary.manual === 0}
-            className="rounded bg-accent px-3 py-1 font-medium text-accent-ink disabled:cursor-not-allowed disabled:opacity-40"
+            className="btn btn-primary disabled:cursor-not-allowed disabled:opacity-40"
           >
             {pending ? "Importing…" : `Import ${summary.link + summary.manual}`}
           </button>
@@ -238,38 +238,38 @@ export default function ReviewStep({
       </div>
 
       {showHelp && (
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-1 rounded border border-line bg-panel px-3 py-2 sm:grid-cols-4">
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-1 card px-3 py-2 sm:grid-cols-4">
           {SHORTCUTS.map(([key, description]) => (
             <div key={key} className="flex items-baseline gap-2">
-              <dt className="min-w-14 font-mono text-[11px] text-accent">{key}</dt>
-              <dd className="text-[11px] text-dim">{description}</dd>
+              <dt className="min-w-14 font-mono text-subhead text-accent">{key}</dt>
+              <dd className="text-subhead text-dim">{description}</dd>
             </div>
           ))}
         </dl>
       )}
 
       {error && (
-        <p className="rounded border border-bad/40 bg-bad/10 px-3 py-2 text-bad">{error}</p>
+        <p className="rounded-lg border border-bad/25 bg-bad/10 px-3 py-2 text-bad">{error}</p>
       )}
 
       {issues.length > 0 && issuesOpen && (
-        <div className="rounded border border-warn/40 bg-warn/10 px-3 py-2">
+        <div className="rounded-lg border border-warn/25 bg-warn/10 px-3 py-2">
           <div className="flex items-start justify-between gap-3">
-            <p className="text-[12px] font-medium text-warn">
+            <p className="text-callout font-medium text-warn">
               {issues.length} line{issues.length === 1 ? "" : "s"} could not be parsed and were
               left out
             </p>
             <button
               type="button"
               onClick={() => setIssuesOpen(false)}
-              className="rounded px-1 text-[11px] text-warn hover:bg-warn/20"
+              className="rounded px-1 text-subhead text-warn hover:bg-warn/20"
             >
               dismiss
             </button>
           </div>
           <ul className="mt-1 space-y-0.5">
             {issues.map((issue) => (
-              <li key={issue.lineNumber} className="font-mono text-[11px] text-dim">
+              <li key={issue.lineNumber} className="font-mono text-subhead text-dim">
                 line {issue.lineNumber}: {issue.reason} — {issue.raw}
               </li>
             ))}
@@ -280,7 +280,7 @@ export default function ReviewStep({
       <div className="overflow-hidden rounded border border-line">
         <table className="w-full table-fixed border-collapse">
           <thead>
-            <tr className="bg-panel text-left font-mono text-[10px] tracking-wide text-faint uppercase">
+            <tr className="th bg-panel">
               <th className="w-10 px-2 py-1.5 font-normal">#</th>
               <th className="w-[26%] px-2 py-1.5 font-normal">pasted</th>
               <th className="w-[32%] px-2 py-1.5 font-normal">proposed match</th>
@@ -315,7 +315,7 @@ export default function ReviewStep({
                   }`}
                 >
                   <td className="px-2 py-1.5">
-                    <span className="font-mono text-[11px] text-faint">{row.row.lineNumber}</span>
+                    <span className="font-mono text-subhead text-faint">{row.row.lineNumber}</span>
                   </td>
 
                   <td className="px-2 py-1.5">
@@ -326,7 +326,7 @@ export default function ReviewStep({
                       {row.row.role}
                     </div>
                     {row.row.location && (
-                      <div className="truncate text-[11px] text-faint">{row.row.location}</div>
+                      <div className="truncate text-subhead text-faint">{row.row.location}</div>
                     )}
                   </td>
 
@@ -337,14 +337,14 @@ export default function ReviewStep({
                           <span className="truncate font-medium text-ink" title={candidate.company}>
                             {candidate.company}
                           </span>
-                          <span className="ml-auto shrink-0 font-mono text-[11px] text-accent">
+                          <span className="ml-auto shrink-0 font-mono text-subhead text-accent">
                             {candidate.score ?? "—"}
                           </span>
                         </div>
                         <div className="truncate text-dim" title={candidate.title}>
                           {candidate.title}
                         </div>
-                        <div className="flex items-baseline gap-2 text-[11px] text-faint">
+                        <div className="flex items-baseline gap-2 text-subhead text-faint">
                           <span className="truncate">{candidate.location || "—"}</span>
                           {candidate.alreadyApplied && (
                             <span className="shrink-0 text-warn">already tracked</span>
@@ -368,7 +368,7 @@ export default function ReviewStep({
                         <span className="text-warn">
                           {row.companyContext.company} is in the catalog, but no role matches
                         </span>
-                        <div className="text-[11px] text-faint">
+                        <div className="text-subhead text-faint">
                           {row.companyContext.roleCount}{" "}
                           {row.companyContext.roleCount === 1 ? "role" : "roles"} tracked:{" "}
                           {row.companyContext.sampleTitles.join(" · ")}
@@ -376,7 +376,7 @@ export default function ReviewStep({
                             ? " · …"
                             : ""}
                         </div>
-                        <div className="text-[11px] text-faint">
+                        <div className="text-subhead text-faint">
                           Check whether the posting closed — importing as manual keeps it tracked.
                         </div>
                       </div>
@@ -390,7 +390,7 @@ export default function ReviewStep({
                   <td className="px-2 py-1.5">
                     <div className="flex items-baseline gap-2">
                       <span className={`font-medium ${meta.textClass}`}>{meta.label}</span>
-                      <span className="font-mono text-[11px] text-faint">
+                      <span className="font-mono text-subhead text-faint">
                         {formatConfidence(row.best?.confidence)}
                       </span>
                     </div>
@@ -400,7 +400,7 @@ export default function ReviewStep({
                         style={{ width: `${Math.round((row.best?.confidence ?? 0) * 100)}%` }}
                       />
                     </div>
-                    <div className="mt-0.5 text-[11px] leading-tight text-faint">
+                    <div className="mt-0.5 text-subhead leading-tight text-faint">
                       {row.best ? row.best.reasons.join(" · ") : "nothing scored above the floor"}
                     </div>
                   </td>

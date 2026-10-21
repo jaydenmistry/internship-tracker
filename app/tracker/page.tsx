@@ -1,3 +1,4 @@
+import PageHeader from "@/components/PageHeader";
 import type { Metadata } from "next";
 import { loadDashboardStats, loadTrackerApplications } from "@/lib/applications/tracker";
 import Dashboard from "./Dashboard";
@@ -20,7 +21,8 @@ export default async function TrackerPage({ searchParams }: PageProps<"/tracker"
   const stats = await loadDashboardStats();
 
   return (
-    <div className="flex flex-col gap-3 px-4 py-3">
+    <div className="flex flex-col gap-5 px-6 py-7 lg:px-10 lg:py-9">
+      <PageHeader title="Tracker" description="Every application you've sent, by stage. Drag a card to move it." />
       <Dashboard stats={stats} />
       <TrackerView apps={apps} view={view === "list" ? "list" : "kanban"} nowIso={new Date().toISOString()} />
     </div>

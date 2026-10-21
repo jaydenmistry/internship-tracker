@@ -1,5 +1,6 @@
 "use client";
 
+import PageHeader from "@/components/PageHeader";
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition, type MouseEvent } from "react";
 import type { CoverLetterPage, CoverLetterView } from "@/lib/coverletter/letters";
@@ -27,9 +28,9 @@ import { deleteCoverLetterAction, generateCoverLetterAction, loadLetterFontsActi
  * Everything is edited in plain inputs, never rendered as markup.
  */
 
-const INPUT = "w-full rounded border border-line bg-raised px-2 py-1 text-[13px] text-ink placeholder:text-faint";
-const BTN = "rounded border border-line px-3 py-1 text-[12px] text-dim hover:text-ink disabled:opacity-60";
-const PRIMARY = "rounded border border-accent bg-accent px-3 py-1 text-[12px] text-accent-ink disabled:opacity-60";
+const INPUT = "w-full rounded-md border border-line bg-canvas px-2 py-1 text-body text-ink placeholder:text-faint";
+const BTN = "btn disabled:opacity-60";
+const PRIMARY = "btn btn-primary disabled:opacity-60";
 
 type Format = "pdf" | "docx";
 const FORMAT_KEY = "coverLetter.format";
@@ -277,22 +278,29 @@ export default function CoverLetterEditor({
   const recipientDefault = defaultRecipient(profile, page.company);
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-3">
-      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <Link href={backHref} onClick={guardLeave} className="text-[12px] text-faint hover:text-ink">
-          ← {page.listingId ? "Listings" : "Tracker"}
-        </Link>
-        <h1 className="text-[15px] font-medium text-ink">
-          Cover letter · {page.company} — {page.role}
-        </h1>
-        {page.location && <span className="text-[12px] text-faint">{page.location}</span>}
-        <Link href="/cover-letter/settings" onClick={guardLeave} className="ml-auto text-[12px] text-dim hover:text-ink">
-          Letterhead &amp; signature
-        </Link>
-      </header>
+    <div className="mx-auto flex max-w-5xl flex-col gap-5">
+      <PageHeader
+        eyebrow={
+          <Link href={backHref} onClick={guardLeave} className="hover:text-ink">
+            ← {page.listingId ? "Listings" : "Tracker"}
+          </Link>
+        }
+        title={`Cover letter for ${page.company}`}
+        description={
+          <>
+            {page.role}
+            {page.location && <span className="text-faint"> · {page.location}</span>}
+          </>
+        }
+        actions={
+          <Link href="/cover-letter/settings" onClick={guardLeave} className="btn">
+            Letterhead &amp; signature
+          </Link>
+        }
+      />
 
       {profileEmpty && (
-        <p className="rounded border border-warn/50 px-3 py-2 text-[12px] text-warn">
+        <p className="rounded-lg bg-warn/10 px-3.5 py-2.5 text-callout text-warn">
           Set up your{" "}
           <Link href="/cover-letter/settings" onClick={guardLeave} className="underline">
             letterhead and signature
@@ -301,7 +309,7 @@ export default function CoverLetterEditor({
         </p>
       )}
       {nameMissing && (
-        <p className="rounded border border-warn/50 px-3 py-2 text-[12px] text-warn">
+        <p className="rounded-lg bg-warn/10 px-3.5 py-2.5 text-callout text-warn">
           Your{" "}
           <Link href="/cover-letter/settings" onClick={guardLeave} className="underline">
             letterhead
@@ -312,9 +320,9 @@ export default function CoverLetterEditor({
 
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_20rem]">
         {/* The letter */}
-        <section aria-label="Letter" className="flex min-w-0 flex-col gap-2 rounded border border-line bg-panel p-3">
+        <section aria-label="Letter" className="flex min-w-0 flex-col gap-2 card p-3">
           <div className="grid gap-2 sm:grid-cols-2">
-            <label className="flex flex-col gap-1 text-[12px]">
+            <label className="flex flex-col gap-1 text-callout">
               <span className="text-dim">To</span>
               <textarea
                 aria-label="Recipient"
@@ -323,11 +331,11 @@ export default function CoverLetterEditor({
                 maxLength={1000}
                 onChange={(e) => setRecipient(e.target.value)}
                 placeholder={recipientDefault}
-                className={`${INPUT} text-[12px]`}
+                className={`${INPUT} text-callout`}
               />
-              <span className="text-[11px] text-faint">Add the company&apos;s address here if you have it.</span>
+              <span className="text-subhead text-faint">Add the company&apos;s address here if you have it.</span>
             </label>
-            <label className="flex flex-col gap-1 text-[12px]">
+            <label className="flex flex-col gap-1 text-callout">
               <span className="text-dim">Greeting</span>
               <input
                 aria-label="Greeting"
@@ -337,7 +345,7 @@ export default function CoverLetterEditor({
                 placeholder={greetingDefault}
                 className={`${INPUT} h-7 py-0`}
               />
-              <span className="text-[11px] text-faint">Blank uses the placeholder shown.</span>
+              <span className="text-subhead text-faint">Blank uses the placeholder shown.</span>
             </label>
           </div>
 
@@ -361,7 +369,7 @@ export default function CoverLetterEditor({
             }
             className={`${INPUT} min-h-[22rem] leading-relaxed ${drafting ? "opacity-60" : ""}`}
           />
-          <p className="text-[11px] text-faint">
+          <p className="text-subhead text-faint">
             Then: {profile.closing} {profile.signature ? "[signature] " : ""}
             {profile.name || "(your name — set it in Letterhead)"}
           </p>
@@ -378,12 +386,12 @@ export default function CoverLetterEditor({
                 Delete
               </button>
             )}
-            <span className="ml-auto font-mono text-[11px] text-faint" data-testid="word-count">
+            <span className="ml-auto text-subhead text-faint tabular-nums" data-testid="word-count">
               {words} {words === 1 ? "word" : "words"}
               {words > 400 ? " · long for a cover letter" : ""}
             </span>
           </div>
-          <p className="text-[11px] text-faint" aria-live="polite">
+          <p className="text-subhead text-faint" aria-live="polite">
             {dirty
               ? "Unsaved changes (Ctrl+S saves)."
               : letter
@@ -391,12 +399,12 @@ export default function CoverLetterEditor({
                 : "Not saved yet."}
           </p>
 
-          <div className="flex flex-wrap items-end gap-2 border-t border-line-soft pt-2 text-[12px]" aria-label="Download">
+          <div className="flex flex-wrap items-end gap-2 border-t border-line-soft pt-2 text-callout" aria-label="Download">
             <label className="flex flex-col gap-1">
               <span className="text-dim">Date on the letter</span>
               <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={`${INPUT} h-7 py-0`} />
             </label>
-            <div role="radiogroup" aria-label="File format" className="flex overflow-hidden rounded border border-line">
+            <div role="radiogroup" aria-label="File format" className="seg">
               {(["pdf", "docx"] as const).map((f) => (
                 <button
                   key={f}
@@ -404,7 +412,6 @@ export default function CoverLetterEditor({
                   role="radio"
                   aria-checked={format === f}
                   onClick={() => chooseFormat(f)}
-                  className={`px-3 py-1 ${format === f ? "bg-accent text-accent-ink" : "text-dim hover:text-ink"}`}
                 >
                   {f === "pdf" ? "PDF" : "Word"}
                 </button>
@@ -413,11 +420,11 @@ export default function CoverLetterEditor({
             <button type="button" onClick={onDownload} disabled={body.trim() === "" || exporting} className={PRIMARY}>
               {exporting ? "Building…" : `Download ${format === "pdf" ? "PDF" : ".docx"}`}
             </button>
-            <span className="font-mono text-[11px] text-faint" data-testid="export-name">
+            <span className="font-mono text-subhead text-faint" data-testid="export-name">
               {isCivilDate(date) ? exportFilename(date, page.company, format) : ""}
             </span>
           </div>
-          <p className="text-[11px] text-faint" data-testid="export-font">
+          <p className="text-subhead text-faint" data-testid="export-font">
             {format === "docx"
               ? `Word file in ${docxFontFamily(fonts)}.`
               : fonts.regular
@@ -425,9 +432,9 @@ export default function CoverLetterEditor({
                 : "PDF in Helvetica — upload your font (e.g. Aptos) in Letterhead to match Word."}
           </p>
 
-          {notice && !error && <p className="text-[12px] text-ok">{notice}</p>}
+          {notice && !error && <p className="text-callout text-ok">{notice}</p>}
           {error && (
-            <p role="alert" className="text-[12px] text-bad">
+            <p role="alert" className="text-callout text-bad">
               {error}
             </p>
           )}
@@ -435,8 +442,8 @@ export default function CoverLetterEditor({
 
         {/* Inputs and Claude's notes */}
         <aside className="flex flex-col gap-3">
-          <section aria-label="Draft with Claude" className="flex flex-col gap-2 rounded border border-line bg-panel p-3 text-[12px]">
-            <h2 className="font-mono text-[10px] font-semibold tracking-wide text-faint uppercase">Draft with Claude</h2>
+          <section aria-label="Draft with Claude" className="flex flex-col gap-2 card p-3 text-callout">
+            <h2 className="eyebrow">Draft with Claude</h2>
 
             {!page.resume ? (
               <p className="text-warn">
@@ -486,7 +493,7 @@ export default function CoverLetterEditor({
                 rows={7}
                 onChange={(e) => setPasted(e.target.value)}
                 placeholder="Paste the job description from the posting page."
-                className={`${INPUT} text-[12px]`}
+                className={`${INPUT} text-callout`}
               />
             )}
 
@@ -515,7 +522,7 @@ export default function CoverLetterEditor({
             >
               {drafting ? "Drafting… (up to a minute)" : letter?.draftBody ? "Regenerate" : "Draft with Claude"}
             </button>
-            <p className="text-[11px] leading-snug text-faint">
+            <p className="text-subhead leading-snug text-faint">
               Sends to Anthropic, through your Claude account: the role&apos;s description, your resume, your voice notes,
               and up to two of your past edited cover letters. Claude is told to use only facts from your resume — still
               read every line before you send it.
@@ -523,8 +530,8 @@ export default function CoverLetterEditor({
           </section>
 
           {letter && letter.checks.length > 0 && (
-            <section aria-label="Check before sending" className="rounded border border-warn/50 bg-panel p-3 text-[12px]">
-              <h2 className="mb-1.5 font-mono text-[10px] font-semibold tracking-wide text-warn uppercase">
+            <section aria-label="Check before sending" className="rounded-lg border border-warn/25 bg-panel p-3 text-callout">
+              <h2 className="mb-1.5 eyebrow text-warn">
                 Check before sending
               </h2>
               <ul className="list-disc space-y-1 pl-4 text-dim">

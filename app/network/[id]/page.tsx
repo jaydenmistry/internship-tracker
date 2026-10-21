@@ -43,7 +43,7 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
     : contact;
 
   return (
-    <div className="flex flex-col gap-3 px-4 py-3">
+    <div className="flex flex-col gap-5 px-6 py-7 lg:px-10 lg:py-9">
       <ContactView
         contact={shown}
         timeline={timeline}

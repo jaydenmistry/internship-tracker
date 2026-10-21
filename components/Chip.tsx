@@ -22,16 +22,16 @@ export default function Chip({ active, onClick, title, count, children }: Props)
       aria-pressed={active}
       title={title}
       onClick={onClick}
-      className={`inline-flex shrink-0 items-center gap-1 rounded border px-2 py-[3px] text-[12px] transition-colors ${
+      className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-3 text-callout transition-colors ${
         active
-          ? "border-accent bg-accent text-accent-ink"
-          : "border-line bg-panel text-dim hover:border-faint hover:text-ink"
+          ? "border-accent/40 bg-accent/10 font-medium text-accent"
+          : "border-line bg-canvas text-dim hover:bg-raised hover:text-ink"
       }`}
     >
       {children}
       {count !== undefined && (
         <span
-          className={`font-mono text-[10px] ${active ? "opacity-70" : "text-faint"}`}
+          className={`text-subhead tabular-nums ${active ? "text-accent" : "text-faint"}`}
         >
           {count.toLocaleString("en-US")}
         </span>

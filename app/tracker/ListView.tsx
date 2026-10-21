@@ -15,13 +15,13 @@ interface Props {
   emptyHint: React.ReactNode;
 }
 
-const TH = "px-2 py-1 text-left text-[11px] font-normal text-faint";
+const TH = "th px-2 py-1.5";
 const TD = "px-2 py-1 align-top";
 
 /** Dense table. Fixed layout so long scraped titles truncate instead of widening the page. */
 export default function ListView({ apps, nowMs, onStatus, notes, emptyHint }: Props) {
   return (
-    <div className="rounded border border-line bg-panel">
+    <div className="card">
       <table className="w-full table-fixed border-collapse" data-testid="tracker-list">
         <colgroup>
           <col className="w-[11rem]" />
@@ -50,7 +50,7 @@ export default function ListView({ apps, nowMs, onStatus, notes, emptyHint }: Pr
         <tbody>
           {apps.length === 0 && (
             <tr>
-              <td colSpan={9} className="px-2 py-6 text-center text-[12px] text-dim">
+              <td colSpan={9} className="px-2 py-6 text-center text-callout text-dim">
                 {emptyHint}
               </td>
             </tr>
@@ -81,10 +81,10 @@ export default function ListView({ apps, nowMs, onStatus, notes, emptyHint }: Pr
                   <td className={TD}>
                     <StatusSelect app={app} onChange={(s) => onStatus(app.id, s)} className="w-full" />
                   </td>
-                  <td className={`${TD} text-[12px] text-dim`}>
+                  <td className={`${TD} text-callout text-dim`}>
                     <RelDate iso={app.appliedAt} nowMs={nowMs} />
                   </td>
-                  <td className={`${TD} text-[12px] text-dim`}>
+                  <td className={`${TD} text-callout text-dim`}>
                     <RelDate iso={app.lastEventAt ?? app.updatedAt} nowMs={nowMs} />
                   </td>
                   <td className={`${TD} text-right font-mono tabular-nums text-dim`}>
@@ -99,7 +99,7 @@ export default function ListView({ apps, nowMs, onStatus, notes, emptyHint }: Pr
                         href={href}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-[12px] text-accent hover:underline"
+                        className="text-callout text-accent hover:underline"
                         title={href}
                       >
                         open ↗
