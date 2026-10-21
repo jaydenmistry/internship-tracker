@@ -27,6 +27,14 @@ const GROUPS: Array<{ title: string; keys: Array<[string, string]> }> = [
     ],
   },
   {
+    title: "Arrange",
+    keys: [
+      ["drag", "a column heading sideways to move the column"],
+      ["drag edge", "resize the column  (double-click the edge to reset)"],
+      ["menu", "right-click the headings to pick columns, or the toolbar to pick its items"],
+    ],
+  },
+  {
     title: "Find",
     keys: [
       ["/", "focus the search box  (-word excludes a word)"],

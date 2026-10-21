@@ -675,7 +675,8 @@ and builds the resume vocabulary from the config.
 ```
 app/                       Next.js App Router (auth: proxy.ts + requireSession())
   page.tsx                 / — the listings table
-  listings/                table, toolbar + filter menus, saved views, detail panel, context menu, their actions
+  listings/                table, toolbar + filter menus, saved views, detail panel, context menu, their actions;
+                           table-layout.ts = column order/widths/visibility + toolbar items (cookie `listings-layout`)
   tracker/                 /tracker — kanban/list + minimal dashboard
   import/                  /import — paste/CSV import with match review
   resume/                  /resume — PDF upload; text extracted once, at upload
