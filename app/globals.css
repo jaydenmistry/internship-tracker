@@ -343,6 +343,69 @@ input[type="radio"] {
   transform: none;
   box-shadow: -24px 0 48px -12px hsl(var(--shadow-color) / 0.35);
 }
+.dp-scrim,
+.dp-grab {
+  display: none;
+}
+/* At phone width the inspector is a sheet that rises from the bottom over a
+   dimmed table, with a grabber to swipe it back down (ListingsTable). */
+@media (max-width: 39.99rem) {
+  .dp-shell {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 40;
+    width: auto;
+    height: 90dvh;
+    border-radius: 16px 16px 0 0;
+    overflow: hidden;
+    transform: translateY(calc(100% + 24px));
+  }
+  .dp-shell[data-open] {
+    transform: translateY(var(--dp-drag, 0px));
+    box-shadow: 0 -16px 48px -12px hsl(var(--shadow-color) / 0.45);
+  }
+  .dp-shell[data-dragging] {
+    transition: none;
+  }
+  .dp-shell .dp-panel {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 16px 16px 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .dp-grab {
+    display: flex;
+    position: absolute;
+    inset: 0 0 auto 0;
+    z-index: 20;
+    height: 1.25rem;
+    justify-content: center;
+    padding-top: 6px;
+    touch-action: none;
+    cursor: grab;
+  }
+  .dp-grab::before {
+    content: "";
+    width: 36px;
+    height: 5px;
+    border-radius: 3px;
+    background: var(--line);
+  }
+  .dp-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+    background: rgb(0 0 0 / 0.4);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 300ms ease;
+  }
+  .dp-scrim[data-open] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
 
 /* --- Listings table ------------------------------------------------------
    The header row and every virtualized body row share one grid template, so
@@ -519,6 +582,91 @@ input[type="radio"] {
 .dp-panel {
   scrollbar-color: var(--line) transparent;
   scrollbar-width: thin;
+}
+
+/* The filter menu (FiltersMenu): a two-pane popover under its button, and
+   at phone width a sheet from the bottom that shows the section list or one
+   section at a time. The body keeps one height across sections. */
+.fm-pop {
+  position: absolute;
+  top: 100%;
+  left: var(--fm-shift, 0px);
+  z-index: 50;
+  margin-top: 0.5rem;
+  width: min(37rem, calc(100vw - 2rem));
+  border-radius: 14px;
+  transform-origin: top left;
+  animation: pop-in 180ms var(--ease-out) both;
+}
+.fm-body {
+  height: min(24rem, calc(100dvh - 14rem));
+}
+.fm-scrim,
+.fm-back,
+.fm-grabber,
+.fm-sheet-title,
+.fm-chevron {
+  display: none;
+}
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+@media (max-width: 39.99rem) {
+  .fm-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 49;
+    background: rgb(0 0 0 / 0.4);
+  }
+  .fm-pop {
+    position: fixed;
+    inset: auto 0 0 0;
+    margin: 0;
+    width: auto;
+    max-height: 88dvh;
+    border-width: 1px 0 0;
+    border-radius: 16px 16px 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: sheet-up 280ms var(--ease-out) both;
+  }
+  .fm-body {
+    height: 30rem;
+    max-height: calc(88dvh - 4.5rem);
+  }
+  .fm-grabber {
+    display: block;
+    align-self: center;
+    margin-top: 6px;
+    width: 36px;
+    height: 5px;
+    border-radius: 3px;
+    background: var(--line);
+  }
+  .fm-sheet-title,
+  .fm-chevron {
+    display: block;
+  }
+  .fm-back {
+    display: flex;
+  }
+  .fm-list {
+    width: 100%;
+    border-right: 0;
+  }
+  /* Touch-sized rows in the sheet. */
+  .fm-tab {
+    min-height: 2.75rem;
+  }
+  .fm-options label {
+    min-height: 2.75rem;
+  }
+  .fm-pop[data-pane="list"] .fm-detail,
+  .fm-pop[data-pane="detail"] .fm-list {
+    display: none;
+  }
 }
 
 /* Motion here is only colour fades and a few slides; with Reduce Motion on,

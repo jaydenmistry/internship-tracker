@@ -10,6 +10,7 @@ import {
   useState,
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -21,6 +22,7 @@ import ChecklistMenu from "./ChecklistMenu";
 import ContextMenu from "./ContextMenu";
 import type { Point } from "./context-menu";
 import DetailPanel from "./DetailPanel";
+import { FILTERS_MENU_CLOSED, type FiltersMenuState } from "./FiltersMenu";
 import HelpOverlay from "./HelpOverlay";
 import { isActivatable, isEditable, isPlainKey } from "./keys";
 import type { DetailFocus, RowCommand, Toast } from "./row-actions";
@@ -95,6 +97,7 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views, initi
   /** Section the panel should reveal when a command opened it (split audit). */
   const [detailFocus, setDetailFocus] = useState<DetailFocus | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+  const [filtersMenu, setFiltersMenu] = useState<FiltersMenuState>(FILTERS_MENU_CLOSED);
   const [toast, setToast] = useState<(Toast & { id: number }) | null>(null);
   const [menu, setMenu] = useState<{ rowId: string; x: number; y: number } | null>(null);
   const [layout, setLayoutState] = useState<TableLayout>(initialLayout);
@@ -322,11 +325,56 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views, initi
     [focusCursor],
   );
 
+  const shellRef = useRef<HTMLDivElement>(null);
+  const closeDetail = useCallback(() => {
+    setOpenId(null);
+    scrollRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  /**
+   * Phone width: drag the sheet's grabber down to dismiss it. It follows the
+   * finger, and closes once pulled a quarter of the way or flicked down;
+   * otherwise it springs back.
+   */
+  function onSheetGrab(e: ReactPointerEvent<HTMLDivElement>) {
+    const shell = shellRef.current;
+    if (!shell) return;
+    const handle = e.currentTarget;
+    handle.setPointerCapture(e.pointerId);
+    const startY = e.clientY;
+    let lastY = startY;
+    let lastT = e.timeStamp;
+    let velocity = 0;
+    shell.setAttribute("data-dragging", "");
+    const move = (ev: PointerEvent) => {
+      const dy = Math.max(0, ev.clientY - startY);
+      velocity = (ev.clientY - lastY) / Math.max(1, ev.timeStamp - lastT);
+      lastY = ev.clientY;
+      lastT = ev.timeStamp;
+      shell.style.setProperty("--dp-drag", `${dy}px`);
+    };
+    const up = (ev: PointerEvent) => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      handle.removeEventListener("pointercancel", up);
+      shell.removeAttribute("data-dragging");
+      const dy = Math.max(0, ev.clientY - startY);
+      shell.style.removeProperty("--dp-drag");
+      if (ev.type === "pointerup" && (dy > shell.offsetHeight / 4 || velocity > 0.6)) closeDetail();
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+    handle.addEventListener("pointercancel", up);
+  }
+
   const onRowClick = useCallback(
     (index: number) => {
       const row = visibleRef.current[index];
       setCursor(index);
-      if (row) openDetail(row.id);
+      if (!row) return;
+      // Clicking the open listing again closes the inspector.
+      if (openIdRef.current === row.id) setOpenId(null);
+      else openDetail(row.id);
     },
     [openDetail],
   );
@@ -439,6 +487,10 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views, initi
           event.preventDefault();
           setShowHelp((v) => !v);
           return;
+        case "f":
+          event.preventDefault();
+          setFiltersMenu((m) => ({ ...m, open: true, pane: "list" }));
+          return;
         case "Escape":
           if (s.showHelp) setShowHelp(false);
           else if (s.openId) setOpenId(null);
@@ -478,6 +530,8 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views, initi
         onShowHelp={() => setShowHelp(true)}
         hidden={toolbarHidden}
         onCustomize={(point) => setLayoutMenu({ kind: "toolbar", point })}
+        filtersMenu={filtersMenu}
+        onFiltersMenu={setFiltersMenu}
       />
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
@@ -538,14 +592,23 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views, initi
           </div>
         </div>
 
-        {/* The inspector overlays the table and slides in from the right.
+        {/* The inspector overlays the table and slides in from the right —
+            at phone width, up from the bottom as a sheet (globals.css).
             Closing keeps the last listing mounted (inert) so it can slide
             back out instead of vanishing. */}
         <div
+          aria-hidden
+          className="dp-scrim"
+          data-open={openRow ? "" : undefined}
+          onClick={closeDetail}
+        />
+        <div
+          ref={shellRef}
           className="dp-shell absolute inset-y-0 right-0 z-20 flex w-[27rem] max-w-full"
           data-open={openRow ? "" : undefined}
           inert={!openRow}
         >
+          <div aria-hidden className="dp-grab" onPointerDown={onSheetGrab} />
           {panelRow && (
             <DetailPanel
               key={panelRow.id}
@@ -556,10 +619,7 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views, initi
               onCommand={(command) => act(panelRow, command)}
               onSaveNotes={saveNotes}
               onRetry={detail.retry}
-              onClose={() => {
-                setOpenId(null);
-                scrollRef.current?.focus({ preventScroll: true });
-              }}
+              onClose={closeDetail}
             />
           )}
         </div>
@@ -639,7 +699,7 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views, initi
         <ChecklistMenu
           label="Toolbar items"
           point={layoutMenu.point}
-          sections={(["Quick filters", "Filters", "Controls"] as const).map((group) => ({
+          sections={(["Quick filters", "Controls"] as const).map((group) => ({
             label: group,
             items: TOOLBAR_ITEMS.filter((t) => t.group === group).map((t) => ({
               id: t.id,

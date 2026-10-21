@@ -31,7 +31,7 @@ describe("parseLayout — the cookie is untrusted", () => {
     let layout: TableLayout = moveColumn(DEFAULT_LAYOUT, "company", 4);
     layout = toggleColumn(layout, "source");
     layout = resizeColumn(layout, "location", 220);
-    layout = toggleToolbarItem(layout, "f-term");
+    layout = toggleToolbarItem(layout, "chip-closing");
     const raw = serializeLayout(layout);
     expect(parseLayout(raw)).toEqual(layout);
     expect(parseLayout(decodeURIComponent(raw))).toEqual(layout);
@@ -42,11 +42,12 @@ describe("parseLayout — the cookie is untrusted", () => {
   });
 
   it("drops unknown and duplicate ids and restores missing columns in their default place", () => {
-    const layout = parseLayout(cookie({ o: ["score", "rank", "<script>", "score", "role"], h: ["nope", "age", "age"], t: ["f-term", "bogus"] }));
+    const layout = parseLayout(cookie({ o: ["score", "rank", "<script>", "score", "role"], h: ["nope", "age", "age"], t: ["views", "bogus", "f-term"] }));
     // company follows score, its default predecessor, wherever score now is.
     expect(layout.order).toEqual(["score", "company", "rank", "role", "location", "age", "deadline", "status", "source"]);
     expect(layout.hidden).toEqual(["age"]);
-    expect(layout.toolbarHidden).toEqual(["f-term"]);
+    // "f-term" was a toolbar item once; an old cookie naming it is harmless.
+    expect(layout.toolbarHidden).toEqual(["views"]);
   });
 
   it("never hides the locked role column", () => {
@@ -110,6 +111,17 @@ describe("templates", () => {
     const template = gridTemplate(resizeColumn(DEFAULT_LAYOUT, "company", 240)).split(" ");
     expect(template[2]).toBe("240px");
     expect(template[3]).toMatch(/^minmax\(\d+px,$/);
+  });
+
+  it("pins role to a fixed width once it is resized, and fills again on reset", () => {
+    const resized = resizeColumn(DEFAULT_LAYOUT, "role", 900);
+    expect(gridTemplate(resized).split(" ")[3]).toBe("900px");
+    // Its own ceiling, wider than the other columns'.
+    expect(resizeColumn(DEFAULT_LAYOUT, "role", 1e6).widths.role).toBe(1600);
+    expect(resizeColumn(DEFAULT_LAYOUT, "company", 1e6).widths.company).toBe(MAX_COLUMN_WIDTH);
+    // A live drag passes the width without committing it.
+    expect(gridTemplate(DEFAULT_LAYOUT, { role: 300 }).split(" ")[3]).toBe("300px");
+    expect(gridTemplate(resizeColumn(resized, "role", null)).split(" ")[3]).toMatch(/^minmax\(/);
   });
 
   it("keeps the phone layout to the core columns, in the user's order", () => {

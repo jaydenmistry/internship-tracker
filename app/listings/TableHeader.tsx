@@ -4,7 +4,6 @@ import { useLayoutEffect, useRef, type PointerEvent as ReactPointerEvent, type R
 import type { Point } from "./context-menu";
 import {
   clampWidth,
-  columnWidth,
   dragShifts,
   dropIndex,
   FILL_COLUMN,
@@ -20,8 +19,9 @@ import { nextSort, type SortKey, type SortState } from "./table-state";
 
 /**
  * The listings table's header row. Click a heading to sort; drag it sideways
- * to move the column; drag the line between two headings to resize the one
- * on the left (double-click it to reset); right-click for the column picker.
+ * to move the column; drag the line after a heading to resize that column
+ * (double-click it to reset — for role, to fill the leftover width again);
+ * right-click for the column picker.
  *
  * Both drags run outside React until the pointer is released, so a move costs
  * a style write rather than re-rendering ~40 virtualized rows per frame:
@@ -174,7 +174,9 @@ export default function TableHeader({ ref, layout, columns, sort, onSort, onLayo
     handle.setPointerCapture(e.pointerId);
     handle.setAttribute("data-active", "");
     const startX = e.clientX;
-    const startW = columnWidth(layout, id);
+    // Measured, not read from the layout: the fill column (role) is usually
+    // wider than its stored minimum, and the drag must start where it is.
+    const startW = clampWidth(id, handle.parentElement?.getBoundingClientRect().width ?? 0);
     let width = startW;
     const wrap = wrapRef.current;
     document.documentElement.setAttribute("data-col-resize", "");
@@ -191,6 +193,12 @@ export default function TableHeader({ ref, layout, columns, sort, onSort, onLayo
       handle.removeAttribute("data-active");
       document.documentElement.removeAttribute("data-col-resize");
       if (width !== startW) onLayoutChange(resizeColumn(layout, id, width));
+      else {
+        // Back where it started: nothing to commit, so React won't rewrite
+        // the variables — put back the layout's own (role may still fill).
+        wrap?.style.setProperty("--lt-cols", gridTemplate(layout));
+        wrap?.style.setProperty("--lt-min", gridMinWidth(layout));
+      }
     };
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", up);
@@ -238,19 +246,21 @@ export default function TableHeader({ ref, layout, columns, sort, onSort, onLayo
                 <span className="truncate">{col.label}</span>
                 <span className={active ? "text-accent" : "invisible"}>{sort.dir === "asc" ? "▲" : "▼"}</span>
               </button>
-              {col.id !== FILL_COLUMN && (
-                <div
-                  aria-hidden
-                  title="Drag to resize · double-click to reset"
-                  className="lt-resize"
-                  onPointerDown={(e) => onResizeStart(e, col.id)}
-                  onClick={(e) => e.stopPropagation()}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    onLayoutChange(resizeColumn(layout, col.id, null));
-                  }}
-                />
-              )}
+              <div
+                aria-hidden
+                title={
+                  col.id === FILL_COLUMN
+                    ? "Drag to resize · double-click to fill the width again"
+                    : "Drag to resize · double-click to reset"
+                }
+                className="lt-resize"
+                onPointerDown={(e) => onResizeStart(e, col.id)}
+                onClick={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  onLayoutChange(resizeColumn(layout, col.id, null));
+                }}
+              />
             </div>
           );
         })}
