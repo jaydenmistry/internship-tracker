@@ -38,6 +38,7 @@ const GROUPS: Array<{ title: string; keys: Array<[string, string]> }> = [
     title: "Find",
     keys: [
       ["/", "focus the search box  (-word excludes a word)"],
+      ["f", "open the filters  (↑ ↓ move between sections)"],
       ["Esc", "close menu / panel, leave search"],
       ["?", "show or hide this sheet"],
       ["Ctrl \\", "hide or show the sidebar (⌘\\ on a Mac)"],

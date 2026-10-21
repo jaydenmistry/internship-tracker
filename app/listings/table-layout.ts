@@ -23,18 +23,23 @@ export interface ColumnDef {
   /** Default width in px. The fill column (role) treats it as a minimum. */
   width: number;
   min: number;
+  /** Widest a resize can make it (default MAX_COLUMN_WIDTH). */
+  max?: number;
   /** Shown in the phone-width layout too. */
   core?: true;
   /** Can't be hidden — the row needs something to be recognized by. */
   locked?: true;
 }
 
-/** Default order. Role fills whatever space the fixed columns leave. */
+/**
+ * Default order. Role fills whatever space the fixed columns leave, until the
+ * user resizes it — then it holds that width like any other column.
+ */
 export const COLUMN_DEFS: readonly ColumnDef[] = [
   { id: "rank", label: "#", align: "right", width: 48, min: 36, core: true },
   { id: "score", label: "score", align: "right", width: 52, min: 40, core: true },
   { id: "company", label: "company", width: 160, min: 72, core: true },
-  { id: "role", label: "role", width: 160, min: 120, core: true, locked: true },
+  { id: "role", label: "role", width: 160, min: 120, max: 1600, core: true, locked: true },
   { id: "location", label: "location", width: 144, min: 64 },
   { id: "age", label: "age", align: "right", width: 52, min: 40 },
   { id: "deadline", label: "deadline", width: 76, min: 56 },
@@ -51,22 +56,16 @@ export function columnDef(id: ColumnId): ColumnDef {
   return DEF.get(id)!;
 }
 
-/** Everything the toolbar can show or hide. Search is always there. */
+/**
+ * Everything the toolbar can show or hide. Search and the Filters button are
+ * always there: every filter lives behind that button, so it can't be hidden.
+ */
 export const TOOLBAR_ITEMS = [
   { id: "count", label: "Result count", group: "Controls" },
   { id: "chip-saved", label: "Saved", group: "Quick filters" },
   { id: "chip-applied", label: "Applied", group: "Quick filters" },
   { id: "chip-closing", label: "Closing soon", group: "Quick filters" },
   { id: "chip-high", label: "High score", group: "Quick filters" },
-  { id: "f-status", label: "Status", group: "Filters" },
-  { id: "f-source", label: "Source", group: "Filters" },
-  { id: "f-category", label: "Category", group: "Filters" },
-  { id: "f-term", label: "Term", group: "Filters" },
-  { id: "f-location", label: "Location", group: "Filters" },
-  { id: "f-posted", label: "Posted", group: "Filters" },
-  { id: "f-deadline", label: "Deadline", group: "Filters" },
-  { id: "f-score", label: "Score", group: "Filters" },
-  { id: "f-more", label: "More", group: "Filters" },
   { id: "sort", label: "Sort", group: "Controls" },
   { id: "views", label: "Views", group: "Controls" },
   { id: "help", label: "Keyboard shortcuts", group: "Controls" },
@@ -101,7 +100,8 @@ const Stored = z.object({
 });
 
 export function clampWidth(id: ColumnId, width: number): number {
-  return Math.round(Math.min(MAX_COLUMN_WIDTH, Math.max(columnDef(id).min, width)));
+  const def = columnDef(id);
+  return Math.round(Math.min(def.max ?? MAX_COLUMN_WIDTH, Math.max(def.min, width)));
 }
 
 /** A cookie value (URI-encoded JSON) → a valid layout, never throwing. */
@@ -175,12 +175,17 @@ const COMPACT_WIDTH: Partial<Record<ColumnId, string>> = {
   company: "minmax(5rem, 7rem)",
 };
 
+/** Whether the fill column still takes the leftover space (not resized). */
+export function fills(layout: TableLayout, widths?: Partial<Record<ColumnId, number>>): boolean {
+  return widths?.[FILL_COLUMN] === undefined && layout.widths[FILL_COLUMN] === undefined;
+}
+
 /** `grid-template-columns` for the full layout. */
 export function gridTemplate(layout: TableLayout, widths?: Partial<Record<ColumnId, number>>): string {
   return visibleColumns(layout)
     .map((c) => {
       const w = widths?.[c.id] ?? columnWidth(layout, c.id);
-      return c.id === FILL_COLUMN ? `minmax(${w}px, 1fr)` : `${w}px`;
+      return c.id === FILL_COLUMN && fills(layout, widths) ? `minmax(${w}px, 1fr)` : `${w}px`;
     })
     .join(" ");
 }
