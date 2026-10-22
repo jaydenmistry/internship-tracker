@@ -490,10 +490,14 @@ pass moves some ranks even when those listings didn't change themselves (two
 forced passes minutes apart moved 8 and 31).
 
 **Stage 2** runs after stage 1 on listings that are not disqualified, dismissed
-or closed, have `ruleScore ≥ thresholds.llmMin`, and **have posting text**
-(never a title-only call). Stage 1 resets `llmAdjustment` on every rescore;
+or closed and **have posting text** (never a title-only call). New calls go
+only to listings with `ruleScore ≥ thresholds.llmMin`, highest first, capped by
+`LLM_MAX_CALLS_PER_RUN`. Stage 1 resets `llmAdjustment` on every rescore;
 stage 2 then re-applies it from the `(listingId, textHash)` cache at no API
-cost. Calls are capped by `LLM_MAX_CALLS_PER_RUN`.
+cost — for **any** listing with an assessment of its current text, whatever
+its score, so one run by hand from the detail panel ("Run Claude assessment",
+`assessOneListing` via `lib/listings/assess.ts`, which fetches the posting
+first when there is no text) survives the next cycle.
 
 **Ranks** are recomputed at the end of every `rescoreListings` call, except the
 cycle's provisional pass (`updateRanks: false`) — ranking half-scored listings
@@ -614,8 +618,10 @@ run. Any content change rescores the whole catalog on the next run.
   title alone so a `["Bachelor's"]` degree tag can't exempt them; a title that
   also names undergrads or a bachelor's is exempt), blocked countries, closed.
 - `thresholds.detailFetchMin` — **measured on `gateScore`**, not the displayed
-  score. Currently 50. Raise it if fetch volume becomes a problem.
-- `thresholds.llmMin` — measured on `ruleScore`. Currently 70.
+  score. Currently 35, which covers nearly every open listing. Raise it if
+  fetch volume becomes a problem.
+- `thresholds.llmMin` — measured on `ruleScore`. Currently 40. Gates only new
+  Claude calls; saved assessments re-apply below it.
 - `llm.*` — enabled, model, max adjustment, text/rationale/token caps, and
   `temperature` (**0**; an assessment is cached forever against the posting-text
   hash, so the first roll is the score the listing keeps — at the API default,
@@ -644,7 +650,8 @@ that are read on every call. `.env.example` documents them all.
 | `USER_AGENT_CONTACT` | worker | Contact in the scraper User-Agent |
 | `RAW_RETENTION_DAYS` | worker | Raw payload retention |
 | `DETAIL_REFETCH_DAYS` | worker | Re-fetch posting pages after N days |
-| `DETAIL_MAX_PER_RUN` | worker | Posting fetches per cycle (default 250) |
+| `DETAIL_MAX_PER_RUN` | worker | Posting fetches per cycle (default 1500) |
+| `DETAIL_CONCURRENCY` | worker | Sites fetched at once (default 8); each site stays sequential and rate-limited |
 | `SCORING_CONFIG_PATH` | worker, app | Location of `scoring.json` |
 | `SCORING_ANTHROPIC_API_KEY` | worker, app | Stage 2; unset = cache only. Passed to the SDK explicitly. A plain `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is **fatal at boot** in both processes (`lib/env-guard.ts`, via `instrumentation.ts` and `worker/index.ts`) |
 | `LLM_MAX_CALLS_PER_RUN` | worker | Claude spend cap (malformed ⇒ default, never "no cap") |
@@ -694,7 +701,8 @@ lib/
   cycle.ts                 one full refresh, stages in order
   ingestion/
     adapters/              simplify, intern-list, registry, NormalizedListing contract
-    detail/                posting-page fetchers + robots/rate-limit/SSRF guard
+    detail/                posting-page fetchers (Greenhouse, Lever, Ashby, Workday, Oracle Cloud,
+                           Workable, generic) + robots/rate-limit/SSRF guard
     normalize.ts           company/title/location normalization, dedupKey, req ids
     dedupe.ts              merge decision + hard guard
     pipeline.ts            ingest, upsert, likely-closed, detail stage, pruning

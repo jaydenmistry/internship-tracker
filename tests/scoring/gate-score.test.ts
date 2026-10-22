@@ -42,11 +42,13 @@ describe("gateScore", () => {
     expect(r.gateScore).toBeGreaterThan(r.ruleScore);
   });
 
-  it("lets a solid no-text listing clear the fetch gate its ruleScore could not", () => {
+  it("lets a solid no-text listing clear the fetch gate on gateScore", () => {
     // A mid-tier SWE role in a tech hub: worth reading, but its missing
-    // techFit drags ruleScore below any sane gate. This is the exact listing
-    // shape that was being starved, and the assertion is written against the
-    // configured threshold so retuning the gate doesn't silently void it.
+    // techFit drags ruleScore down. This is the exact listing shape that was
+    // being starved, and the assertion is written against the configured
+    // threshold so retuning the gate doesn't silently void it. (At today's low
+    // gate ruleScore may clear it too; what must hold is that gateScore does,
+    // with room to spare over ruleScore.)
     const r = scoreListing(
       input({
         locations: ["Seattle, WA"],
@@ -57,7 +59,7 @@ describe("gateScore", () => {
     );
     const gate = config.thresholds.detailFetchMin;
     expect(r.breakdown.techFit.points).toBe(0);
-    expect(r.ruleScore).toBeLessThan(gate);
+    expect(r.gateScore).toBeGreaterThan(r.ruleScore);
     expect(r.gateScore).toBeGreaterThanOrEqual(gate);
   });
 

@@ -82,7 +82,7 @@ model Listing {
   mergedFrom Json[]
 
   // stage-3 posting-detail fetch
-  atsKind           String? // greenhouse | lever | ashby | workday | generic
+  atsKind           String? // greenhouse | lever | ashby | workday | oracle | workable | generic
   detailFetchedAt   DateTime?
   detailFetchStatus String? // ok | http_<code> | parse_failed | robots_denied | skipped_threshold | …
 

@@ -20,7 +20,7 @@ I built it for my own Summer 2027 search. It runs on my home server behind Traef
 
 **Ranking**
 - **Stage 1** is deterministic. It weighs tech-stack fit, role type, company tier, location, freshness and deadline urgency, all configured in [`config/scoring.json`](config/scoring.json). Changes to that file apply on the next scoring run without a restart.
-- **Stage 2** is optional. Claude reads the full posting text of high-scoring listings and adjusts the score by at most ±15 points. Results are cached against a hash of the posting text, so each posting is assessed once, and listings without text are never sent.
+- **Stage 2** is optional. Claude reads the full posting text of high-scoring listings and adjusts the score by at most ±15 points. Results are cached against a hash of the posting text, so each posting is assessed once, and listings without text are never sent. Any single listing can also be assessed on demand with **Run Claude assessment** in its detail panel (it fetches the posting first if needed).
 - Each score comes with a full breakdown, and the table shows rank changes only when the listing's own score changed.
 
 **Application tracking**

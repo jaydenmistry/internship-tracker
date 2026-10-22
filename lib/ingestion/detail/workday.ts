@@ -6,6 +6,9 @@
  * API: GET https://{tenant}.wd{N}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/job/{lastPathSegment}
  * → {jobPostingInfo: {jobDescription (HTML), jobReqId, …}}. `postedOn` is
  * relative text ("Posted 30+ Days Ago") — never parsed to a date. No deadline.
+ * A posting that has been taken down answers 403 with errorCode "S22"
+ * ("permission denied") rather than 404 — the role no longer appears in the
+ * tenant's own job search — so that is reported as "gone", not as a block.
  */
 import { z } from "zod";
 import type { DetailContext, DetailResult } from "@/lib/ingestion/detail/index";
@@ -42,7 +45,10 @@ export async function fetchWorkdayDetail(url: string, ctx: DetailContext): Promi
   const apiUrl = `${u.origin}/wday/cxs/${tenant}/${site}/job/${slug}`;
   const res = await politeFetch(apiUrl, ctx);
   const raw = await res.text();
-  if (!res.ok) return { status: `http_${res.status}`, atsKind: "workday", raw };
+  if (!res.ok) {
+    const gone = res.status === 403 && /"errorCode"\s*:\s*"S22"/.test(raw);
+    return { status: gone ? "gone" : `http_${res.status}`, atsKind: "workday", raw };
+  }
 
   try {
     const job = WorkdayJobSchema.parse(JSON.parse(raw));
