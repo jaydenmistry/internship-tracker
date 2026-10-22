@@ -28,12 +28,13 @@ function failingClient() {
 describe.skipIf(!hasDb)("scoring orchestration (integration)", () => {
   let prisma: (typeof import("@/lib/db"))["prisma"];
   let rescoreListings: (typeof import("@/lib/scoring/rescore"))["rescoreListings"];
+  let assessOneListing: (typeof import("@/lib/scoring/rescore"))["assessOneListing"];
   let orchestrationSettings: (typeof import("@/lib/scoring/rescore"))["orchestrationSettings"];
   let loadScoringConfig: (typeof import("@/lib/scoring/config"))["loadScoringConfig"];
 
   beforeEach(async () => {
     ({ prisma } = await import("@/lib/db"));
-    ({ rescoreListings, orchestrationSettings } = await import("@/lib/scoring/rescore"));
+    ({ rescoreListings, orchestrationSettings, assessOneListing } = await import("@/lib/scoring/rescore"));
     ({ loadScoringConfig } = await import("@/lib/scoring/config"));
     await prisma.statusEvent.deleteMany();
     await prisma.application.deleteMany();
@@ -261,5 +262,81 @@ describe.skipIf(!hasDb)("scoring orchestration (integration)", () => {
     await rescoreListings({ llmClient: client, log: quiet });
     const l = await prisma.listing.findUniqueOrThrow({ where: { id: listing.id } });
     expect(l.finalScore).toBe(100);
+  });
+  it("stage 2 re-applies a saved assessment below llmMin, but never makes a new call there", async () => {
+    const { config } = loadScoringConfig();
+    const { llmMin } = orchestrationSettings(config);
+    const hash = (await rescoreListings({ skipLlm: true, log: quiet })).configHash;
+    const low = Math.max(0, llmMin - 5);
+    const assessed = await makeListing({ ruleScore: low, scoringConfigHash: hash, postingText: "Assessed by hand." });
+    await prisma.llmAssessment.create({
+      data: { listingId: assessed.id, textHash: sha256("Assessed by hand."), adjustment: 7, rationale: "r", model: "m" },
+    });
+    await makeListing({ ruleScore: low, scoringConfigHash: hash, postingText: "Never assessed." });
+
+    const { client, create } = mockClient(10);
+    const summary = await rescoreListings({ llmClient: client, log: quiet });
+    expect(create).not.toHaveBeenCalled();
+    expect(summary.llmCacheHits).toBe(1);
+    const l = await prisma.listing.findUniqueOrThrow({ where: { id: assessed.id } });
+    expect(l.llmAdjustment).toBe(7);
+    expect(l.finalScore).toBe(low + 7);
+  });
+
+  describe("assessOneListing — the detail panel's button", () => {
+    it("assesses a listing whatever its score, caches it, and the cycle keeps it", async () => {
+      // No pre-set score: assessOneListing runs stage 1 itself.
+      const listing = await makeListing({ title: "Office Assistant Intern", postingText: "Answer phones." });
+      const { client, create } = mockClient(-4);
+
+      const first = await assessOneListing(listing.id, { llmClient: client, log: quiet });
+      expect(first).toMatchObject({ ok: true, cached: false, adjustment: -4 });
+      expect(create).toHaveBeenCalledTimes(1);
+      const after = await prisma.listing.findUniqueOrThrow({ where: { id: listing.id } });
+      expect(after.llmAdjustment).toBe(-4);
+      expect(after.finalScore).toBe(Math.max(0, after.ruleScore! - 4));
+      expect(after.rank).not.toBeNull();
+
+      // Again: the same text is never billed twice.
+      const second = await assessOneListing(listing.id, { llmClient: client, log: quiet });
+      expect(second).toMatchObject({ ok: true, cached: true, adjustment: -4 });
+      expect(create).toHaveBeenCalledTimes(1);
+
+      // A full rescore resets finalScore in stage 1; stage 2 must put it back.
+      await rescoreListings({ force: true, llmClient: client, log: quiet });
+      const kept = await prisma.listing.findUniqueOrThrow({ where: { id: listing.id } });
+      expect(kept.llmAdjustment).toBe(-4);
+      expect(create).toHaveBeenCalledTimes(1);
+    });
+
+    it("refuses without posting text, for a disqualified listing, and without a key", async () => {
+      const { client, create } = mockClient(5);
+      const noText = await makeListing({ postingText: null });
+      expect(await assessOneListing(noText.id, { llmClient: client, log: quiet })).toMatchObject({
+        ok: false,
+        reason: "no_text",
+      });
+
+      const closed = await makeListing({ likelyClosed: true });
+      expect(await assessOneListing(closed.id, { llmClient: client, log: quiet })).toMatchObject({
+        ok: false,
+        reason: "disqualified",
+      });
+      expect(create).not.toHaveBeenCalled();
+
+      const fine = await makeListing();
+      const saved = process.env.SCORING_ANTHROPIC_API_KEY;
+      delete process.env.SCORING_ANTHROPIC_API_KEY;
+      try {
+        expect(await assessOneListing(fine.id, { log: quiet })).toMatchObject({ ok: false, reason: "no_key" });
+      } finally {
+        if (saved !== undefined) process.env.SCORING_ANTHROPIC_API_KEY = saved;
+      }
+
+      expect(await assessOneListing("missing-id", { llmClient: client, log: quiet })).toMatchObject({
+        ok: false,
+        reason: "not_found",
+      });
+    });
   });
 });

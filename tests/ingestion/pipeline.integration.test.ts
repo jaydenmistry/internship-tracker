@@ -270,4 +270,49 @@ describe.skipIf(!hasDb)("ingestion pipeline (integration)", () => {
     expect(l.detailFetchStatus).toBe("ok");
     expect(l.postingText).toContain("Go and TypeScript");
   });
+  it("retries a temporary failure the next day, and never refetches a posting that is gone", async () => {
+    const { runDetailFetch } = await import("@/lib/ingestion/pipeline");
+    const ids = [2001, 2002, 2003, 2004];
+    await runIngestion({
+      adapterOverride: [
+        fakeAdapter(
+          "fake-a",
+          ids.map((id) =>
+            listing({
+              sourceUid: `uid-${id}`,
+              title: `Software Engineer Intern ${id}`,
+              url: `https://boards.greenhouse.io/acme/jobs/${id}`,
+              raw: { id },
+            }),
+          ),
+        ),
+      ],
+      skipDetail: true,
+      log: quiet,
+    });
+
+    const now = new Date("2026-10-20T06:00:00Z");
+    const daysAgo = (n: number) => new Date(now.getTime() - n * 86_400_000);
+    const set = (id: number, detailFetchStatus: string, detailFetchedAt: Date) =>
+      prisma.listing.updateMany({ where: { url: `https://boards.greenhouse.io/acme/jobs/${id}` }, data: { detailFetchStatus, detailFetchedAt } });
+    await set(2001, "http_429", daysAgo(2)); // temporary, a day old → retry
+    await set(2002, "gone", daysAgo(30)); // taken down → never again
+    await set(2003, "parse_failed", daysAgo(2)); // not temporary, inside the window → wait
+    await set(2004, "http_503", new Date(now.getTime() - 3_600_000)); // temporary, but only an hour ago → wait
+
+    const fetched: string[] = [];
+    const fetchStub: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith("/robots.txt")) return new Response("", { status: 404 });
+      fetched.push(url);
+      return new Response(JSON.stringify({ content: "&lt;p&gt;Build things.&lt;/p&gt;" }), { status: 200 });
+    };
+    const summary = await runDetailFetch({ now, fetchImpl: fetchStub, selector: () => true, log: quiet });
+
+    expect(summary.fetched).toBe(1);
+    expect(fetched).toEqual(["https://boards-api.greenhouse.io/v1/boards/acme/jobs/2001"]);
+    const retried = await prisma.listing.findFirstOrThrow({ where: { url: { endsWith: "/2001" } } });
+    expect(retried.detailFetchStatus).toBe("ok");
+    expect(retried.postingText).toContain("Build things.");
+  });
 });

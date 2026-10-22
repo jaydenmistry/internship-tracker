@@ -114,6 +114,11 @@ const FETCH_BADGES: Record<string, FetchBadge> = {
     title: "Couldn't fetch the posting: HTTP 404. The posting may already be gone.",
     tone: "warn",
   },
+  gone: {
+    label: "no text · taken down",
+    title: "The job site says this posting has been taken down. It may no longer be open.",
+    tone: "warn",
+  },
   robots_denied: {
     label: "no text · robots",
     title:

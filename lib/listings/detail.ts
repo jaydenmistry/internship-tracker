@@ -150,6 +150,7 @@ const FETCH_LABELS: Record<string, string> = {
   fetch_failed: "Network error",
   http_404: "Posting not found (404)",
   http_410: "Posting removed (410)",
+  gone: "Posting taken down by the employer",
 };
 
 /** Human description of a posting-fetch outcome, shared by table and panel. */

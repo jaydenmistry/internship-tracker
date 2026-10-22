@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, X } from "lucide-react";
+import { ExternalLink, LoaderCircle, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { AppStatus } from "@/generated/prisma/enums";
@@ -9,6 +9,7 @@ import ScoreRing from "@/components/ScoreRing";
 import type { ComponentDetail, ListingDetail, ResumeMatchState } from "@/lib/listings/detail";
 import { CONTACT_STATUS_LABELS, CONTACT_STATUS_TONE, KIND_LABELS } from "@/lib/networking/schema";
 import { addContactHref } from "@/app/network/state";
+import { assessListingAction } from "./actions";
 import { NOTES_MAX, type DetailFocus, type RowCommand, type SendResult } from "./row-actions";
 import {
   absoluteDate,
@@ -135,7 +136,7 @@ export default function DetailPanel({
             <PeopleSection detail={detail} />
             <MergedSources detail={detail} focus={focus} onCommand={onCommand} />
             <Breakdown detail={detail} />
-            <LlmSection detail={detail} />
+            <LlmSection key={`llm-${detail.id}`} detail={detail} onAssessed={onRetry} />
             <FetchSection detail={detail} />
             <ResumeSection match={detail.resumeMatch} />
             <CoverLetterSection detail={detail} />
@@ -460,8 +461,22 @@ function ComponentRow({ c }: { c: ComponentDetail }) {
   );
 }
 
-function LlmSection({ detail }: { detail: ListingDetail }) {
+function LlmSection({ detail, onAssessed }: { detail: ListingDetail; onAssessed: () => void }) {
   const { llm } = detail;
+  const [state, setState] = useState<{ status: "idle" | "running" } | { status: "error"; message: string }>({
+    status: "idle",
+  });
+  const running = state.status === "running";
+
+  async function run() {
+    setState({ status: "running" });
+    const res = await assessListingAction({ listingId: detail.id });
+    setState(res.ok ? { status: "idle" } : { status: "error", message: res.message });
+    // Even a refusal may have fetched the posting or rescored it: reload the
+    // panel (it keeps showing the current details until the new ones land).
+    onAssessed();
+  }
+
   return (
     <Section title="Claude assessment">
       {llm ? (
@@ -477,12 +492,45 @@ function LlmSection({ detail }: { detail: ListingDetail }) {
           </p>
         </div>
       ) : (
-        <p className="text-callout text-faint" data-testid="llm-none">
-          No Claude assessment has run for this posting&apos;s current text
-          {detail.hasPostingText
-            ? ", so the score is the rule-based score alone."
-            : " — it has no posting text, and stage 2 never runs on a title alone."}
-        </p>
+        <div className="space-y-2.5">
+          <p className="text-callout text-faint" data-testid="llm-none">
+            {detail.hasPostingText
+              ? "Claude hasn't read this posting yet, so the score is the rule-based score alone."
+              : "Claude hasn't read this posting — there's no posting text yet. Running it fetches the posting first."}
+          </p>
+          <button
+            type="button"
+            onClick={() => void run()}
+            disabled={running}
+            aria-describedby="llm-cost-note"
+            className="btn h-8 gap-1.5"
+          >
+            {running ? (
+              <LoaderCircle aria-hidden size={14} className="animate-spin" />
+            ) : (
+              <Sparkles aria-hidden size={14} className="text-info" />
+            )}
+            {running
+              ? detail.hasPostingText
+                ? "Assessing…"
+                : "Fetching and assessing…"
+              : "Run Claude assessment"}
+          </button>
+          <p id="llm-cost-note" className="text-subhead text-faint">
+            One call on your API key, a fraction of a cent. It&apos;s kept for this posting&apos;s text and moves
+            the score by at most ±15.
+          </p>
+          {state.status === "error" && (
+            <p className="rounded-lg bg-warn/10 px-2.5 py-1.5 text-callout text-warn" role="alert">
+              {state.message}
+            </p>
+          )}
+          {running && (
+            <span className="sr-only" role="status">
+              Running the Claude assessment
+            </span>
+          )}
+        </div>
       )}
     </Section>
   );

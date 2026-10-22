@@ -12,7 +12,8 @@ import { assessPosting, createAnthropicClient, type LlmClient } from "@/lib/scor
  * the current config hash (so editing config/scoring.json triggers a rescore
  * with no restart and no redeploy). Stage 2 calls the Claude API only for
  * listings that clear the llmMin threshold AND have posting text, and only on
- * a cache miss keyed by (listingId, posting-text hash).
+ * a cache miss keyed by (listingId, posting-text hash) — or for one listing
+ * on request (assessOneListing).
  */
 
 /** The orchestration knobs the engine's config exposes — one place to adapt. */
@@ -198,6 +199,31 @@ async function writeScores(
   return { ok, failed, disqualified };
 }
 
+/** The columns a stage-1 score writes. */
+function stageOneData(
+  result: ReturnType<typeof scoreListing>,
+  configHash: string,
+  now: Date,
+): Prisma.ListingUpdateInput {
+  return {
+    ruleScore: result.ruleScore,
+    gateScore: result.gateScore,
+    // finalScore is provisional here; stage 2 may adjust it.
+    finalScore: result.ruleScore,
+    llmAdjustment: null,
+    scoreBreakdown: result.breakdown,
+    disqualified: result.disqualified,
+    disqualifyReasons: result.disqualifyReasons,
+    scoredAt: now,
+    scoringConfigHash: configHash,
+  };
+}
+
+/** The engine version folded into the config hash — see rescoreListings. */
+function currentConfigHash(configHash: string): string {
+  return `v${SCORING_ENGINE_VERSION}-${configHash}`;
+}
+
 /** Stage 1: deterministic scoring for every listing that needs it. */
 async function runStageOne(
   config: ScoringConfig,
@@ -257,22 +283,7 @@ async function runStageOne(
         log(`[scoring] stage 1 failed for ${row.id}: ${String(err)}`);
         continue;
       }
-      writes.push({
-        id: row.id,
-        disqualified: result.disqualified,
-        data: {
-          ruleScore: result.ruleScore,
-          gateScore: result.gateScore,
-          // finalScore is provisional here; stage 2 may adjust it.
-          finalScore: result.ruleScore,
-          llmAdjustment: null,
-          scoreBreakdown: result.breakdown,
-          disqualified: result.disqualified,
-          disqualifyReasons: result.disqualifyReasons,
-          scoredAt: now,
-          scoringConfigHash: configHash,
-        },
-      });
+      writes.push({ id: row.id, disqualified: result.disqualified, data: stageOneData(result, configHash, now) });
     }
 
     const written = await writeScores(writes, log);
@@ -285,7 +296,92 @@ async function runStageOne(
   return { scored, disqualified, failed };
 }
 
-/** Stage 2: cached Claude adjustment for high scorers that have posting text. */
+type StageTwoListing = {
+  id: string;
+  title: string;
+  postingTextHash: string | null;
+  ruleScore: number | null;
+  llmAdjustment: number | null;
+  company: { name: string };
+};
+
+const STAGE_TWO_SELECT = {
+  id: true,
+  title: true,
+  postingTextHash: true,
+  ruleScore: true,
+  llmAdjustment: true,
+  company: { select: { name: true } },
+} as const;
+
+/**
+ * One paid Claude call for a listing's current posting text, saved against
+ * that text's hash. Throws when the call fails (the caller keeps the stage-1
+ * score); a failed cache write is only logged — the result is already paid for.
+ */
+async function assessAndCache(
+  listing: StageTwoListing,
+  postingText: string,
+  client: LlmClient,
+  settings: OrchestrationSettings,
+  log: (m: string) => void,
+): Promise<{ adjustment: number; rationale: string; model: string }> {
+  const textHash = listing.postingTextHash!;
+  const assessment = await assessPosting(
+    {
+      company: listing.company.name,
+      title: listing.title,
+      postingText,
+      ruleScore: listing.ruleScore!,
+    },
+    client,
+    settings.llmOptions,
+  );
+  try {
+    // Upsert, not create: a write failure must not discard a paid result,
+    // and a concurrent run may have inserted the same (listing, text) pair.
+    await prisma.llmAssessment.upsert({
+      where: { listingId_textHash: { listingId: listing.id, textHash } },
+      create: {
+        listingId: listing.id,
+        textHash,
+        adjustment: assessment.adjustment,
+        rationale: assessment.rationale,
+        model: assessment.model,
+      },
+      update: {
+        adjustment: assessment.adjustment,
+        rationale: assessment.rationale,
+        model: assessment.model,
+      },
+    });
+  } catch (err) {
+    log(`[scoring] stage 2 cache write failed for ${listing.id}: ${String(err)}`);
+  }
+  return assessment;
+}
+
+async function applyAdjustment(listing: StageTwoListing, adjustment: number, now: Date): Promise<number> {
+  const finalScore = clampScore((listing.ruleScore ?? 0) + adjustment);
+  await prisma.listing.update({
+    where: { id: listing.id },
+    data: {
+      llmAdjustment: adjustment,
+      finalScore,
+      // Only a real change moves scoredAt, so it stays meaningful.
+      ...(listing.llmAdjustment === adjustment ? {} : { scoredAt: now }),
+    },
+  });
+  return finalScore;
+}
+
+/**
+ * Stage 2: the Claude adjustment. New calls go only to listings that clear
+ * llmMin and have posting text; a listing that already has an assessment of
+ * its current text gets it re-applied whatever its score — stage 1 resets
+ * finalScore on every pass, and an assessment run by hand on a lower scorer
+ * must not quietly vanish the next morning.
+ */
 async function runStageTwo(
   settings: OrchestrationSettings,
   now: Date,
@@ -305,20 +401,13 @@ async function runStageTwo(
       disqualified: false,
       dismissed: false,
       likelyClosed: false,
-      ruleScore: { gte: settings.llmMin },
+      OR: [{ ruleScore: { gte: settings.llmMin } }, { assessments: { some: {} } }],
       // Stage 2 never runs without posting text — a title-only call is money
       // spent on no signal.
       postingText: { not: null },
       postingTextHash: { not: null },
     },
-    select: {
-      id: true,
-      title: true,
-      postingTextHash: true,
-      ruleScore: true,
-      llmAdjustment: true,
-      company: { select: { name: true } },
-    },
+    select: STAGE_TWO_SELECT,
     orderBy: { ruleScore: "desc" },
     take: maxCandidates,
   });
@@ -334,76 +423,123 @@ async function runStageTwo(
       adjustment = cached.adjustment;
       llmCacheHits += 1;
     } else {
-      if (!client || llmCalls >= maxCalls) continue;
+      if (!client || llmCalls >= maxCalls || (listing.ruleScore ?? 0) < settings.llmMin) continue;
       const row = await prisma.listing.findUnique({
         where: { id: listing.id },
         select: { postingText: true },
       });
       if (!row?.postingText) continue;
 
-      let assessment;
       try {
-        assessment = await assessPosting(
-          {
-            company: listing.company.name,
-            title: listing.title,
-            postingText: row.postingText,
-            ruleScore: listing.ruleScore!,
-          },
-          client,
-          settings.llmOptions,
-        );
+        // Counted against the cap whenever the call returned: assessAndCache
+        // swallows a failed cache write, so a paid call can't slip past it.
+        adjustment = (await assessAndCache(listing, row.postingText, client, settings, log)).adjustment;
+        llmCalls += 1;
       } catch (err) {
         // A failed assessment leaves the stage-1 score standing.
         llmFailures += 1;
         log(`[scoring] stage 2 failed for ${listing.id}: ${String(err)}`);
         continue;
       }
-      // Billed the moment the call returns: counting it after the write would
-      // let a failed insert bypass the cap and re-bill the same text forever.
-      llmCalls += 1;
-      adjustment = assessment.adjustment;
-
-      try {
-        // Upsert, not create: a write failure must not discard a paid result,
-        // and a concurrent run may have inserted the same (listing, text) pair.
-        await prisma.llmAssessment.upsert({
-          where: { listingId_textHash: { listingId: listing.id, textHash } },
-          create: {
-            listingId: listing.id,
-            textHash,
-            adjustment: assessment.adjustment,
-            rationale: assessment.rationale,
-            model: assessment.model,
-          },
-          update: {
-            adjustment: assessment.adjustment,
-            rationale: assessment.rationale,
-            model: assessment.model,
-          },
-        });
-      } catch (err) {
-        // The score below is still applied; only the cache entry is lost.
-        log(`[scoring] stage 2 cache write failed for ${listing.id}: ${String(err)}`);
-      }
     }
 
     try {
-      await prisma.listing.update({
-        where: { id: listing.id },
-        data: {
-          llmAdjustment: adjustment,
-          finalScore: clampScore((listing.ruleScore ?? 0) + adjustment),
-          // Only a real change moves scoredAt, so it stays meaningful.
-          ...(listing.llmAdjustment === adjustment ? {} : { scoredAt: now }),
-        },
-      });
+      await applyAdjustment(listing, adjustment, now);
     } catch (err) {
       log(`[scoring] stage 2 apply failed for ${listing.id}: ${String(err)}`);
     }
   }
 
   return { llmCacheHits, llmCalls, llmFailures };
+}
+
+export type AssessOneResult =
+  | { ok: true; cached: boolean; adjustment: number; ruleScore: number; finalScore: number }
+  | {
+      ok: false;
+      reason: "not_found" | "disabled" | "disqualified" | "no_text" | "no_key" | "failed";
+      message: string;
+    };
+
+/**
+ * Run the Claude pass on ONE listing now, whatever its score — the detail
+ * panel's "Run Claude assessment". Same path as the cycle: stage 1 first (so
+ * the adjustment lands on a current rule score), the saved assessment if this
+ * exact text already has one, otherwise one call, cached against the text
+ * hash so the cycle re-applies it from then on. Ranks are recomputed after.
+ */
+export async function assessOneListing(
+  listingId: string,
+  opts: { now?: Date; llmClient?: LlmClient; log?: (m: string) => void } = {},
+): Promise<AssessOneResult> {
+  const now = opts.now ?? new Date();
+  const log = opts.log ?? ((m: string) => console.log(m));
+  const { config, hash } = loadScoringConfig();
+  const settings = orchestrationSettings(config);
+  if (!settings.llmEnabled) {
+    return { ok: false, reason: "disabled", message: "The Claude pass is turned off (llm.enabled in config/scoring.json)." };
+  }
+
+  const row = await prisma.listing.findUnique({
+    where: { id: listingId },
+    select: { ...LISTING_SELECT, llmAdjustment: true },
+  });
+  if (!row) return { ok: false, reason: "not_found", message: "That listing no longer exists." };
+
+  const scored = scoreListing(toScoringInput(row), config, now);
+  await prisma.listing.update({
+    where: { id: row.id },
+    data: stageOneData(scored, currentConfigHash(hash), now),
+  });
+  if (scored.disqualified) {
+    return {
+      ok: false,
+      reason: "disqualified",
+      message: `It's disqualified (${scored.disqualifyReasons.join("; ")}), so its score is 0 whatever Claude says.`,
+    };
+  }
+  if (!row.postingText || !row.postingTextHash) {
+    return {
+      ok: false,
+      reason: "no_text",
+      message: "There's no posting text to read, and Claude never judges a role from its title alone.",
+    };
+  }
+
+  // Stage 1 just reset the adjustment; the listing as it now stands.
+  const listing: StageTwoListing = { ...row, ruleScore: scored.ruleScore, llmAdjustment: null };
+  const cached = await prisma.llmAssessment.findUnique({
+    where: { listingId_textHash: { listingId: row.id, textHash: row.postingTextHash } },
+  });
+
+  let adjustment: number;
+  if (cached) {
+    adjustment = cached.adjustment;
+  } else {
+    let client = opts.llmClient;
+    if (!client) {
+      try {
+        client = createAnthropicClient();
+      } catch {
+        return {
+          ok: false,
+          reason: "no_key",
+          message:
+            "No Anthropic API key is set. Add TRACKER_SCORING_ANTHROPIC_API_KEY to the server's .env and recreate the app container.",
+        };
+      }
+    }
+    try {
+      adjustment = (await assessAndCache(listing, row.postingText, client, settings, log)).adjustment;
+    } catch (err) {
+      log(`[scoring] manual stage 2 failed for ${row.id}: ${String(err)}`);
+      return { ok: false, reason: "failed", message: `Claude couldn't assess it: ${String(err).slice(0, 200)}` };
+    }
+  }
+
+  const finalScore = await applyAdjustment(listing, adjustment, now);
+  await recomputeRanks(now);
+  return { ok: true, cached: cached !== null, adjustment, ruleScore: scored.ruleScore, finalScore };
 }
 
 export async function rescoreListings(opts: RescoreOptions = {}): Promise<RescoreSummary> {
@@ -417,7 +553,7 @@ export async function rescoreListings(opts: RescoreOptions = {}): Promise<Rescor
   // The engine version is folded in so a scoring-logic change also invalidates
   // stored scores — the config hash alone would not notice a code deploy.
   const { config, hash: configHash } = loadScoringConfig();
-  const hash = `v${SCORING_ENGINE_VERSION}-${configHash}`;
+  const hash = currentConfigHash(configHash);
   const settings = orchestrationSettings(config);
   log(`[scoring] config hash ${hash.slice(0, 15)}`);
 

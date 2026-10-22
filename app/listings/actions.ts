@@ -7,6 +7,7 @@ import { NOTES_MAX } from "./row-actions";
 import { viewFromQuery, viewToQuery } from "./table-state";
 import { loadListingDetail, type ListingDetail } from "@/lib/listings/detail";
 import { splitMerge } from "@/lib/ingestion/split";
+import { assessListingNow } from "@/lib/listings/assess";
 import {
   setListingDismissed,
   setListingNotes,
@@ -204,6 +205,45 @@ export async function splitMergeAction(
     listingId: result.listingId,
     alreadySplit: result.alreadySplit,
     label: `${result.company} — ${result.title}`,
+  };
+}
+
+/**
+ * "Run Claude assessment" in the detail panel: one listing, whatever its
+ * score — fetching its posting first if it has no text. Costs at most one
+ * Claude call (none when this exact text was assessed before). Refreshes the
+ * page on success, since the score and possibly the ranks moved.
+ */
+export async function assessListingAction(
+  payload: unknown,
+): Promise<ActionResult<{ adjustment: number; ruleScore: number; finalScore: number; cached: boolean; fetched: boolean }>> {
+  // Every Server Action is a public POST endpoint. proxy.ts already blocks
+  // unauthenticated callers, but this does not rely on that: a matcher mistake
+  // must cost a redirect, not a paid API call.
+  await requireSession();
+  const parsed = detailSchema.safeParse(payload);
+  if (!parsed.success) return invalid(parsed.error);
+
+  let result: Awaited<ReturnType<typeof assessListingNow>>;
+  try {
+    result = await assessListingNow(parsed.data.listingId);
+  } catch (err) {
+    return failed("The assessment", err);
+  }
+  if (!result.ok) {
+    // Fetched text or a fresh rule score still belongs in the table.
+    if (result.changed) refresh();
+    return { ok: false, message: result.message };
+  }
+
+  refresh();
+  return {
+    ok: true,
+    adjustment: result.adjustment,
+    ruleScore: result.ruleScore,
+    finalScore: result.finalScore,
+    cached: result.cached,
+    fetched: result.fetched,
   };
 }
 

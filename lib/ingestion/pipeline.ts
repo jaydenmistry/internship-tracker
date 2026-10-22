@@ -465,6 +465,132 @@ export function runDetailFetch(
   );
 }
 
+/** Statuses that say the posting itself is gone — never worth refetching. */
+const GONE_STATUSES = ["http_404", "http_410", "gone"];
+
+/**
+ * Failures that are usually momentary (a rate limit, a flaky gateway, a
+ * dropped connection). These come back the next day rather than waiting out
+ * the full refetch window with no text.
+ */
+const TRANSIENT_STATUSES = ["fetch_failed", "http_403", "http_408", "http_429", "http_500", "http_502", "http_503", "http_504"];
+const TRANSIENT_RETRY_HOURS = 20;
+
+/**
+ * A numeric env setting, falling back on anything unparseable or negative: a
+ * typo must not become NaN, which here would silently mean "fetch nothing".
+ */
+function envNumber(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Run `work` over `items` with one queue per host and up to `concurrency`
+ * hosts in flight. Requests to one host stay strictly sequential (on top of
+ * net.ts's per-host spacing), so going wider only ever means more *sites* at
+ * once, never more pressure on any one of them.
+ */
+async function forEachByHost<T extends { url: string }>(
+  items: readonly T[],
+  concurrency: number,
+  work: (item: T) => Promise<void>,
+): Promise<void> {
+  const queues = new Map<string, T[]>();
+  for (const item of items) {
+    const host = hostOf(item.url);
+    const queue = queues.get(host);
+    if (queue) queue.push(item);
+    else queues.set(host, [item]);
+  }
+  const pending = [...queues.values()];
+  const lanes = Array.from({ length: Math.max(1, Math.min(concurrency, pending.length)) }, async () => {
+    for (let queue = pending.shift(); queue; queue = pending.shift()) {
+      for (const item of queue) await work(item);
+    }
+  });
+  await Promise.all(lanes);
+}
+
+type StoredListing = { id: string; url: string; postingText: string | null; requisitionId: string | null; deadline: Date | null };
+
+/**
+ * Persist one fetch outcome. New posting text (or a CHANGED deadline)
+ * invalidates the stored score: clearing the config hash makes the next
+ * scoring pass pick the listing up. An unchanged deadline must not
+ * invalidate, or every re-fetch would force a pointless rescore.
+ */
+async function storeDetailResult(listing: StoredListing, result: DetailResult, now: Date): Promise<void> {
+  const richer =
+    result.postingText &&
+    (!listing.postingText || listing.postingText.length < result.postingText.length);
+  await prisma.listing.update({
+    where: { id: listing.id },
+    data: {
+      atsKind: result.atsKind,
+      detailFetchedAt: now,
+      detailFetchStatus: result.status,
+      ...(richer
+        ? {
+            postingText: result.postingText,
+            postingTextHash: sha256(result.postingText!),
+            scoringConfigHash: null,
+          }
+        : {}),
+      ...(result.deadline &&
+      result.deadline.getTime() !== (listing.deadline?.getTime() ?? NaN)
+        ? { deadline: result.deadline, scoringConfigHash: null }
+        : {}),
+      ...(result.requisitionId && !listing.requisitionId
+        ? { requisitionId: result.requisitionId }
+        : {}),
+    },
+  });
+}
+
+function detailContext(now: Date, fetchImpl: typeof globalThis.fetch, log: (m: string) => void): DetailContext {
+  return {
+    fetch: fetchImpl,
+    userAgent: DEFAULT_USER_AGENT(),
+    now,
+    log: (m) => log(`[detail] ${m}`),
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    robotsCache: new Map(),
+    urlCache: new Map(),
+  };
+}
+
+/**
+ * Fetch one listing's posting page right now, outside the cycle — for the
+ * detail panel's "Run Claude assessment", which needs the text first. Same
+ * parsers, etiquette and write as the scheduled stage.
+ */
+export async function fetchDetailForListing(
+  listingId: string,
+  opts: { now?: Date; fetchImpl?: typeof globalThis.fetch; log?: (m: string) => void } = {},
+): Promise<{ status: string; hasText: boolean } | null> {
+  const now = opts.now ?? new Date();
+  const listing = await prisma.listing.findUnique({
+    where: { id: listingId },
+    select: { id: true, url: true, postingText: true, requisitionId: true, deadline: true },
+  });
+  if (!listing) return null;
+  const ctx = detailContext(now, opts.fetchImpl ?? globalThis.fetch, opts.log ?? ((m) => console.log(m)));
+  const result = await fetchDetail(listing.url, ctx);
+  await storeDetailResult(listing, result, now);
+  return { status: result.status, hasText: Boolean(result.postingText || listing.postingText) };
+}
+
 async function runDetailStage(
   now: Date,
   fetchImpl: typeof globalThis.fetch,
@@ -472,9 +598,11 @@ async function runDetailStage(
   log: (m: string) => void,
   minGateScore?: number,
 ): Promise<{ fetched: number; errors: number }> {
-  const refetchDays = Number(process.env.DETAIL_REFETCH_DAYS ?? 14);
-  const maxPerRun = Number(process.env.DETAIL_MAX_PER_RUN ?? 250);
+  const refetchDays = envNumber("DETAIL_REFETCH_DAYS", 14);
+  const maxPerRun = envNumber("DETAIL_MAX_PER_RUN", 1500);
+  const concurrency = Math.max(1, Math.floor(envNumber("DETAIL_CONCURRENCY", 8)));
   const staleBefore = new Date(now.getTime() - refetchDays * 24 * 60 * 60 * 1000);
+  const retryBefore = new Date(now.getTime() - TRANSIENT_RETRY_HOURS * 60 * 60 * 1000);
 
   // Narrow select: only what the selector needs (postingText alone can be
   // 20KB/row). Never-fetched listings first, then stalest refetches, so a
@@ -491,7 +619,8 @@ async function runDetailStage(
         {
           OR: [
             { detailFetchedAt: null },
-            { detailFetchedAt: { lt: staleBefore }, detailFetchStatus: { not: "http_404" } },
+            { detailFetchedAt: { lt: staleBefore }, detailFetchStatus: { notIn: GONE_STATUSES } },
+            { detailFetchedAt: { lt: retryBefore }, detailFetchStatus: { in: TRANSIENT_STATUSES } },
           ],
         },
       ],
@@ -508,59 +637,30 @@ async function runDetailStage(
     where: { id: { in: selectedIds } },
     select: { id: true, url: true, postingText: true, requisitionId: true, deadline: true },
   });
-  const ctx: DetailContext = {
-    fetch: fetchImpl,
-    userAgent: DEFAULT_USER_AGENT(),
-    now,
-    log: (m) => log(`[detail] ${m}`),
-    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-    robotsCache: new Map(),
-    urlCache: new Map(),
-  };
+  const ctx = detailContext(now, fetchImpl, log);
+  log(`[detail] fetching ${selected.length} posting(s), ${concurrency} site(s) at a time`);
 
   let fetched = 0;
   let errors = 0;
-  for (const listing of selected) {
+  await forEachByHost(selected, concurrency, async (listing) => {
     let result: DetailResult;
     try {
       result = await fetchDetail(listing.url, ctx);
     } catch (err) {
       errors += 1;
       log(`[detail] ${listing.id} threw: ${String(err)}`);
-      continue;
+      return;
     }
-    const richer =
-      result.postingText &&
-      (!listing.postingText || listing.postingText.length < result.postingText.length);
-    await prisma.listing.update({
-      where: { id: listing.id },
-      data: {
-        atsKind: result.atsKind,
-        detailFetchedAt: now,
-        detailFetchStatus: result.status,
-        // New posting text (or a CHANGED deadline) invalidates the stored
-        // score: clearing the config hash makes the next pass pick this up.
-        // An unchanged deadline must not invalidate, or every re-fetch would
-        // force a pointless rescore.
-        ...(richer
-          ? {
-              postingText: result.postingText,
-              postingTextHash: sha256(result.postingText!),
-              scoringConfigHash: null,
-            }
-          : {}),
-        ...(result.deadline &&
-        result.deadline.getTime() !== (listing.deadline?.getTime() ?? NaN)
-          ? { deadline: result.deadline, scoringConfigHash: null }
-          : {}),
-        ...(result.requisitionId && !listing.requisitionId
-          ? { requisitionId: result.requisitionId }
-          : {}),
-      },
-    });
+    try {
+      await storeDetailResult(listing, result, now);
+    } catch (err) {
+      errors += 1;
+      log(`[detail] ${listing.id} write failed: ${String(err)}`);
+      return;
+    }
     fetched += 1;
     if (result.status !== "ok") errors += 1;
-  }
+  });
   return { fetched, errors };
 }
 

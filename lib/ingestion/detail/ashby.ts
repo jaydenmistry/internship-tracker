@@ -3,8 +3,12 @@
  * /application suffix — stripped before fetching). No public JSON API: GET the
  * page HTML and parse its `<script type="application/ld+json">` JobPosting
  * (description is HTML; validThrough → deadline when present). Fall back to
- * `window.__appData` when the ld+json is missing.
+ * `window.__appData` when the ld+json is missing, and then to the public
+ * job-board API (api.ashbyhq.com/posting-api/job-board/{org}): a page with
+ * neither is usually a closed role, and the board says so — a job that isn't
+ * on it is reported "gone" rather than as a parser failure.
  */
+import { z } from "zod";
 import type { DetailContext, DetailResult } from "@/lib/ingestion/detail/index";
 import {
   UnsupportedUrlError,
@@ -39,10 +43,31 @@ export async function fetchAshbyDetail(url: string, ctx: DetailContext): Promise
     if (appDataHtml !== undefined) {
       return { status: "ok", atsKind: "ashby", postingText: htmlToText(appDataHtml), raw };
     }
-    return { status: "parse_failed", atsKind: "ashby", raw };
+    return (await fromJobBoard(org, uuid, ctx)) ?? { status: "parse_failed", atsKind: "ashby", raw };
   } catch (err) {
     ctx.log(`ashby parse failed for ${pageUrl}: ${err instanceof Error ? err.message : String(err)}`);
     return { status: "parse_failed", atsKind: "ashby", raw };
+  }
+}
+
+const JobBoardSchema = z.looseObject({
+  jobs: z.array(z.looseObject({ id: z.string(), descriptionHtml: z.string().nullish() })),
+});
+
+/** The org's public job board: the posting's text, "gone" if it isn't listed, or undefined if the board can't say. */
+async function fromJobBoard(org: string, uuid: string, ctx: DetailContext): Promise<DetailResult | undefined> {
+  const boardUrl = `https://api.ashbyhq.com/posting-api/job-board/${encodeURIComponent(org)}`;
+  try {
+    const res = await politeFetch(boardUrl, ctx);
+    if (!res.ok) return undefined;
+    const board = JobBoardSchema.parse(await res.json());
+    const job = board.jobs.find((j) => j.id.toLowerCase() === uuid.toLowerCase());
+    if (!job) return { status: "gone", atsKind: "ashby" };
+    if (!job.descriptionHtml) return undefined;
+    return { status: "ok", atsKind: "ashby", postingText: htmlToText(job.descriptionHtml) };
+  } catch (err) {
+    ctx.log(`ashby job board unreadable for ${org}: ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
   }
 }
 

@@ -13,15 +13,21 @@ import { fetchLeverDetail } from "@/lib/ingestion/detail/lever";
 import { fetchAshbyDetail } from "@/lib/ingestion/detail/ashby";
 import { fetchWorkdayDetail } from "@/lib/ingestion/detail/workday";
 import { fetchGenericDetail } from "@/lib/ingestion/detail/generic";
+import { fetchOracleDetail, isOracleCandidateExperience } from "@/lib/ingestion/detail/oracle";
+import { fetchWorkableDetail } from "@/lib/ingestion/detail/workable";
 import { RobotsDeniedError, UnsupportedUrlError } from "@/lib/ingestion/detail/net";
 
-export type AtsKind = "greenhouse" | "lever" | "ashby" | "workday" | "generic";
+export type AtsKind = "greenhouse" | "lever" | "ashby" | "workday" | "oracle" | "workable" | "generic";
 
 /** Hard cap on extracted description length. */
 export const MAX_POSTING_TEXT = 20_000;
 
 export interface DetailResult {
-  /** "ok" | "http_<code>" | "parse_failed" | "robots_denied" | "unsupported_url" | "fetch_failed" */
+  /**
+   * "ok" | "http_<code>" | "gone" | "parse_failed" | "robots_denied" |
+   * "unsupported_url" | "fetch_failed". "gone" is an ATS saying, in its own
+   * words rather than a 404, that the posting has been taken down.
+   */
   status: string;
   atsKind: AtsKind;
   /** Plain text, entity-decoded, tags stripped, ≤ MAX_POSTING_TEXT chars. */
@@ -64,6 +70,8 @@ export function detectAtsKind(url: string): AtsKind {
   if (host === "jobs.lever.co") return "lever";
   if (host === "jobs.ashbyhq.com") return "ashby";
   if (/\.wd\d+\.myworkdayjobs\.com$/.test(host)) return "workday";
+  if (isOracleCandidateExperience(u)) return "oracle";
+  if (host === "apply.workable.com") return "workable";
   return "generic";
 }
 
@@ -72,6 +80,8 @@ const handlers: Record<AtsKind, (url: string, ctx: DetailContext) => Promise<Det
   lever: fetchLeverDetail,
   ashby: fetchAshbyDetail,
   workday: fetchWorkdayDetail,
+  oracle: fetchOracleDetail,
+  workable: fetchWorkableDetail,
   generic: fetchGenericDetail,
 };
 

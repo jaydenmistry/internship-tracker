@@ -39,12 +39,16 @@ function rateMap(ctx: DetailContext): Map<string, number> {
 async function rateLimitedFetch(target: URL, ctx: DetailContext): Promise<Response> {
   const nowMs = ctx.nowMs ?? Date.now;
   const hosts = rateMap(ctx);
+  // Reserve this request's slot before awaiting anything: the detail stage
+  // fetches several hosts at once, and two listings on different page hosts
+  // can share an API host (both Greenhouse hosts → boards-api). Reading the
+  // last time, sleeping, and only then writing would let both through
+  // together.
+  const now = nowMs();
   const last = hosts.get(target.hostname);
-  if (last !== undefined) {
-    const wait = RATE_LIMIT_MS - (nowMs() - last);
-    if (wait > 0) await ctx.sleep(wait);
-  }
-  hosts.set(target.hostname, nowMs());
+  const slot = last === undefined ? now : Math.max(now, last + RATE_LIMIT_MS);
+  hosts.set(target.hostname, slot);
+  if (slot > now) await ctx.sleep(slot - now);
   return ctx.fetch(target.toString(), {
     headers: { "User-Agent": ctx.userAgent },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
