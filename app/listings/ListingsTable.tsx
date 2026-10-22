@@ -48,17 +48,19 @@ import {
   absoluteDate,
   absoluteDay,
   applyPatches,
+  closedBadge,
   deadlineUrgency,
-  dqBadge,
   fetchBadge,
   formatDeadline,
   formatScore,
+  hiddenAsDisqualified,
   HIGH_SCORE_THRESHOLD,
   isClosingSoon,
   isTrackedApplied,
   prepareRows,
   rankMovement,
   relativeAge,
+  rowDqBadge,
   scoreTone,
   sortRows,
   STATUS_LABELS,
@@ -225,10 +227,11 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views, initi
     let highScore = 0;
     let fetchIssues = 0;
     for (const row of patched) {
-      if (row.disqualified) disqualified += 1;
+      // Counts what the toggle reveals: roles you're in process for show anyway.
+      if (hiddenAsDisqualified(row)) disqualified += 1;
       if (row.dismissed) dismissed += 1;
       const hidden =
-        (row.disqualified && !filter.showDisqualified) ||
+        (hiddenAsDisqualified(row) && !filter.showDisqualified) ||
         (row.dismissed && !filter.showDismissed);
       if (hidden) continue;
       if (row.saved) saved += 1;
@@ -776,9 +779,12 @@ const Row = memo(function Row({
 }: RowProps) {
   const badge = fetchBadge(row.fetchStatus);
   const movement = rankMovement(row.rankDelta);
-  const dq = row.disqualified ? dqBadge(row.disqualifyReasons) : null;
+  const dq = rowDqBadge(row);
+  const closed = closedBadge(row);
   const urgency = deadlineUrgency(row.deadlineTs, now);
-  const muted = row.disqualified || row.dismissed;
+  // A role you're in process for is never greyed or struck out for its score.
+  const struck = hiddenAsDisqualified(row);
+  const muted = struck || row.dismissed;
 
   // Every cell, keyed by column; the row renders the visible ones in the
   // user's order. `data-col` is what a column drag moves (TableHeader).
@@ -806,7 +812,9 @@ const Row = memo(function Row({
         key="score"
         data-col="score"
         className={`lt-cell text-right font-semibold tabular-nums ${
-          row.disqualified ? "text-faint line-through" : SCORE_TONE_CLASS[scoreTone(row.score)]
+          row.disqualified
+            ? `text-faint ${struck ? "line-through" : ""}`
+            : SCORE_TONE_CLASS[scoreTone(row.score)]
         }`}
         title={
           row.llmAdjustment !== null ? `includes LLM adjustment ${row.llmAdjustment}` : undefined
@@ -827,7 +835,11 @@ const Row = memo(function Row({
     ),
     role: (
       <span key="role" data-col="role" className="lt-cell flex items-center gap-1.5" title={row.title}>
-        <span className={`truncate ${row.likelyClosed ? "text-dim line-through" : "text-ink"}`}>
+        <span
+          className={`truncate ${
+            row.likelyClosed && !isTrackedApplied(row.statusKey) ? "text-dim line-through" : "text-ink"
+          }`}
+        >
           {row.title}
         </span>
         {row.saved && (
@@ -840,14 +852,14 @@ const Row = memo(function Row({
             {badge.label}
           </Badge>
         )}
-        {row.likelyClosed && (
-          <Badge tone="dim" title="No longer present in any source — probably closed">
-            closed?
+        {closed && (
+          <Badge tone="dim" title={closed.title}>
+            {closed.text}
           </Badge>
         )}
         {row.dismissed && <Badge tone="dim">dismissed</Badge>}
         {dq && (
-          <Badge tone="bad" title={dq.title}>
+          <Badge tone={dq.tone} title={dq.title}>
             {dq.text}
           </Badge>
         )}

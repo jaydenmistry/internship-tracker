@@ -207,3 +207,43 @@ describe("referral badge", () => {
     expect(link.getAttribute("href")).toBe("/network/c%201");
   });
 });
+
+describe("tracker search", () => {
+  const apps = [
+    app({ id: "a1", company: "IBM", role: "Backend Developer Intern" }),
+    app({ id: "a2", company: "Stripe", role: "Software Engineer Intern", status: "OA" }),
+  ];
+
+  it("narrows both views as you type, and says how many match", () => {
+    for (const view of ["kanban", "list"] as const) {
+      render(<TrackerView apps={apps} view={view} nowIso={NOW} />);
+      fireEvent.change(screen.getByRole("searchbox", { name: "Search applications" }), {
+        target: { value: "stripe" },
+      });
+      expect(screen.queryByText("IBM")).toBeNull();
+      expect(screen.getByText("Stripe")).toBeTruthy();
+      expect(screen.getByText(/1 of 2 applications/)).toBeTruthy();
+      cleanup();
+    }
+  });
+
+  it("says when nothing matches and clears from there", () => {
+    render(<TrackerView apps={apps} view="kanban" nowIso={NOW} />);
+    const box = screen.getByRole<HTMLInputElement>("searchbox", { name: "Search applications" });
+    fireEvent.change(box, { target: { value: "zzz" } });
+    expect(screen.getByTestId("no-matches").textContent).toContain("zzz");
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(box.value).toBe("");
+    expect(screen.getByText("IBM")).toBeTruthy();
+  });
+
+  it("focuses on / and clears on Escape", () => {
+    render(<TrackerView apps={apps} view="list" nowIso={NOW} />);
+    const box = screen.getByRole<HTMLInputElement>("searchbox", { name: "Search applications" });
+    fireEvent.keyDown(document.body, { key: "/" });
+    expect(document.activeElement).toBe(box);
+    fireEvent.change(box, { target: { value: "ibm" } });
+    fireEvent.keyDown(box, { key: "Escape" });
+    expect(box.value).toBe("");
+  });
+});

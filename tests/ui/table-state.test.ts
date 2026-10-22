@@ -294,6 +294,19 @@ describe("default view", () => {
     ).toHaveLength(3);
   });
 
+  it("never hides a disqualified role you're in process for", () => {
+    // Postings come down mid-process; the interview you're in doesn't.
+    const rows = prep(
+      { id: "interviewing", disqualified: true, likelyClosed: true, status: "INTERVIEW" },
+      { id: "rejected", disqualified: true, likelyClosed: true, status: "REJECTED" },
+      { id: "untouched", disqualified: true, likelyClosed: true },
+    );
+    expect(filterRows(rows, EMPTY_FILTER, NOW).map((r) => r.id)).toEqual(["interviewing"]);
+    expect(filterRows(rows, withFilter({ chipApplied: true }), NOW).map((r) => r.id)).toEqual([
+      "interviewing",
+    ]);
+  });
+
   it("still hides a dismissed row when only disqualified are shown", () => {
     const rows = prep({ dismissed: true, disqualified: true });
     expect(filterRows(rows, withFilter({ showDisqualified: true }), NOW)).toHaveLength(0);

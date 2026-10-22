@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dqBadge, rankMovement } from "@/app/listings/table-state";
+import { closedBadge, dqBadge, hiddenAsDisqualified, rankMovement, rowDqBadge } from "@/app/listings/table-state";
 import { rowFixture } from "./fixtures/listing-detail";
 
 describe("rank movement indicator", () => {
@@ -68,5 +68,44 @@ describe("disqualified badge", () => {
   it("falls back to a bare marker with no recorded reason", () => {
     expect(dqBadge([]).text).toBe("dq");
     expect(dqBadge(["  "]).text).toBe("dq");
+  });
+});
+
+describe("a closed or disqualified role you've applied to", () => {
+  const CLOSED = "posting likely closed";
+
+  it("reads as context, not a red flag", () => {
+    const row = rowFixture({ status: "OA", likelyClosed: true, disqualified: true, disqualifyReasons: [CLOSED] });
+    expect(hiddenAsDisqualified(row)).toBe(false);
+    expect(closedBadge(row)?.text).toBe("posting closed");
+    // The closed badge already says it; a second "dq: posting likely closed" adds nothing.
+    expect(rowDqBadge(row)).toBeNull();
+  });
+
+  it("still names any other disqualifier, dimmed", () => {
+    const row = rowFixture({
+      status: "APPLIED",
+      likelyClosed: true,
+      disqualified: true,
+      disqualifyReasons: [CLOSED, "requires PhD"],
+    });
+    const badge = rowDqBadge(row);
+    expect(badge).toMatchObject({ tone: "dim", text: "dq ×2" });
+    expect(badge?.title).toContain("requires PhD");
+  });
+
+  it("is unchanged for a role you haven't applied to, or one that's over", () => {
+    for (const status of [null, "NOT_APPLIED", "REJECTED", "CLOSED"] as const) {
+      const row = rowFixture({ status, likelyClosed: true, disqualified: true, disqualifyReasons: [CLOSED] });
+      expect(hiddenAsDisqualified(row)).toBe(true);
+      expect(closedBadge(row)?.text).toBe("closed?");
+      expect(rowDqBadge(row)).toMatchObject({ tone: "bad", text: `dq: ${CLOSED}` });
+    }
+  });
+
+  it("shows nothing for a listing that is neither", () => {
+    const row = rowFixture({ status: "INTERVIEW" });
+    expect(closedBadge(row)).toBeNull();
+    expect(rowDqBadge(row)).toBeNull();
   });
 });

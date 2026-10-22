@@ -1,14 +1,16 @@
 "use client";
 
+import { Search } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useOptimistic, useRef, useState, useTransition } from "react";
 import type { AppStatus } from "@/generated/prisma/enums";
 import type { TrackerApplication } from "@/lib/applications/tracker";
+import { isEditable, isPlainKey } from "@/app/listings/keys";
 import { setTrackerNotesAction, setTrackerStatusAction } from "./actions";
 import KanbanBoard from "./KanbanBoard";
 import ListView from "./ListView";
 import type { NotesApi } from "./NotesEditor";
-import { applyStatusPatch, effectiveNotes, persistedNotes, STATUS_LABELS } from "./state";
+import { applyStatusPatch, effectiveNotes, persistedNotes, searchApps, STATUS_LABELS } from "./state";
 
 export type TrackerViewMode = "kanban" | "list";
 
@@ -169,11 +171,64 @@ export default function TrackerView({ apps, view, nowIso }: Props) {
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [hasUnsaved]);
 
+  // --- Search ---------------------------------------------------------------
+  const [search, setSearch] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+  const searching = search.trim() !== "";
+  const visible = useMemo(
+    () => searchApps(shown, search, (a) => persistedNotes(a, saved), open),
+    [shown, search, saved, open],
+  );
+
+  // "/" jumps to the search box, as on Listings.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.defaultPrevented || !isPlainKey(e) || isEditable(e.target)) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const noMatches = searching && visible.length === 0 && shown.length > 0 && (
+    <span>
+      No applications match &ldquo;{search.trim()}&rdquo;.{" "}
+      <button type="button" onClick={() => setSearch("")} className="text-accent hover:underline">
+        Clear search
+      </button>
+    </span>
+  );
+
   const manualCount = shown.filter((a) => a.listingId === null).length;
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        {/* Its own line on a phone; beside the view switch from sm up. */}
+        <div className="relative min-w-0 basis-full sm:basis-auto">
+          <Search aria-hidden size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" />
+          <input
+            ref={searchRef}
+            type="search"
+            value={search}
+            placeholder="Search applications"
+            aria-label="Search applications"
+            title='Matches company, role, location, stage and notes. Every word must match; put "-" in front of a word to exclude it.'
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== "Escape") return;
+              e.preventDefault();
+              if (search) setSearch("");
+              else e.currentTarget.blur();
+            }}
+            className="h-9 w-full rounded-[10px] border border-transparent bg-raised pr-8 pl-9 text-body text-ink placeholder:text-faint sm:w-72"
+          />
+          <kbd className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded-md border border-line bg-canvas px-1.5 font-mono text-footnote text-faint">
+            /
+          </kbd>
+        </div>
         <div role="group" aria-label="View" className="seg">
           {(["kanban", "list"] as const).map((mode) => (
             <Link
@@ -186,7 +241,8 @@ export default function TrackerView({ apps, view, nowIso }: Props) {
             </Link>
           ))}
         </div>
-        <span className="text-callout text-faint tabular-nums">
+        <span className="text-callout text-faint tabular-nums" aria-live="polite">
+          {searching && `${visible.length} of `}
           {shown.length} application{shown.length === 1 ? "" : "s"}
           {manualCount > 0 && ` · ${manualCount} manual`}
         </span>
@@ -229,10 +285,21 @@ export default function TrackerView({ apps, view, nowIso }: Props) {
               <EmptyHint />
             </p>
           )}
-          <KanbanBoard apps={shown} nowMs={nowMs} onStatus={changeStatus} notes={notes} />
+          {noMatches && (
+            <p data-testid="no-matches" className="text-callout text-dim">
+              {noMatches}
+            </p>
+          )}
+          <KanbanBoard apps={visible} nowMs={nowMs} onStatus={changeStatus} notes={notes} />
         </>
       ) : (
-        <ListView apps={shown} nowMs={nowMs} onStatus={changeStatus} notes={notes} emptyHint={<EmptyHint />} />
+        <ListView
+          apps={visible}
+          nowMs={nowMs}
+          onStatus={changeStatus}
+          notes={notes}
+          emptyHint={noMatches || <EmptyHint />}
+        />
       )}
     </div>
   );

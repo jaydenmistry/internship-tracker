@@ -2,6 +2,7 @@ import { differenceInDays } from "date-fns";
 import type { AppStatus } from "@/generated/prisma/enums";
 import type { TrackerApplication } from "@/lib/applications/tracker";
 import { TRACKER_STATUSES, type TrackerStatus } from "@/lib/applications/statuses";
+import { parseSearch } from "@/app/listings/table-state";
 
 /**
  * Pure presentation logic for /tracker. No React, no DOM, no I/O. Imports only
@@ -123,6 +124,43 @@ export function persistedNotes(
   saved: Readonly<Record<string, string>>,
 ): string {
   return saved[app.id] ?? app.notes ?? "";
+}
+
+// ---------------------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------------------
+
+/**
+ * The search box: every word must appear in what the card shows (company,
+ * role, location, stage, referrer) or in its notes; a "-word" must not. Same
+ * syntax as the Listings search.
+ *
+ * `notesFor` should return SAVED notes, not a draft, so a card doesn't vanish
+ * while its notes are being typed. `keep` names cards that stay regardless —
+ * the ones with a notes editor open.
+ */
+export function searchApps(
+  apps: TrackerApplication[],
+  search: string,
+  notesFor: (app: TrackerApplication) => string,
+  keep: ReadonlySet<string> = new Set(),
+): TrackerApplication[] {
+  const { include, exclude } = parseSearch(search);
+  if (include.length === 0 && exclude.length === 0) return apps;
+  return apps.filter((app) => {
+    if (keep.has(app.id)) return true;
+    const haystack = [
+      app.company,
+      app.role,
+      app.location ?? "",
+      STATUS_LABELS[app.status],
+      app.referredBy?.name ?? "",
+      notesFor(app),
+    ]
+      .join(" ")
+      .toLowerCase();
+    return include.every((t) => haystack.includes(t)) && !exclude.some((t) => haystack.includes(t));
+  });
 }
 
 // ---------------------------------------------------------------------------
