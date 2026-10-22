@@ -14,11 +14,14 @@ import { NOTES_MAX, type DetailFocus, type RowCommand, type SendResult } from ".
 import {
   absoluteDate,
   absoluteDay,
+  closedBadge,
   deadlineUrgency,
-  dqBadge,
   formatDeadline,
   formatScore,
+  hiddenAsDisqualified,
+  isTrackedApplied,
   rankMovement,
+  rowDqBadge,
   safeHttpUrl,
   scoreTone,
   STATUS_FILTER_LABELS,
@@ -132,7 +135,7 @@ export default function DetailPanel({
         {detail && (
           <>
             <Facts detail={detail} now={now} />
-            {detail.disqualified && <Disqualified detail={detail} />}
+            {detail.disqualified && <Disqualified detail={detail} applied={isTrackedApplied(row.statusKey)} />}
             <PeopleSection detail={detail} />
             <MergedSources detail={detail} focus={focus} onCommand={onCommand} />
             <Breakdown detail={detail} />
@@ -186,6 +189,8 @@ function Summary({
   const movement = rankMovement(row.rankDelta);
   const llm = detail ? detail.llmAdjustment : row.llmAdjustment;
   const rule = detail?.ruleScore ?? null;
+  const dq = rowDqBadge(row);
+  const closed = closedBadge(row);
 
   return (
     <div className="space-y-3.5">
@@ -193,7 +198,7 @@ function Summary({
         <ScoreRing
           score={row.score}
           tone={row.disqualified ? "none" : scoreTone(row.score)}
-          struck={row.disqualified}
+          struck={hiddenAsDisqualified(row)}
         />
         <div className="flex min-w-0 flex-col gap-1">
           <span className="text-body font-medium text-ink">
@@ -221,9 +226,13 @@ function Summary({
           <div className="flex flex-wrap gap-1 empty:hidden">
             {row.saved && <Badge tone="accent">saved</Badge>}
             {row.dismissed && <Badge tone="dim">dismissed</Badge>}
-            {row.likelyClosed && <Badge tone="dim">closed?</Badge>}
-            {row.disqualified && (
-              <Badge tone="bad" title={dqBadge(row.disqualifyReasons).title}>
+            {closed && (
+              <Badge tone="dim" title={closed.title}>
+                {closed.text}
+              </Badge>
+            )}
+            {dq && (
+              <Badge tone={dq.tone} title={dq.title}>
                 disqualified
               </Badge>
             )}
@@ -348,10 +357,20 @@ function Facts({ detail, now }: { detail: ListingDetail; now: number }) {
   );
 }
 
-function Disqualified({ detail }: { detail: ListingDetail }) {
+/**
+ * `applied`: an active application. The score only says whether a role is
+ * worth applying to, so for one you're in process for this reads as context,
+ * not a warning.
+ */
+function Disqualified({ detail, applied }: { detail: ListingDetail; applied: boolean }) {
   return (
-    <div className="rounded-lg bg-bad/8 px-3 py-2.5 text-callout ring-1 ring-bad/25 ring-inset" role="note">
-      <p className="font-medium text-bad">
+    <div
+      className={`rounded-lg px-3 py-2.5 text-callout ring-1 ring-inset ${
+        applied ? "bg-raised ring-line" : "bg-bad/8 ring-bad/25"
+      }`}
+      role="note"
+    >
+      <p className={`font-medium ${applied ? "text-ink" : "text-bad"}`}>
         Disqualified
         {detail.disqualifyReasons.length > 1 ? ` on ${detail.disqualifyReasons.length} grounds` : ""}
       </p>
@@ -367,6 +386,11 @@ function Disqualified({ detail }: { detail: ListingDetail }) {
       {detail.undisqualifiedScore !== null && (
         <p className="mt-1.5 text-faint">
           Would score {detail.undisqualifiedScore} if it weren&apos;t disqualified.
+        </p>
+      )}
+      {applied && (
+        <p className="mt-1.5 text-dim">
+          This only affects ranking. You&apos;ve already applied, so your application isn&apos;t affected.
         </p>
       )}
     </div>

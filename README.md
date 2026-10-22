@@ -24,7 +24,7 @@ I built it for my own Summer 2027 search. It runs on my home server behind Traef
 - Each score comes with a full breakdown, and the table shows rank changes only when the listing's own score changed.
 
 **Application tracking**
-- Kanban and list views, a status history for each application, notes, and a dashboard.
+- Kanban and list views with search (company, role, stage, notes), a status history for each application, notes, and a dashboard.
 - Bulk import from pasted text or CSV, and CSV export.
 - Roles found outside the sources can be added by hand.
 

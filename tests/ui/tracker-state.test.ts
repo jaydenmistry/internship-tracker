@@ -9,6 +9,7 @@ import {
   persistedNotes,
   relativeAge,
   safeHttpUrl,
+  searchApps,
 } from "@/app/tracker/state";
 
 function trackerApp(overrides: Partial<TrackerApplication> = {}): TrackerApplication {
@@ -164,5 +165,38 @@ describe("safeHttpUrl / relativeAge", () => {
     expect(relativeAge("2026-09-16T12:00:00Z", now)).toBe("3d");
     expect(relativeAge("2026-08-29T12:00:00Z", now)).toBe("3w");
     expect(relativeAge("2026-05-19T12:00:00Z", now)).toBe("4mo");
+  });
+});
+
+describe("searchApps", () => {
+  const apps = [
+    trackerApp({ id: "ibm", company: "IBM", role: "Backend Developer Intern", location: "Austin, TX", status: "INTERVIEW" }),
+    trackerApp({ id: "stripe", company: "Stripe", role: "Software Engineer Intern", location: "Seattle, WA", notes: "Recruiter: Dana. Backend team." }),
+    trackerApp({ id: "manual", listingId: null, company: "Local Co", role: "Data Intern", location: null, referredBy: { id: "c1", name: "Sam Lee" } }),
+  ];
+  const notes = (a: TrackerApplication) => a.notes ?? "";
+  const ids = (search: string, keep?: ReadonlySet<string>) => searchApps(apps, search, notes, keep).map((a) => a.id);
+
+  it("returns everything for an empty or blank search", () => {
+    expect(searchApps(apps, "", notes)).toBe(apps);
+    expect(ids("   ")).toEqual(["ibm", "stripe", "manual"]);
+  });
+
+  it("matches company, role, location, stage, referrer and notes, ignoring case", () => {
+    expect(ids("ibm")).toEqual(["ibm"]);
+    expect(ids("austin")).toEqual(["ibm"]);
+    expect(ids("interview")).toEqual(["ibm"]);
+    expect(ids("sam")).toEqual(["manual"]);
+    expect(ids("dana")).toEqual(["stripe"]);
+    expect(ids("BACKEND")).toEqual(["ibm", "stripe"]);
+  });
+
+  it("needs every word, and drops a -word", () => {
+    expect(ids("backend intern")).toEqual(["ibm", "stripe"]);
+    expect(ids("backend -ibm")).toEqual(["stripe"]);
+  });
+
+  it("keeps the cards it is told to, so an open notes editor never vanishes", () => {
+    expect(ids("ibm", new Set(["stripe"]))).toEqual(["ibm", "stripe"]);
   });
 });

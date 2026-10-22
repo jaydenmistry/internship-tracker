@@ -283,6 +283,18 @@ export function isTrackedApplied(status: AppStatus): boolean {
   return ACTIVE_STATUSES.has(status);
 }
 
+/**
+ * A disqualifier answers "is this worth applying to?", which is moot once you
+ * have: postings routinely come down while you're mid-process. A listing you
+ * have an active application for keeps its zero score and lost rank (a closed
+ * role still mustn't outrank open ones, and alerts still skip it), but the
+ * table never hides it behind "Show disqualified", strikes it out, or flags
+ * it in red.
+ */
+export function hiddenAsDisqualified(row: Pick<TableRow, "disqualified" | "statusKey">): boolean {
+  return row.disqualified && !isTrackedApplied(row.statusKey);
+}
+
 // ---------------------------------------------------------------------------
 // Filtering
 // ---------------------------------------------------------------------------
@@ -393,12 +405,13 @@ export function isFilterActive(filter: FilterState): boolean {
   return describeFilters(filter).length > 0;
 }
 
-interface SearchTerms {
+export interface SearchTerms {
   include: string[];
   exclude: string[];
 }
 
-function parseSearch(search: string): SearchTerms {
+/** Lowercased words; "-word" excludes. Also the /tracker search, so the syntax is one. */
+export function parseSearch(search: string): SearchTerms {
   const include: string[] = [];
   const exclude: string[] = [];
   for (const token of search.toLowerCase().split(/\s+/)) {
@@ -441,7 +454,7 @@ export function makeRowPredicate(
 
   return (row) => {
     // Disqualified and dismissed are hidden by default; each has its own toggle.
-    if (row.disqualified && !filter.showDisqualified) return false;
+    if (hiddenAsDisqualified(row) && !filter.showDisqualified) return false;
     if (row.dismissed && !filter.showDismissed) return false;
 
     if (include.length && !include.every((t) => row.haystack.includes(t))) return false;
@@ -1039,4 +1052,38 @@ export function dqBadge(reasons: readonly string[]): DqBadge {
   const title = `Disqualified — ${clean.join(" · ")}`;
   if (clean.length === 1) return { text: `dq: ${clean[0]}`, title };
   return { text: `dq ×${clean.length}: ${clean[0]} +${clean.length - 1}`, title };
+}
+
+/** The "closed?" marker; for a role you're in process for, a calmer wording. */
+export function closedBadge(
+  row: Pick<TableRow, "likelyClosed" | "statusKey">,
+): { text: string; title: string } | null {
+  if (!row.likelyClosed) return null;
+  if (isTrackedApplied(row.statusKey)) {
+    return {
+      text: "posting closed",
+      title: "No longer in any source. Your application isn't affected; keep tracking it in Tracker.",
+    };
+  }
+  return { text: "closed?", title: "No longer present in any source — probably closed" };
+}
+
+/**
+ * The disqualified badge for a table row, or null when there's nothing to add.
+ * Red for a role you haven't applied to; dim and terse for one you're in
+ * process for.
+ * The engine adds the closed reason whenever likelyClosed is set, so a closed
+ * row with one reason has only that one, and the "posting closed" badge
+ * already says it.
+ */
+export function rowDqBadge(
+  row: Pick<TableRow, "disqualified" | "disqualifyReasons" | "likelyClosed" | "statusKey">,
+): (DqBadge & { tone: "bad" | "dim" }) | null {
+  if (!row.disqualified) return null;
+  if (!isTrackedApplied(row.statusKey)) return { ...dqBadge(row.disqualifyReasons), tone: "bad" };
+  if (row.likelyClosed && row.disqualifyReasons.length <= 1) return null;
+  // Short, so it never squeezes the role title out; the tooltip has every reason.
+  const { title } = dqBadge(row.disqualifyReasons);
+  const n = row.disqualifyReasons.length;
+  return { text: n > 1 ? `dq ×${n}` : "dq", title, tone: "dim" };
 }

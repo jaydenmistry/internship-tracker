@@ -43,7 +43,7 @@ describe("Claude assessment", () => {
   it("says plainly that none has run when llm is null (with text)", () => {
     renderPanel({ llm: null, hasPostingText: true });
     const none = screen.getByTestId("llm-none");
-    expect(none.textContent).toMatch(/No Claude assessment has run for this posting.s current text/);
+    expect(none.textContent).toMatch(/Claude hasn.t read this posting yet/);
     expect(none.textContent).toMatch(/rule-based score alone/);
     expect(screen.queryByTestId("llm-rationale")).toBeNull();
   });
