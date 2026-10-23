@@ -4,6 +4,8 @@ import { useMemo, useReducer, useState, useTransition } from "react";
 import Link from "next/link";
 import { AppStatus } from "@/generated/prisma/enums";
 import type { CommitSummary } from "@/lib/applications/commit";
+import { celebrateImport } from "@/components/celebrate";
+import { unlock } from "@/components/celebrate/sound";
 import PasteStep from "./PasteStep";
 import ReviewStep from "./ReviewStep";
 import {
@@ -52,6 +54,7 @@ export default function ImportFlow() {
       setError("Nothing selected — confirm at least one row first.");
       return;
     }
+    unlock(); // audio may only start inside the click
     startTransition(async () => {
       const response = await commitImportRows({ rows: payload, status });
       if (!response.ok) {
@@ -60,6 +63,8 @@ export default function ImportFlow() {
       }
       setResult(response.summary);
       setStep("done");
+      // One party for the whole batch, never one per row.
+      celebrateImport(response.summary.linked + response.summary.manual);
     });
   }
 

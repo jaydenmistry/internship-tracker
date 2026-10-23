@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import CountUp from "./CountUp";
 
 /**
  * A toggleable filter pill. Pressed state is carried by `aria-pressed` as well
@@ -33,7 +34,7 @@ export default function Chip({ active, onClick, title, count, children }: Props)
         <span
           className={`text-subhead tabular-nums ${active ? "text-accent" : "text-faint"}`}
         >
-          {count.toLocaleString("en-US")}
+          <CountUp value={count} fromZero={false} duration={450} />
         </span>
       )}
     </button>

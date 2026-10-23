@@ -7,6 +7,7 @@
  */
 
 import type { CSSProperties } from "react";
+import CountUp from "./CountUp";
 
 const ARC = {
   high: "stroke-ok",
@@ -52,7 +53,8 @@ export default function ScoreRing({ score, tone, struck = false, size = 76 }: Pr
           struck ? "text-faint line-through" : "text-ink"
         }`}
       >
-        {score === null ? "—" : Math.round(score)}
+        {/* Counts up while the ring draws, so the two arrive together. */}
+        {score === null ? "—" : <CountUp value={Math.round(score)} duration={1100} />}
       </span>
     </div>
   );

@@ -6,6 +6,8 @@ import { AppStatus } from "@/generated/prisma/enums";
 import { MAX_NOTES } from "./state";
 import { setApplicationNotes, setApplicationStatus } from "@/lib/applications/tracker";
 import { requireSession } from "@/lib/auth-guard";
+import { progressAfter } from "@/lib/applications/progress";
+import type { ApplyProgress } from "@/lib/celebrate/moments";
 
 /**
  * Mutations from /tracker. A Server Action is a public POST endpoint, so every
@@ -15,6 +17,7 @@ import { requireSession } from "@/lib/auth-guard";
  */
 
 export type TrackerActionResult = { ok: true } | { ok: false; message: string };
+export type TrackerStatusResult = { ok: true; progress?: ApplyProgress } | { ok: false; message: string };
 
 const idSchema = z.string().min(1).max(100);
 
@@ -40,7 +43,7 @@ function failed(verb: string, err: unknown): { ok: false; message: string } {
   return { ok: false, message: `${verb} failed: ${err instanceof Error ? err.message : String(err)}` };
 }
 
-export async function setTrackerStatusAction(payload: unknown): Promise<TrackerActionResult> {
+export async function setTrackerStatusAction(payload: unknown): Promise<TrackerStatusResult> {
   // Every Server Action is a public POST endpoint. proxy.ts already blocks
   // unauthenticated callers, but this does not rely on that: a matcher mistake
   // must cost a redirect, not the catalog.
@@ -52,10 +55,12 @@ export async function setTrackerStatusAction(payload: unknown): Promise<TrackerA
   } catch (err) {
     return failed("status change", err);
   }
+  // Totals and streak for the celebration; only an application needs them.
+  const progress = await progressAfter(parsed.data.status);
   // Re-render /tracker in the same round trip so the dashboard counts and the
   // server copy of the applications replace the optimistic overlay together.
   refresh();
-  return { ok: true };
+  return { ok: true, progress };
 }
 
 export async function setTrackerNotesAction(payload: unknown): Promise<TrackerActionResult> {

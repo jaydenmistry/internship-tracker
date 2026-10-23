@@ -170,8 +170,10 @@ export interface RowActionDeps {
 }
 
 export interface Toast {
-  kind: "ok" | "error";
+  kind: "ok" | "error" | "celebrate";
   message: string;
+  /** A button in the toast, e.g. Undo after a celebration. */
+  action?: { label: string; run: () => void };
 }
 
 /** "Company — Role", the plain-text form the menu copies. */
