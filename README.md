@@ -26,6 +26,7 @@ I built it for my own Summer 2027 search. It runs on my home server behind Traef
 **Application tracking**
 - Kanban and list views with search (company, role, stage, notes), a status history for each application, notes, and a dashboard.
 - Bulk import from pasted text or CSV, and CSV export.
+- Applying is a party: confetti, a chime and an Undo toast. Every later stage has its own show (code glyphs for an OA, ringing ripples for a phone screen, a starburst for an interview, a full fireworks display for an offer), and a rejection gets something gentle instead. First application of the day, daily streaks and milestones (1, 5, 10, 25, 50, 100, …) get extra. Sounds are synthesized in the browser and can be muted from the sidebar; with Reduce Motion on, you get the sound and the toast without the motion.
 - Roles found outside the sources can be added by hand.
 
 **Resume matching and cover letters**

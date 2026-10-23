@@ -15,6 +15,7 @@ import {
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import Badge from "@/components/Badge";
+import Toast from "@/components/Toast";
 import { writePreference } from "@/components/preferences";
 import type { ListingRow } from "@/lib/listings/query";
 import type { SavedView } from "@/lib/listings/views";
@@ -25,7 +26,7 @@ import DetailPanel from "./DetailPanel";
 import { FILTERS_MENU_CLOSED, type FiltersMenuState } from "./FiltersMenu";
 import HelpOverlay from "./HelpOverlay";
 import { isActivatable, isEditable, isPlainKey } from "./keys";
-import type { DetailFocus, RowCommand, Toast } from "./row-actions";
+import type { DetailFocus, RowCommand, Toast as ToastMessage } from "./row-actions";
 import TableHeader from "./TableHeader";
 import Toolbar from "./Toolbar";
 import {
@@ -100,7 +101,7 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views, initi
   const [detailFocus, setDetailFocus] = useState<DetailFocus | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [filtersMenu, setFiltersMenu] = useState<FiltersMenuState>(FILTERS_MENU_CLOSED);
-  const [toast, setToast] = useState<(Toast & { id: number }) | null>(null);
+  const [toast, setToast] = useState<(ToastMessage & { id: number }) | null>(null);
   const [menu, setMenu] = useState<{ rowId: string; x: number; y: number } | null>(null);
   const [layout, setLayoutState] = useState<TableLayout>(initialLayout);
   const [layoutMenu, setLayoutMenu] = useState<{ kind: "columns" | "toolbar"; point: Point } | null>(null);
@@ -129,16 +130,11 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views, initi
     [layout],
   );
 
-  const notify = useCallback((t: Toast) => {
+  const notify = useCallback((t: ToastMessage) => {
     setToast({ ...t, id: Date.now() + Math.random() });
   }, []);
 
-  // Confirmations fade on their own; errors stay until dismissed.
-  useEffect(() => {
-    if (!toast || toast.kind !== "ok") return;
-    const id = setTimeout(() => setToast((t) => (t === toast ? null : t)), 2200);
-    return () => clearTimeout(id);
-  }, [toast]);
+  const closeToast = useCallback(() => setToast(null), []);
 
   const detail = useListingDetail(openId);
   const openDetail = useCallback((listingId: string, focus?: DetailFocus) => {
@@ -642,25 +638,8 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views, initi
         />
       )}
 
-      {toast && (
-        <div
-          key={toast.id}
-          role={toast.kind === "error" ? "alert" : "status"}
-          className={`rise-in fixed bottom-5 left-1/2 z-[60] flex max-w-md -translate-x-1/2 items-start gap-2 rounded-lg border bg-panel px-3.5 py-2.5 text-body shadow-lg ${
-            toast.kind === "error" ? "border-bad/60 text-bad" : "border-ok/50 text-ok"
-          }`}
-        >
-          <span className="min-w-0 flex-1">{toast.message}</span>
-          <button
-            type="button"
-            onClick={() => setToast(null)}
-            className="shrink-0 text-faint hover:text-ink"
-            aria-label="Dismiss message"
-          >
-            ×
-          </button>
-        </div>
-      )}
+      {/* Keyed so each toast restarts its entrance and its timer. */}
+      {toast && <Toast key={toast.id} toast={toast} onClose={closeToast} />}
 
       {layoutMenu?.kind === "columns" && (
         <ChecklistMenu
@@ -908,7 +887,7 @@ const Row = memo(function Row({
       </span>
     ),
     status: (
-      <span key="status" data-col="status" className="lt-cell text-subhead">
+      <span key="status" data-col="status" data-celebrate={row.id} className="lt-cell text-subhead">
         {row.statusKey === "NOT_APPLIED" ? (
           <span className="text-faint">—</span>
         ) : (

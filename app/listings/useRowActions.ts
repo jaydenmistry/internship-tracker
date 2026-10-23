@@ -2,6 +2,8 @@
 
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { AppStatus } from "@/generated/prisma/enums";
+import { attrSelector, celebrate, celebrateDismiss, celebrateProgress, celebrateSave, celebrateUndo } from "@/components/celebrate";
+import { celebrationMessage, momentFor, type ApplyProgress } from "@/lib/celebrate/moments";
 import {
   setDismissedAction,
   setNotesAction,
@@ -10,6 +12,8 @@ import {
   splitMergeAction,
 } from "./actions";
 import {
+  isMutation,
+  planMutation,
   runRowCommand,
   writeClipboard,
   type ActionRow,
@@ -21,14 +25,16 @@ import {
   type SplitResult,
   type Toast,
 } from "./row-actions";
-import type { PatchMap } from "./table-state";
+import type { PatchMap, TableRow } from "./table-state";
+
+type SendWithProgress = SendResult & { progress?: ApplyProgress };
 
 /** Maps a resolved mutation to its Server Action. The one place that does. */
-async function send(listingId: string, request: ServerRequest): Promise<SendResult> {
+async function send(listingId: string, request: ServerRequest): Promise<SendWithProgress> {
   switch (request.kind) {
     case "status": {
       const res = await setStatusAction({ listingId, status: request.status as AppStatus });
-      return res.ok ? { ok: true } : res;
+      return res.ok ? { ok: true, progress: res.progress } : res;
     }
     case "saved":
       return setSavedAction({ listingId, value: request.value });
@@ -58,6 +64,26 @@ interface Options {
   onSplit: (parentId: string, newListingId: string) => void;
 }
 
+/** What a celebration reads off the row: the action fields, plus whether it's a dream role. */
+export type CelebrationRow = ActionRow & Partial<Pick<TableRow, "score" | "faangPlus">>;
+
+/**
+ * Where a row's celebration starts: the control you just used, if it belongs
+ * to this listing; else the row's status cell or the detail panel's status
+ * controls, whichever is on screen (both carry `data-celebrate`).
+ */
+function celebrationOrigin(listingId: string): Element | null {
+  const tagged = [...document.querySelectorAll(attrSelector("data-celebrate", listingId))];
+  const active = document.activeElement;
+  if (active && tagged.some((el) => el.contains(active))) return active;
+  return (
+    tagged.find((el) => {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.bottom > 0 && r.top < window.innerHeight;
+    }) ?? null
+  );
+}
+
 /**
  * The table's single entry point for acting on a row. Keyboard shortcuts, the
  * context menu and the detail panel all call `perform`; the optimistic overlay
@@ -72,14 +98,33 @@ export function useRowActions({ notify, openDetail, onSettled, onSplit }: Option
     opts.current = { notify, openDetail, onSettled, onSplit };
   });
 
-  const perform = useCallback((row: ActionRow, command: RowCommand) => {
+  const performRef = useRef<typeof perform | null>(null);
+  const perform = useCallback(async (row: CelebrationRow, command: RowCommand, how: { quiet?: boolean } = {}) => {
+    // The show starts on the key press, not the server's answer: the patch
+    // is optimistic, and so is the confetti. A failed save reverts the row
+    // and says so in the toast.
+    const request = isMutation(command) ? planMutation(row, command).request : null;
+    const moment =
+      !how.quiet && request?.kind === "status" ? momentFor(row.statusKey, request.status) : null;
+    const dream = (row.score ?? 0) >= 70 || row.saved || row.faangPlus === true;
+    const origin = request && !how.quiet ? celebrationOrigin(row.id) : null;
+    if (how.quiet) celebrateUndo();
+    else if (moment) celebrate(moment, { origin, dream });
+    else if (request?.kind === "saved" && request.value) celebrateSave(origin);
+    else if (request?.kind === "dismissed" && request.value) celebrateDismiss(origin);
+
+    let progress: ApplyProgress | undefined;
     const deps: RowActionDeps = {
       getPatches: () => patchesRef.current,
       setPatches: (next) => {
         patchesRef.current = next;
         setPatchState(next);
       },
-      send,
+      send: async (id, req) => {
+        const res = await send(id, req);
+        if (res.ok) progress = res.progress;
+        return res;
+      },
       notify: (t) => opts.current.notify(t),
       onSettled: (id) => opts.current.onSettled(id),
       openDetail: (id, focus) => opts.current.openDetail(id, focus),
@@ -90,8 +135,27 @@ export function useRowActions({ notify, openDetail, onSettled, onSplit }: Option
       },
       writeClipboard: (text) => writeClipboard(text),
     };
-    return runRowCommand(row, command, deps);
+    const ok = await runRowCommand(row, command, deps);
+
+    if (ok && moment && request?.kind === "status") {
+      celebrateProgress(progress, { origin });
+      const previous = row.statusKey;
+      opts.current.notify({
+        kind: "celebrate",
+        message: celebrationMessage(moment, { company: row.company, dream, progress }),
+        action: {
+          label: "Undo",
+          run: () => {
+            void performRef.current?.({ ...row, statusKey: request.status }, { kind: "setStatus", status: previous }, { quiet: true });
+          },
+        },
+      });
+    }
+    return ok;
   }, []);
+  useLayoutEffect(() => {
+    performRef.current = perform;
+  });
 
   const saveNotes = useCallback(async (listingId: string, notes: string): Promise<SendResult> => {
     let res: SendResult;

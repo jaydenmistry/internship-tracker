@@ -1,3 +1,4 @@
+import CountUp from "@/components/CountUp";
 import type { DashboardStats } from "@/lib/applications/tracker";
 import { COLUMNS, formatResponseRate, STATUS_LABELS, STATUS_TONE } from "./state";
 
@@ -21,7 +22,7 @@ export default function Dashboard({ stats }: { stats: DashboardStats }) {
           <div key={label} className="card px-4 py-3">
             <dt className="text-callout text-dim">{label}</dt>
             <dd className={`mt-0.5 text-large leading-tight font-semibold tabular-nums ${n === 0 ? "text-faint" : "text-ink"}`}>
-              {n}
+              <CountUp value={n} />
             </dd>
           </div>
         ))}
@@ -35,7 +36,11 @@ export default function Dashboard({ stats }: { stats: DashboardStats }) {
                 : "mt-1.5 text-body text-faint"
             }
           >
-            {formatResponseRate(stats.responseRate)}
+            {stats.responseRate !== null && Number.isFinite(stats.responseRate) ? (
+              <CountUp value={Math.round(stats.responseRate * 100)} suffix="%" />
+            ) : (
+              formatResponseRate(stats.responseRate)
+            )}
           </dd>
         </div>
       </dl>
@@ -51,7 +56,9 @@ export default function Dashboard({ stats }: { stats: DashboardStats }) {
             >
               <span aria-hidden className={`size-1.5 rounded-full bg-current ${STATUS_TONE[s]}`} />
               <dt className="whitespace-nowrap">{STATUS_LABELS[s]}</dt>
-              <dd className="font-semibold tabular-nums">{stats.byStage[s]}</dd>
+              <dd className="font-semibold tabular-nums">
+                <CountUp value={stats.byStage[s]} duration={700} />
+              </dd>
             </div>
           ))}
         </dl>

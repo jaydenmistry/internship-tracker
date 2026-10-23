@@ -15,6 +15,8 @@ import {
   setListingStatus,
 } from "@/lib/listings/mutations";
 import { requireSession } from "@/lib/auth-guard";
+import { progressAfter } from "@/lib/applications/progress";
+import type { ApplyProgress } from "@/lib/celebrate/moments";
 import {
   deleteView,
   saveView,
@@ -85,7 +87,7 @@ function failed(verb: string, err: unknown): { ok: false; message: string } {
 
 export async function setStatusAction(
   payload: unknown,
-): Promise<ActionResult<{ status: AppStatus | null }>> {
+): Promise<ActionResult<{ status: AppStatus | null; progress?: ApplyProgress }>> {
   // Every Server Action is a public POST endpoint. proxy.ts already blocks
   // unauthenticated callers, but this does not rely on that: a matcher mistake
   // must cost a redirect, not the catalog.
@@ -97,7 +99,8 @@ export async function setStatusAction(
     // NOT_APPLIED comes back as `null` (row removed) or "NOT_APPLIED" (row kept
     // because it holds notes). The table treats both as "not applied".
     const { status } = await setListingStatus(parsed.data.listingId, parsed.data.status);
-    return { ok: true, status };
+    // Totals and streak for the celebration; only an application needs them.
+    return { ok: true, status, progress: await progressAfter(parsed.data.status) };
   } catch (err) {
     return failed("Status change", err);
   }

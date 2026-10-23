@@ -70,7 +70,8 @@ lib/
     split.ts            # undo ONE merge: rebuild the listing from ListingSource.raw
   scoring/              # config, engine (pure), llm, rescore (+ ranks)
   listings/             # table + detail read models, row mutations
-  applications/         # import parse/match, commit, tracker, CSV
+  applications/         # import parse/match, commit, tracker, CSV, progress (streaks/milestones)
+  celebrate/moments.ts  # which status changes celebrate + toast copy; the show itself is components/celebrate/
   resume/               # extract (unpdf), store, keyword vocabulary + matching
   alerts/               # settings/config, build (pure), data, send, channels/
   networking/           # schema, contacts, follow-up engine (pure) + persistence, messages, drafting, referrals, import; see docs/NETWORKING_PLAN.md

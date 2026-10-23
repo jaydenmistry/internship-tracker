@@ -247,3 +247,31 @@ describe("tracker search", () => {
     expect(box.value).toBe("");
   });
 });
+
+describe("celebrating a move", () => {
+  it("shows a celebration with Undo, and Undo moves the card back quietly", async () => {
+    vi.mocked(setTrackerStatusAction).mockClear();
+    render(<TrackerView apps={[app({ company: "Ramp", status: "APPLIED" })]} view="list" nowIso={NOW} />);
+    await act(async () => {
+      fireEvent.change(screen.getByRole("combobox"), { target: { value: "INTERVIEW" } });
+    });
+    const toast = await screen.findByRole("status");
+    expect(toast.textContent).toContain("Ramp");
+    expect(setTrackerStatusAction).toHaveBeenLastCalledWith({ applicationId: "a1", status: "INTERVIEW" });
+
+    await act(async () => {
+      fireEvent.click(within(toast).getByRole("button", { name: "Undo" }));
+    });
+    expect(setTrackerStatusAction).toHaveBeenLastCalledWith({ applicationId: "a1", status: "APPLIED" });
+    // An undo is not news: no second celebration.
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+  });
+
+  it("doesn't celebrate a step backwards", async () => {
+    render(<TrackerView apps={[app({ company: "Ramp", status: "INTERVIEW" })]} view="list" nowIso={NOW} />);
+    await act(async () => {
+      fireEvent.change(screen.getByRole("combobox"), { target: { value: "APPLIED" } });
+    });
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+  });
+});

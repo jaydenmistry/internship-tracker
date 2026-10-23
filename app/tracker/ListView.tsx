@@ -59,7 +59,7 @@ export default function ListView({ apps, nowMs, onStatus, notes, emptyHint }: Pr
             const href = safeHttpUrl(app.url);
             return (
               <Fragment key={app.id}>
-                <tr data-testid="tracker-row" className="border-b border-line-soft hover:bg-raised/50">
+                <tr data-testid="tracker-row" data-app-id={app.id} className="border-b border-line-soft hover:bg-raised/50">
                   <td className={TD}>
                     <div className="flex min-w-0 items-center gap-1">
                       <ApplyLink app={app} className="truncate font-medium text-ink">

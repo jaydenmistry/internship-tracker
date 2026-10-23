@@ -49,7 +49,7 @@ export default function KanbanBoard({ apps, nowMs, onStatus, notes }: Props) {
             if (app && app.status !== col.status) onStatus(id, col.status);
           }}
           className={`flex min-h-48 min-w-0 flex-col rounded-xl border bg-panel transition-colors ${
-            dropTarget === col.status ? "border-accent bg-accent/5" : "border-line-soft"
+            dropTarget === col.status ? "drop-target border-accent bg-accent/5" : "border-line-soft"
           }`}
         >
           <header className="flex items-center gap-1.5 px-3 pt-2.5 pb-1.5">
@@ -95,8 +95,13 @@ export function KanbanCard({
       onDragStart={(e) => {
         e.dataTransfer.setData(DRAG_TYPE, app.id);
         e.dataTransfer.effectAllowed = "move";
+        // Next frame: the browser has already taken the drag image, so the
+        // card you're holding stays solid and only the one left behind fades.
+        const card = e.currentTarget;
+        requestAnimationFrame(() => card.setAttribute("data-dragging", ""));
       }}
-      className={`flex min-w-0 cursor-grab flex-col gap-1 rounded-lg border bg-control p-3 shadow-sm transition-[transform,box-shadow] duration-200 hover:-translate-y-px hover:shadow-md active:cursor-grabbing ${
+      onDragEnd={(e) => e.currentTarget.removeAttribute("data-dragging")}
+      className={`tracker-card flex min-w-0 cursor-grab flex-col gap-1 rounded-lg border bg-control p-3 shadow-sm transition-[transform,box-shadow,opacity] duration-200 hover:-translate-y-px hover:shadow-md active:cursor-grabbing ${
         app.listingId === null ? "border-dashed border-info/50" : "border-line-soft"
       }`}
     >

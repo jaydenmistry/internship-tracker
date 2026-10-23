@@ -17,9 +17,13 @@ import {
   SquareKanban,
   Sun,
   Users,
+  Volume2,
+  VolumeX,
   type LucideIcon,
 } from "lucide-react";
 import { applyTheme, SIDEBAR_COOKIE, writePreference, type Theme } from "./preferences";
+import { attrSelector, NAV_BUMP_EVENT, prefersReducedMotion } from "./celebrate";
+import { isSoundOn, onSoundChange, setSoundOn } from "./celebrate/sound";
 
 /**
  * App navigation: a sidebar from 768px up (sidebars.md — two levels at most,
@@ -102,6 +106,67 @@ function ThemeButton({ theme, className }: { theme: Theme; className: string }) 
   );
 }
 
+/** Celebration sounds on or off; on by default. */
+function SoundButton({ className }: { className: string }) {
+  const on = useSyncExternalStore(onSoundChange, isSoundOn, () => true);
+  const label = on ? "Mute celebration sounds" : "Turn on celebration sounds";
+  return (
+    <button
+      type="button"
+      onClick={() => setSoundOn(!on)}
+      title={label}
+      aria-label={label}
+      aria-pressed={on}
+      className={className}
+    >
+      {on ? <Volume2 aria-hidden size={15} /> : <VolumeX aria-hidden size={15} />}
+    </button>
+  );
+}
+
+/**
+ * A celebration elsewhere bumps the matching nav item: its icon hops and a
+ * "+1" floats off it, so you see the application land in the Tracker.
+ */
+function useNavBump(): void {
+  useEffect(() => {
+    const onBump = (e: Event) => {
+      const href = (e as CustomEvent<string>).detail;
+      if (prefersReducedMotion()) return;
+      for (const link of document.querySelectorAll<HTMLElement>(attrSelector("data-nav-href", href))) {
+        if (!link.offsetParent) continue;
+        const icon = link.querySelector("svg") ?? link;
+        icon.animate(
+          [
+            { transform: "none" },
+            { transform: "translateY(-5px) rotate(-14deg) scale(1.3)", offset: 0.35 },
+            { transform: "translateY(1px) rotate(6deg) scale(0.95)", offset: 0.7 },
+            { transform: "none" },
+          ],
+          { duration: 650, easing: "cubic-bezier(0.34, 1.36, 0.64, 1)" },
+        );
+        const plus = document.createElement("span");
+        plus.textContent = "+1";
+        plus.setAttribute("aria-hidden", "true");
+        plus.className = "pointer-events-none absolute right-2 top-0 text-footnote font-bold text-ok";
+        if (getComputedStyle(link).position === "static") link.style.position = "relative";
+        link.appendChild(plus);
+        const anim = plus.animate(
+          [
+            { opacity: 0, transform: "translateY(6px) scale(0.6)" },
+            { opacity: 1, transform: "translateY(-4px) scale(1.15)", offset: 0.3 },
+            { opacity: 0, transform: "translateY(-18px) scale(1)" },
+          ],
+          { duration: 1100, easing: "ease-out" },
+        );
+        anim.onfinish = anim.oncancel = () => plus.remove();
+      }
+    };
+    window.addEventListener(NAV_BUMP_EVENT, onBump);
+    return () => window.removeEventListener(NAV_BUMP_EVENT, onBump);
+  }, []);
+}
+
 const ICON_BUTTON =
   "flex size-7 shrink-0 items-center justify-center rounded-md text-faint transition-colors hover:bg-raised hover:text-ink";
 
@@ -116,6 +181,7 @@ export function Sidebar({ identity, logoutUrl, initialCollapsed, initialTheme }:
   const current = currentHref(usePathname() ?? "/");
   const theme = useTheme(initialTheme);
   const [collapsed, setCollapsed] = useState(initialCollapsed);
+  useNavBump();
 
   const toggle = () =>
     setCollapsed((c) => {
@@ -175,6 +241,7 @@ export function Sidebar({ identity, logoutUrl, initialCollapsed, initialTheme }:
                 <Link
                   key={item.href}
                   href={item.href}
+                  data-nav-href={item.href}
                   aria-current={on ? "page" : undefined}
                   aria-label={collapsed ? item.label : undefined}
                   title={collapsed ? item.label : undefined}
@@ -202,6 +269,7 @@ export function Sidebar({ identity, logoutUrl, initialCollapsed, initialTheme }:
         }`}
       >
         {!collapsed && identity && <span className="min-w-0 flex-1 truncate text-subhead text-faint">{identity}</span>}
+        <SoundButton className={ICON_BUTTON} />
         <ThemeButton theme={theme} className={ICON_BUTTON} />
         {/* Authelia owns the session, so signing out is its business; the
             link is omitted when AUTH_LOGOUT_URL is unset rather than dead. */}
@@ -218,6 +286,7 @@ export function Sidebar({ identity, logoutUrl, initialCollapsed, initialTheme }:
 export function CompactNav({ initialTheme }: { initialTheme: Theme }) {
   const current = currentHref(usePathname() ?? "/");
   const theme = useTheme(initialTheme);
+  useNavBump();
   return (
     <header className="flex h-12 shrink-0 items-center gap-1 border-b border-line bg-sidebar pr-2 md:hidden">
       <nav aria-label="Sections" className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto px-2">
@@ -227,6 +296,7 @@ export function CompactNav({ initialTheme }: { initialTheme: Theme }) {
             <Link
               key={item.href}
               href={item.href}
+              data-nav-href={item.href}
               aria-current={on ? "page" : undefined}
               className={`flex h-8 shrink-0 items-center rounded-lg px-3 text-callout transition-colors ${
                 on ? "bg-raised font-medium text-ink" : "text-dim hover:bg-raised hover:text-ink"
@@ -237,6 +307,7 @@ export function CompactNav({ initialTheme }: { initialTheme: Theme }) {
           );
         })}
       </nav>
+      <SoundButton className={ICON_BUTTON} />
       <ThemeButton theme={theme} className={ICON_BUTTON} />
     </header>
   );

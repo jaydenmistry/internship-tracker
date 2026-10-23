@@ -272,7 +272,7 @@ export default function Toolbar({
           {tokens.length > 0 && (
             <div role="group" aria-label="Active filters" className="contents">
               {tokens.map((item) => (
-                <span key={item.key} className="inline-flex h-7 items-center rounded-full bg-accent/10 pr-1 text-ink">
+                <span key={item.key} className="token-in inline-flex h-7 items-center rounded-full bg-accent/10 pr-1 text-ink">
                   <button
                     type="button"
                     title={item.key === "search" ? "Edit the search" : "Change in Filters"}

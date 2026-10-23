@@ -6,6 +6,10 @@ import { useCallback, useEffect, useMemo, useOptimistic, useRef, useState, useTr
 import type { AppStatus } from "@/generated/prisma/enums";
 import type { TrackerApplication } from "@/lib/applications/tracker";
 import { isEditable, isPlainKey } from "@/app/listings/keys";
+import { attrSelector, celebrate, celebrateProgress, celebrateUndo } from "@/components/celebrate";
+import { unlock } from "@/components/celebrate/sound";
+import Toast, { type ToastData } from "@/components/Toast";
+import { celebrationMessage, momentFor } from "@/lib/celebrate/moments";
 import { setTrackerNotesAction, setTrackerStatusAction } from "./actions";
 import KanbanBoard from "./KanbanBoard";
 import ListView from "./ListView";
@@ -47,6 +51,11 @@ export function EmptyHint() {
   );
 }
 
+/** The card (kanban) or row (list) for an application, wherever it is now. */
+function landedCard(id: string): Element | null {
+  return document.querySelector(attrSelector("data-app-id", id));
+}
+
 export default function TrackerView({ apps, view, nowIso }: Props) {
   const nowMs = useMemo(() => Date.parse(nowIso), [nowIso]);
 
@@ -58,19 +67,45 @@ export default function TrackerView({ apps, view, nowIso }: Props) {
   const [shown, addPatch] = useOptimistic(apps, applyStatusPatch);
   const [, startTransition] = useTransition();
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastData | null>(null);
+  const closeToast = useCallback(() => setToast(null), []);
+  const changeStatusRef = useRef<((id: string, status: AppStatus, how?: { quiet?: boolean }) => void) | null>(null);
 
   const changeStatus = useCallback(
-    (id: string, status: AppStatus) => {
+    (id: string, status: AppStatus, how: { quiet?: boolean } = {}) => {
       const app = apps.find((a) => a.id === id);
+      const moment = app && !how.quiet ? momentFor(app.status, status) : null;
+      const dream = (app?.score ?? 0) >= 70;
+      // Audio may only start inside the gesture; the show itself waits a frame.
+      if (how.quiet) celebrateUndo();
+      else if (moment) unlock();
       setStatusError(null);
       startTransition(async () => {
         addPatch({ id, status, at: new Date().toISOString() });
+        // Two frames: the optimistic move has rendered, so the confetti
+        // bursts from where the card lands, not where it was.
+        if (moment) {
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => celebrate(moment, { origin: landedCard(id), dream })),
+          );
+        }
         let message: string | null = null;
+        let progress;
         try {
           const res = await setTrackerStatusAction({ applicationId: id, status });
           if (!res.ok) message = res.message;
+          else progress = res.progress;
         } catch (err) {
           message = err instanceof Error ? err.message : String(err);
+        }
+        if (!message && moment && app) {
+          celebrateProgress(progress, { origin: landedCard(id) });
+          setToast({
+            id: Date.now(),
+            kind: "celebrate",
+            message: celebrationMessage(moment, { company: app.company, dream, progress }),
+            action: { label: "Undo", run: () => changeStatusRef.current?.(id, app.status, { quiet: true }) },
+          });
         }
         if (message) {
           setStatusError(
@@ -83,6 +118,9 @@ export default function TrackerView({ apps, view, nowIso }: Props) {
     },
     [apps, addPatch],
   );
+  useEffect(() => {
+    changeStatusRef.current = changeStatus;
+  }, [changeStatus]);
 
   // --- Notes: drafts above the cards so nothing is lost on re-render -------
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
@@ -301,6 +339,8 @@ export default function TrackerView({ apps, view, nowIso }: Props) {
           emptyHint={noMatches || <EmptyHint />}
         />
       )}
+
+      {toast && <Toast key={toast.id} toast={toast} onClose={closeToast} />}
     </div>
   );
 }

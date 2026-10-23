@@ -265,7 +265,7 @@ function StatusControls({
   onCommand: (command: RowCommand) => void;
 }) {
   return (
-    <div className="space-y-2" aria-label="Status controls" role="group">
+    <div className="space-y-2" aria-label="Status controls" role="group" data-celebrate={row.id}>
       <div className="flex flex-wrap gap-0.5 rounded-lg bg-raised p-0.5">
         {STATUS_ORDER.map((status: AppStatus) => {
           const active = row.statusKey === status;

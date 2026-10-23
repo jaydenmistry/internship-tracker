@@ -695,7 +695,10 @@ app/                       Next.js App Router (auth: proxy.ts + requireSession()
                            settings/ letterhead + signature
   api/applications/export/ GET → applications CSV (round-trips via /import)
   layout.tsx, globals.css  shell (sidebar nav), light + dark theme tokens, type scale (Tailwind v4, CSS config)
-components/                small shared UI primitives
+components/                small shared UI primitives; Toast (with an action button), CountUp
+  celebrate/               the celebrations: engine.ts = one canvas overlay + rAF loop (confetti,
+                           fireworks, ripples, glyphs), sound.ts = Web Audio synth (cookie `sound`,
+                           on by default), index.ts = what each moment looks and sounds like
 lib/
   db.ts                    Prisma client; passes ?schema= to the adapter
   cycle.ts                 one full refresh, stages in order
@@ -716,7 +719,9 @@ lib/
     llm.ts                 stage-2 Claude call (structured output, clamped)
     rescore.ts             persistence: stage 1, stage 2, ranks, raw-SQL schema guard
   listings/                table read model, detail read model, row mutations, facets, saved views
-  applications/            import parse/match, commit, tracker + dashboard, CSV
+  applications/            import parse/match, commit, tracker + dashboard, CSV;
+                           progress.ts = total/today/streak for a celebration
+  celebrate/moments.ts     which status changes celebrate, milestones, streaks, toast copy (pure)
   resume/                  extract (unpdf), store, vocabulary + posting↔resume match
   networking/              schema (pure), contacts model, follow-up engine (pure) +
                            its persistence, message mutations, dates, settings,
