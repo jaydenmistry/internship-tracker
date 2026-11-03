@@ -19,6 +19,7 @@ import {
   isFilterActive,
   matchesSearch,
   NO_TERM,
+  pickNextBest,
   prepareRows,
   sortLabel,
   viewFromQuery,
@@ -263,6 +264,7 @@ describe("URL query round trip", () => {
       search: "backend -amazon",
       showDisqualified: true,
       showDismissed: true,
+      hideApplied: true,
       chipSaved: true,
       chipApplied: true,
       chipClosingSoon: true,
@@ -403,5 +405,47 @@ describe("saved-view updates", () => {
 
   it("deletes by id", () => {
     expect(withViewDeleted([v("a", "A"), v("b", "B")], "a").map((x) => x.id)).toEqual(["b"]);
+  });
+});
+
+describe("hide applied", () => {
+  it("is off by default and hides every sent stage when on, rejections too", () => {
+    const rows = prep(
+      { id: "none" },
+      { id: "applied", status: "APPLIED" },
+      { id: "oa", status: "OA" },
+      { id: "rejected", status: "REJECTED" },
+      { id: "skipped", status: "SKIPPED" },
+      { id: "kept", status: "NOT_APPLIED" },
+      { id: "closed", status: "CLOSED" },
+    );
+    expect(filterRows(rows, EMPTY_FILTER, NOW)).toHaveLength(7);
+    expect(ids(filterRows(rows, f({ hideApplied: true }), NOW))).toEqual(["none", "skipped", "kept"]);
+  });
+
+  it("round-trips through the URL and shows as a removable token", () => {
+    const filter = f({ hideApplied: true });
+    expect(viewToQuery({ filter, sort: DEFAULT_SORT })).toBe("noapplied=1");
+    expect(viewFromQuery("noapplied=1").filter.hideApplied).toBe(true);
+    const token = describeFilters(filter).find((t) => t.key === "hideApplied");
+    expect(token?.label).toBe("hiding applied");
+    expect(token?.clear(filter).hideApplied).toBe(false);
+  });
+});
+
+describe("pickNextBest", () => {
+  it("offers the top-scoring role you haven't touched, skipping the one just applied", () => {
+    const rows = prep(
+      { id: "just", score: 99 },
+      { id: "applied", score: 95, status: "APPLIED" },
+      { id: "dismissed", score: 94, dismissed: true },
+      { id: "closed", score: 93, likelyClosed: true },
+      { id: "dq", score: 92, disqualified: true },
+      { id: "unscored", score: null },
+      { id: "good", score: 80 },
+      { id: "fine", score: 70 },
+    );
+    expect(pickNextBest(rows, "just")?.id).toBe("good");
+    expect(pickNextBest(prep({ id: "only" }), "only")).toBeNull();
   });
 });

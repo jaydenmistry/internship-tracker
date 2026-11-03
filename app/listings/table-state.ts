@@ -284,6 +284,17 @@ export function isTrackedApplied(status: AppStatus): boolean {
 }
 
 /**
+ * Statuses that mean you already applied, live or not: what "Hide applied"
+ * hides. CLOSED counts (a role can close after you applied), the same rule
+ * the weekly goal and badges use; only not-applied and skipped don't.
+ */
+const SENT_STATUSES = new Set<AppStatus>([...ACTIVE_STATUSES, "REJECTED", "CLOSED"]);
+
+export function hasApplied(status: AppStatus): boolean {
+  return SENT_STATUSES.has(status);
+}
+
+/**
  * A disqualifier answers "is this worth applying to?", which is moot once you
  * have: postings routinely come down while you're mid-process. A listing you
  * have an active application for keeps its zero score and lost rank (a closed
@@ -346,6 +357,8 @@ export interface FilterState {
   /** Both default to false: a fresh table shows neither pile. */
   showDisqualified: boolean;
   showDismissed: boolean;
+  /** Off by default: hide listings you've already applied to (any stage, rejections too). */
+  hideApplied: boolean;
   chipSaved: boolean;
   chipApplied: boolean;
   chipClosingSoon: boolean;
@@ -380,6 +393,7 @@ export const EMPTY_FILTER: FilterState = {
   search: "",
   showDisqualified: false,
   showDismissed: false,
+  hideApplied: false,
   chipSaved: false,
   chipApplied: false,
   chipClosingSoon: false,
@@ -456,6 +470,7 @@ export function makeRowPredicate(
     // Disqualified and dismissed are hidden by default; each has its own toggle.
     if (hiddenAsDisqualified(row) && !filter.showDisqualified) return false;
     if (row.dismissed && !filter.showDismissed) return false;
+    if (filter.hideApplied && hasApplied(row.statusKey)) return false;
 
     if (include.length && !include.every((t) => row.haystack.includes(t))) return false;
     if (exclude.length && exclude.some((t) => row.haystack.includes(t))) return false;
@@ -662,6 +677,7 @@ export function describeFilters(filter: FilterState): ActiveFilter[] {
   if (filter.fetchIssuesOnly) add("fetch", "couldn't fetch", { fetchIssuesOnly: false });
   if (filter.showDisqualified) add("dq", "showing disqualified", { showDisqualified: false });
   if (filter.showDismissed) add("dismissed", "showing dismissed", { showDismissed: false });
+  if (filter.hideApplied) add("hideApplied", "hiding applied", { hideApplied: false });
   return out;
 }
 
@@ -846,7 +862,7 @@ function list(params: URLSearchParams, key: string): string[] {
 export const VIEW_QUERY_KEYS: ReadonlySet<string> = new Set([
   "q", "saved", "applied", "soon", "high", "status", "source", "cat", "term", "remote", "us",
   "loc", "faang", "posted", "min", "max", "deadline", "text", "fetch", "dq", "dismissed",
-  "sort", "dir",
+  "noapplied", "sort", "dir",
 ]);
 
 function flag(params: URLSearchParams, key: string): boolean {
@@ -876,6 +892,7 @@ export function viewFromQuery(query: string | URLSearchParams): TableView {
     search: (params.get("q") ?? "").slice(0, 200),
     showDisqualified: flag(params, "dq"),
     showDismissed: flag(params, "dismissed"),
+    hideApplied: flag(params, "noapplied"),
     chipSaved: flag(params, "saved"),
     chipApplied: flag(params, "applied"),
     chipClosingSoon: flag(params, "soon"),
@@ -936,6 +953,7 @@ export function viewToQuery({ filter, sort }: TableView): string {
   setFlag("fetch", filter.fetchIssuesOnly);
   setFlag("dq", filter.showDisqualified);
   setFlag("dismissed", filter.showDismissed);
+  setFlag("noapplied", filter.hideApplied);
 
   if (sort.key !== DEFAULT_SORT.key || sort.dir !== DEFAULT_SORT.dir) {
     params.set("sort", sort.key);
@@ -1086,4 +1104,20 @@ export function rowDqBadge(
   const { title } = dqBadge(row.disqualifyReasons);
   const n = row.disqualifyReasons.length;
   return { text: n > 1 ? `dq ×${n}` : "dq", title, tone: "dim" };
+}
+
+/**
+ * After applying, the role to offer next: the highest-scoring listing in the
+ * current view you haven't touched yet. It respects the view (filters say
+ * what you're hunting for), and skips anything closed, disqualified or
+ * dismissed, so "next" is always worth a click.
+ */
+export function pickNextBest(rows: readonly TableRow[], excludeId: string): TableRow | null {
+  let best: TableRow | null = null;
+  for (const row of rows) {
+    if (row.id === excludeId || row.statusKey !== "NOT_APPLIED") continue;
+    if (row.dismissed || row.disqualified || row.likelyClosed || row.score === null) continue;
+    if (!best || row.score > (best.score ?? -Infinity)) best = row;
+  }
+  return best;
 }

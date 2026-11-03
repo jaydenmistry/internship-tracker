@@ -18,11 +18,16 @@ interface Props {
 const TH = "th px-2 py-1.5";
 const TD = "px-2 py-1 align-top";
 
-/** Dense table. Fixed layout so long scraped titles truncate instead of widening the page. */
+/**
+ * Dense table. Fixed layout so long scraped titles truncate instead of
+ * widening the page. It never squeezes below a readable width: on a phone the
+ * table scrolls sideways with the company column pinned, rather than columns
+ * collapsing over each other.
+ */
 export default function ListView({ apps, nowMs, onStatus, notes, emptyHint }: Props) {
   return (
-    <div className="card">
-      <table className="w-full table-fixed border-collapse" data-testid="tracker-list">
+    <div className="card overflow-x-auto">
+      <table className="w-full min-w-[72rem] table-fixed border-collapse" data-testid="tracker-list">
         <colgroup>
           <col className="w-[11rem]" />
           <col />
@@ -36,7 +41,7 @@ export default function ListView({ apps, nowMs, onStatus, notes, emptyHint }: Pr
         </colgroup>
         <thead className="border-b border-line">
           <tr>
-            <th className={TH}>company</th>
+            <th className={`${TH} sticky left-0 z-10 bg-panel`}>company</th>
             <th className={TH}>role</th>
             <th className={TH}>location</th>
             <th className={TH}>status</th>
@@ -60,7 +65,7 @@ export default function ListView({ apps, nowMs, onStatus, notes, emptyHint }: Pr
             return (
               <Fragment key={app.id}>
                 <tr data-testid="tracker-row" data-app-id={app.id} className="border-b border-line-soft hover:bg-raised/50">
-                  <td className={TD}>
+                  <td className={`${TD} sticky left-0 z-10 bg-panel`}>
                     <div className="flex min-w-0 items-center gap-1">
                       <ApplyLink app={app} className="truncate font-medium text-ink">
                         <span title={app.company}>{app.company}</span>

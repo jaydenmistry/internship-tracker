@@ -2,8 +2,18 @@
 
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { AppStatus } from "@/generated/prisma/enums";
-import { attrSelector, celebrate, celebrateDismiss, celebrateProgress, celebrateSave, celebrateUndo } from "@/components/celebrate";
-import { celebrationMessage, momentFor, type ApplyProgress } from "@/lib/celebrate/moments";
+import {
+  attrSelector,
+  badgeLine,
+  badgeMessage,
+  celebrate,
+  celebrateAftermath,
+  celebrateDismiss,
+  celebrateSave,
+  celebrateUndo,
+} from "@/components/celebrate";
+import type { StatusAftermath } from "@/lib/applications/progress";
+import { celebrationMessage, momentFor } from "@/lib/celebrate/moments";
 import {
   setDismissedAction,
   setNotesAction,
@@ -24,17 +34,19 @@ import {
   type ServerRequest,
   type SplitResult,
   type Toast,
+  type ToastAction,
 } from "./row-actions";
 import type { PatchMap, TableRow } from "./table-state";
 
-type SendWithProgress = SendResult & { progress?: ApplyProgress };
+type SendWithProgress = SendResult & { aftermath?: StatusAftermath };
 
 /** Maps a resolved mutation to its Server Action. The one place that does. */
 async function send(listingId: string, request: ServerRequest): Promise<SendWithProgress> {
   switch (request.kind) {
     case "status": {
       const res = await setStatusAction({ listingId, status: request.status as AppStatus });
-      return res.ok ? { ok: true, progress: res.progress } : res;
+      if (!res.ok) return res;
+      return { ok: true, aftermath: { progress: res.progress, week: res.week, unlocked: res.unlocked } };
     }
     case "saved":
       return setSavedAction({ listingId, value: request.value });
@@ -62,6 +74,17 @@ interface Options {
   onSettled: (listingId: string) => void;
   /** A merged-in record became its own listing (both listings changed). */
   onSplit: (parentId: string, newListingId: string) => void;
+  /** After an application: the best role still to apply to, to offer next. */
+  nextBest?: (appliedId: string) => NextRole | null;
+  /** Jump to a listing: move the cursor there and open it. */
+  goTo?: (listingId: string) => void;
+}
+
+export interface NextRole {
+  id: string;
+  company: string;
+  title: string;
+  score: number | null;
 }
 
 /** What a celebration reads off the row: the action fields, plus whether it's a dream role. */
@@ -89,13 +112,13 @@ function celebrationOrigin(listingId: string): Element | null {
  * context menu and the detail panel all call `perform`; the optimistic overlay
  * lives here and nowhere else.
  */
-export function useRowActions({ notify, openDetail, onSettled, onSplit }: Options) {
+export function useRowActions({ notify, openDetail, onSettled, onSplit, nextBest, goTo }: Options) {
   const [patches, setPatchState] = useState<PatchMap>({});
   const patchesRef = useRef<PatchMap>(patches);
 
-  const opts = useRef({ notify, openDetail, onSettled, onSplit });
+  const opts = useRef({ notify, openDetail, onSettled, onSplit, nextBest, goTo });
   useLayoutEffect(() => {
-    opts.current = { notify, openDetail, onSettled, onSplit };
+    opts.current = { notify, openDetail, onSettled, onSplit, nextBest, goTo };
   });
 
   const performRef = useRef<typeof perform | null>(null);
@@ -113,7 +136,7 @@ export function useRowActions({ notify, openDetail, onSettled, onSplit }: Option
     else if (request?.kind === "saved" && request.value) celebrateSave(origin);
     else if (request?.kind === "dismissed" && request.value) celebrateDismiss(origin);
 
-    let progress: ApplyProgress | undefined;
+    let aftermath: StatusAftermath | undefined;
     const deps: RowActionDeps = {
       getPatches: () => patchesRef.current,
       setPatches: (next) => {
@@ -122,7 +145,7 @@ export function useRowActions({ notify, openDetail, onSettled, onSplit }: Option
       },
       send: async (id, req) => {
         const res = await send(id, req);
-        if (res.ok) progress = res.progress;
+        if (res.ok) aftermath = res.aftermath;
         return res;
       },
       notify: (t) => opts.current.notify(t),
@@ -137,19 +160,36 @@ export function useRowActions({ notify, openDetail, onSettled, onSplit }: Option
     };
     const ok = await runRowCommand(row, command, deps);
 
+    if (ok && request?.kind === "status") celebrateAftermath(moment, aftermath, { origin });
     if (ok && moment && request?.kind === "status") {
-      celebrateProgress(progress, { origin });
       const previous = row.statusKey;
-      opts.current.notify({
-        kind: "celebrate",
-        message: celebrationMessage(moment, { company: row.company, dream, progress }),
-        action: {
+      const actions: ToastAction[] = [
+        {
           label: "Undo",
           run: () => {
             void performRef.current?.({ ...row, statusKey: request.status }, { kind: "setStatus", status: previous }, { quiet: true });
           },
         },
+      ];
+      // Keep the momentum: offer the best role you haven't applied to yet.
+      const next = moment === "applied" ? opts.current.nextBest?.(row.id) : null;
+      if (next) {
+        actions.push({
+          label: `Next: ${next.company} →`,
+          title: `Next up: ${next.company} — ${next.title}${next.score !== null ? ` (score ${next.score})` : ""}`,
+          run: () => opts.current.goTo?.(next.id),
+        });
+      }
+      opts.current.notify({
+        kind: "celebrate",
+        message:
+          celebrationMessage(moment, { company: row.company, dream, progress: aftermath?.progress }) +
+          badgeLine(aftermath?.unlocked),
+        actions,
       });
+    } else if (ok && aftermath?.unlocked?.length) {
+      // A badge with no celebration to ride on still gets its moment.
+      opts.current.notify({ kind: "celebrate", message: badgeMessage(aftermath.unlocked) });
     }
     return ok;
   }, []);

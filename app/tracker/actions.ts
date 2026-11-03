@@ -6,8 +6,12 @@ import { AppStatus } from "@/generated/prisma/enums";
 import { MAX_NOTES } from "./state";
 import { setApplicationNotes, setApplicationStatus } from "@/lib/applications/tracker";
 import { requireSession } from "@/lib/auth-guard";
-import { progressAfter } from "@/lib/applications/progress";
-import type { ApplyProgress } from "@/lib/celebrate/moments";
+import {
+  aftermathOf,
+  MAX_WEEKLY_GOAL,
+  saveWeeklyGoal,
+  type StatusAftermath,
+} from "@/lib/applications/progress";
 
 /**
  * Mutations from /tracker. A Server Action is a public POST endpoint, so every
@@ -17,7 +21,7 @@ import type { ApplyProgress } from "@/lib/celebrate/moments";
  */
 
 export type TrackerActionResult = { ok: true } | { ok: false; message: string };
-export type TrackerStatusResult = { ok: true; progress?: ApplyProgress } | { ok: false; message: string };
+export type TrackerStatusResult = ({ ok: true } & StatusAftermath) | { ok: false; message: string };
 
 const idSchema = z.string().min(1).max(100);
 
@@ -55,12 +59,12 @@ export async function setTrackerStatusAction(payload: unknown): Promise<TrackerS
   } catch (err) {
     return failed("status change", err);
   }
-  // Totals and streak for the celebration; only an application needs them.
-  const progress = await progressAfter(parsed.data.status);
+  // Totals, streak, the week's goal and any new badge, for the celebration.
+  const aftermath = await aftermathOf(parsed.data.status, { applicationId: parsed.data.applicationId });
   // Re-render /tracker in the same round trip so the dashboard counts and the
   // server copy of the applications replace the optimistic overlay together.
   refresh();
-  return { ok: true, progress };
+  return { ok: true, ...aftermath };
 }
 
 export async function setTrackerNotesAction(payload: unknown): Promise<TrackerActionResult> {
@@ -77,5 +81,27 @@ export async function setTrackerNotesAction(payload: unknown): Promise<TrackerAc
   }
   // No refresh: notes don't feed the dashboard, and the client already holds
   // the saved text. Skipping it keeps an in-progress edit elsewhere untouched.
+  return { ok: true };
+}
+
+const goalSchema = z.object({
+  goal: z.number().int().min(1).max(MAX_WEEKLY_GOAL).nullable(),
+});
+
+/** The weekly application goal behind the sidebar ring; null turns it off. */
+export async function setWeeklyGoalAction(payload: unknown): Promise<TrackerActionResult> {
+  // Every Server Action is a public POST endpoint. proxy.ts already blocks
+  // unauthenticated callers, but this does not rely on that: a matcher mistake
+  // must cost a redirect, not the catalog.
+  await requireSession();
+  const parsed = goalSchema.safeParse(payload);
+  if (!parsed.success) return invalid(parsed.error);
+  try {
+    await saveWeeklyGoal(parsed.data.goal);
+  } catch (err) {
+    return failed("saving the goal", err);
+  }
+  // The ring lives in the layout, and the tracker shows the goal too.
+  refresh();
   return { ok: true };
 }

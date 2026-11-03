@@ -54,7 +54,9 @@ import {
   fetchBadge,
   formatDeadline,
   formatScore,
+  hasApplied,
   hiddenAsDisqualified,
+  pickNextBest,
   HIGH_SCORE_THRESHOLD,
   isClosingSoon,
   isTrackedApplied,
@@ -152,6 +154,8 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views, initi
       detail.invalidate(parentId);
       detail.invalidate(newListingId);
     },
+    nextBest: (appliedId) => pickNextBest(visibleRef.current, appliedId),
+    goTo: (listingId) => goToRef.current(listingId),
   });
 
   // `now` comes from the server for the first paint, then follows the clock so
@@ -222,13 +226,16 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views, initi
     let closingSoon = 0;
     let highScore = 0;
     let fetchIssues = 0;
+    let sent = 0;
     for (const row of patched) {
       // Counts what the toggle reveals: roles you're in process for show anyway.
       if (hiddenAsDisqualified(row)) disqualified += 1;
       if (row.dismissed) dismissed += 1;
+      if (hasApplied(row.statusKey)) sent += 1;
       const hidden =
         (hiddenAsDisqualified(row) && !filter.showDisqualified) ||
-        (row.dismissed && !filter.showDismissed);
+        (row.dismissed && !filter.showDismissed) ||
+        (filter.hideApplied && hasApplied(row.statusKey));
       if (hidden) continue;
       if (row.saved) saved += 1;
       if (isTrackedApplied(row.statusKey)) applied += 1;
@@ -236,8 +243,8 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views, initi
       if ((row.score ?? -Infinity) >= HIGH_SCORE_THRESHOLD) highScore += 1;
       if (fetchBadge(row.fetchStatus)) fetchIssues += 1;
     }
-    return { disqualified, dismissed, saved, applied, closingSoon, highScore, fetchIssues };
-  }, [patched, filter.showDisqualified, filter.showDismissed, now]);
+    return { disqualified, dismissed, sent, saved, applied, closingSoon, highScore, fetchIssues };
+  }, [patched, filter.showDisqualified, filter.showDismissed, filter.hideApplied, now]);
 
   // React Compiler skips any component using this hook (it returns functions it
   // can't safely memoize). That's accepted here: every expensive value in this
@@ -278,6 +285,18 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views, initi
     },
     [virtualizer],
   );
+
+  // The toast's "Next" button: jump to that listing and open it. Through a
+  // ref because the row actions are created before the virtualizer.
+  const goToRef = useRef<(listingId: string) => void>(() => {});
+  goToRef.current = (listingId: string) => {
+    const index = visibleRef.current.findIndex((r) => r.id === listingId);
+    if (index >= 0) {
+      setCursor(index);
+      virtualizer.scrollToIndex(index, { align: "center" });
+    }
+    openDetail(listingId);
+  };
 
   const openRow = useMemo(
     () => (openId ? (patched.find((r) => r.id === openId) ?? null) : null),
@@ -531,6 +550,7 @@ export default function ListingsTable({ rows, nowIso, initialQuery, views, initi
         onCustomize={(point) => setLayoutMenu({ kind: "toolbar", point })}
         filtersMenu={filtersMenu}
         onFiltersMenu={setFiltersMenu}
+        notify={notify}
       />
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden">

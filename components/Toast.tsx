@@ -12,7 +12,7 @@ export interface ToastData {
   id: number;
   kind: "ok" | "error" | "celebrate";
   message: string;
-  action?: { label: string; run: () => void };
+  actions?: Array<{ label: string; run: () => void; title?: string }>;
 }
 
 const LINGER_MS: Record<ToastData["kind"], number | null> = {
@@ -44,21 +44,24 @@ export default function Toast({ toast, onClose }: { toast: ToastData; onClose: (
       role={toast.kind === "error" ? "alert" : "status"}
       onPointerEnter={() => setHeld(true)}
       onPointerLeave={() => setHeld(false)}
-      className={`toast-in fixed bottom-5 left-1/2 z-[60] flex w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 rounded-xl border bg-panel px-4 py-2.5 text-body shadow-lg sm:max-w-lg ${tone}`}
+      className={`toast-in fixed bottom-5 left-1/2 z-[60] flex w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border bg-panel px-4 py-2.5 text-body shadow-lg sm:max-w-lg ${tone}`}
     >
       <span className="min-w-0 flex-1">{toast.message}</span>
-      {toast.action && (
+      {toast.actions?.map((action) => (
         <button
+          key={action.label}
           type="button"
+          title={action.title}
+          aria-label={action.title}
           onClick={() => {
-            toast.action?.run();
+            action.run();
             onClose();
           }}
-          className="shrink-0 rounded-md px-2 py-0.5 font-semibold text-accent hover:bg-accent/10"
+          className="max-w-48 shrink-0 truncate rounded-md px-2 py-0.5 font-semibold text-accent hover:bg-accent/10"
         >
-          {toast.action.label}
+          {action.label}
         </button>
-      )}
+      ))}
       <button
         type="button"
         onClick={onClose}

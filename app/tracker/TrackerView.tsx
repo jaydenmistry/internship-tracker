@@ -6,7 +6,8 @@ import { useCallback, useEffect, useMemo, useOptimistic, useRef, useState, useTr
 import type { AppStatus } from "@/generated/prisma/enums";
 import type { TrackerApplication } from "@/lib/applications/tracker";
 import { isEditable, isPlainKey } from "@/app/listings/keys";
-import { attrSelector, celebrate, celebrateProgress, celebrateUndo } from "@/components/celebrate";
+import { attrSelector, badgeLine, badgeMessage, celebrate, celebrateAftermath, celebrateUndo } from "@/components/celebrate";
+import type { StatusAftermath } from "@/lib/applications/progress";
 import { unlock } from "@/components/celebrate/sound";
 import Toast, { type ToastData } from "@/components/Toast";
 import { celebrationMessage, momentFor } from "@/lib/celebrate/moments";
@@ -90,22 +91,26 @@ export default function TrackerView({ apps, view, nowIso }: Props) {
           );
         }
         let message: string | null = null;
-        let progress;
+        let aftermath: StatusAftermath | undefined;
         try {
           const res = await setTrackerStatusAction({ applicationId: id, status });
           if (!res.ok) message = res.message;
-          else progress = res.progress;
+          else aftermath = res;
         } catch (err) {
           message = err instanceof Error ? err.message : String(err);
         }
+        if (!message) celebrateAftermath(moment, aftermath, { origin: landedCard(id) });
         if (!message && moment && app) {
-          celebrateProgress(progress, { origin: landedCard(id) });
           setToast({
             id: Date.now(),
             kind: "celebrate",
-            message: celebrationMessage(moment, { company: app.company, dream, progress }),
-            action: { label: "Undo", run: () => changeStatusRef.current?.(id, app.status, { quiet: true }) },
+            message:
+              celebrationMessage(moment, { company: app.company, dream, progress: aftermath?.progress }) +
+              badgeLine(aftermath?.unlocked),
+            actions: [{ label: "Undo", run: () => changeStatusRef.current?.(id, app.status, { quiet: true }) }],
           });
+        } else if (!message && aftermath?.unlocked?.length) {
+          setToast({ id: Date.now(), kind: "celebrate", message: badgeMessage(aftermath.unlocked) });
         }
         if (message) {
           setStatusError(

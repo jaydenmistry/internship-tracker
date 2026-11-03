@@ -16,6 +16,7 @@ import {
   SlidersHorizontal,
   SquareKanban,
   Sun,
+  Trophy,
   Users,
   Volume2,
   VolumeX,
@@ -24,6 +25,8 @@ import {
 import { applyTheme, SIDEBAR_COOKIE, writePreference, type Theme } from "./preferences";
 import { attrSelector, NAV_BUMP_EVENT, prefersReducedMotion } from "./celebrate";
 import { isSoundOn, onSoundChange, setSoundOn } from "./celebrate/sound";
+import GoalRing from "./GoalRing";
+import type { WeekProgress } from "@/lib/applications/progress";
 
 /**
  * App navigation: a sidebar from 768px up (sidebars.md — two levels at most,
@@ -48,6 +51,7 @@ const GROUPS: ReadonlyArray<{ label: string | null; items: readonly Item[] }> = 
     items: [
       { href: "/", label: "Listings", icon: ListOrdered, compact: true },
       { href: "/tracker", label: "Tracker", icon: SquareKanban, compact: true },
+      { href: "/achievements", label: "Achievements", icon: Trophy, compact: true },
       { href: "/network", label: "Network", icon: Users, compact: true },
     ],
   },
@@ -175,9 +179,11 @@ interface Props {
   logoutUrl: string | null;
   initialCollapsed: boolean;
   initialTheme: Theme;
+  /** This week's applications and the goal; null if it couldn't be read. */
+  week: WeekProgress | null;
 }
 
-export function Sidebar({ identity, logoutUrl, initialCollapsed, initialTheme }: Props) {
+export function Sidebar({ identity, logoutUrl, initialCollapsed, initialTheme, week }: Props) {
   const current = currentHref(usePathname() ?? "/");
   const theme = useTheme(initialTheme);
   const [collapsed, setCollapsed] = useState(initialCollapsed);
@@ -263,6 +269,10 @@ export function Sidebar({ identity, logoutUrl, initialCollapsed, initialTheme }:
         ))}
       </nav>
 
+      <div className={`shrink-0 pb-2 ${collapsed ? "flex justify-center px-0" : "px-2.5"}`}>
+        <GoalRing initial={week} compact={collapsed} placement={collapsed ? "right" : "above"} />
+      </div>
+
       <div
         className={`flex shrink-0 gap-1 border-t border-line py-3 ${
           collapsed ? "flex-col items-center px-0" : "items-center px-4"
@@ -283,7 +293,7 @@ export function Sidebar({ identity, logoutUrl, initialCollapsed, initialTheme }:
   );
 }
 
-export function CompactNav({ initialTheme }: { initialTheme: Theme }) {
+export function CompactNav({ initialTheme, week }: { initialTheme: Theme; week: WeekProgress | null }) {
   const current = currentHref(usePathname() ?? "/");
   const theme = useTheme(initialTheme);
   useNavBump();
@@ -307,6 +317,7 @@ export function CompactNav({ initialTheme }: { initialTheme: Theme }) {
           );
         })}
       </nav>
+      <GoalRing initial={week} compact placement="below" />
       <SoundButton className={ICON_BUTTON} />
       <ThemeButton theme={theme} className={ICON_BUTTON} />
     </header>

@@ -27,6 +27,10 @@ I built it for my own Summer 2027 search. It runs on my home server behind Traef
 - Kanban and list views with search (company, role, stage, notes), a status history for each application, notes, and a dashboard.
 - Bulk import from pasted text or CSV, and CSV export.
 - Applying is a party: confetti, a chime and an Undo toast. Every later stage has its own show (code glyphs for an OA, ringing ripples for a phone screen, a starburst for an interview, a full fireworks display for an offer), and a rejection gets something gentle instead. First application of the day, daily streaks and milestones (1, 5, 10, 25, 50, 100, …) get extra. Sounds are synthesized in the browser and can be muted from the sidebar; with Reduce Motion on, you get the sound and the toast without the motion.
+- A weekly goal ring in the sidebar fills as you apply (weeks start Monday; click it to change the goal or turn it off), and meeting it gets its own celebration.
+- A year-at-a-glance heatmap on the Tracker, one square per day, with your current and longest streaks.
+- Achievements (night owl, early bird, Big Tech sweep, closer, comeback, streaks, counts and more) on their own page; a new one pops in the celebration toast once.
+- After applying from the Listings table, the toast offers the next best role in your current view, one click away.
 - Roles found outside the sources can be added by hand.
 
 **Resume matching and cover letters**
@@ -47,7 +51,7 @@ I built it for my own Summer 2027 search. It runs on my home server behind Traef
 - Alerts go to Discord and email, and each one is sent only once.
 
 **Interface**
-- A dense, virtualized table with keyboard navigation (`j`/`k`, `/` to search, `f` for filters, `?` for help), a detail panel (slides in from the right; a bottom sheet on a phone; click the listing again to close it) and a context menu, with light and dark themes and a collapsible sidebar. Every filter lives in one Filters menu beside the search field; the active ones show as tokens you can click to change or × to remove. Columns can be dragged to reorder, resized (role too), and shown or hidden (right-click the headings); right-click the toolbar to choose which quick chips and controls it carries.
+- A dense, virtualized table with keyboard navigation (`j`/`k`, `/` to search, `f` for filters, `?` for help), a detail panel (slides in from the right; a bottom sheet on a phone; click the listing again to close it) and a context menu, with light and dark themes and a collapsible sidebar. Every filter lives in one Filters menu beside the search field; the active ones show as tokens you can click to change or × to remove. Columns can be dragged to reorder, resized (role too), and shown or hidden (right-click the headings); right-click the toolbar to choose which quick chips and controls it carries. A **Hide applied** checkbox (off by default) clears everything you've already sent, and **Refresh** asks the worker for a fresh cycle and reports how many new listings arrived.
 
 ---
 

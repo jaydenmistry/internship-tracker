@@ -688,6 +688,7 @@ app/                       Next.js App Router (auth: proxy.ts + requireSession()
   import/                  /import — paste/CSV import with match review
   resume/                  /resume — PDF upload; text extracted once, at upload
   alerts/                  /alerts — thresholds, per-kind "Send now", recent sends
+  achievements/            /achievements — earned and locked badges with progress
   network/                 /network — Due list, contacts table, add form; [id]/ contact
                            page (timeline, log message, follow-up bar, draft panel,
                            referrals); settings/; import/
@@ -695,7 +696,7 @@ app/                       Next.js App Router (auth: proxy.ts + requireSession()
                            settings/ letterhead + signature
   api/applications/export/ GET → applications CSV (round-trips via /import)
   layout.tsx, globals.css  shell (sidebar nav), light + dark theme tokens, type scale (Tailwind v4, CSS config)
-components/                small shared UI primitives; Toast (with an action button), CountUp
+components/                small shared UI primitives; Toast (action buttons), CountUp, GoalRing (weekly goal, sidebar)
   celebrate/               the celebrations: engine.ts = one canvas overlay + rAF loop (confetti,
                            fireworks, ripples, glyphs), sound.ts = Web Audio synth (cookie `sound`,
                            on by default), index.ts = what each moment looks and sounds like
@@ -720,8 +721,13 @@ lib/
     rescore.ts             persistence: stage 1, stage 2, ranks, raw-SQL schema guard
   listings/                table read model, detail read model, row mutations, facets, saved views
   applications/            import parse/match, commit, tracker + dashboard, CSV;
-                           progress.ts = total/today/streak for a celebration
-  celebrate/moments.ts     which status changes celebrate, milestones, streaks, toast copy (pure)
+                           progress.ts = total/today/streak, weekly goal (Setting
+                           `apply.weeklyGoal`), badges announced once (Setting
+                           `achievements.announced`), heatmap data
+  celebrate/               pure: moments.ts (which status changes celebrate, milestones,
+                           streaks, copy), achievements.ts (every badge derived from
+                           history with the moment it was earned), heatmap.ts (year grid)
+  worker-client.ts         POST /refresh + GET /healthz on the worker, parsed with Zod
   resume/                  extract (unpdf), store, vocabulary + posting↔resume match
   networking/              schema (pure), contacts model, follow-up engine (pure) +
                            its persistence, message mutations, dates, settings,
@@ -762,7 +768,7 @@ What `CLAUDE.md`'s original plan describes, against what exists after Phase 3:
 | `scripts/backup.sh` | Written, plus `scripts/restore.sh` and a `backup` sidecar in compose (`pg_dump` on a schedule, retention by age with a minimum-kept floor, dumps verified with `pg_restore --list` before being renamed into place). **Never executed** — no container runtime here. Restore procedure is in `docs/DEPLOYMENT.md`. |
 | `lib/alerts/`, Discord + SMTP | Built. **Discord has now delivered real messages** against a live webhook: the send succeeded, `AlertLog` recorded it, and an immediate repeat reported the listing as already sent rather than re-sending it. **SMTP is still unexercised** — no real server has ever been contacted. |
 | Resume PDF upload | Built. Upload, extraction and the matched panel state were driven end to end through the real Server Action over real multipart. |
-| "Refresh now" button → worker `/refresh` | Endpoint exists; **no UI calls it**. |
+| "Refresh now" button → worker `/refresh` | Built: a toolbar button whose Server Action POSTs `WORKER_URL/refresh`, polls `/healthz`, reloads the table and reports the new-listing count. Exercised against a stand-in worker in development; **the real app→worker hop over `tracker_net` has not run**. |
 | UI action to split an incorrect merge | Built, and **run against the live catalog**: the three EquipmentShare requisitions that dedup had collapsed into one row are now three listings ranking independently. The two concurrency guards (a racing ingest, two simultaneous splits) are coded and reasoned about but not covered by a test — that needs two interleaved transactions. |
 | "Not applied" = absence of an Application row | Also a `NOT_APPLIED` row holding pre-apply notes or a cover letter. |
 | Detail fetch gated on the score | Gated on **`gateScore`** (tech fit excluded) — the plain score deadlocked. |

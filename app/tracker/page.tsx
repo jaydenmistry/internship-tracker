@@ -1,7 +1,9 @@
 import PageHeader from "@/components/PageHeader";
 import type { Metadata } from "next";
 import { loadDashboardStats, loadTrackerApplications } from "@/lib/applications/tracker";
+import { loadHeatmap } from "@/lib/applications/progress";
 import Dashboard from "./Dashboard";
+import Heatmap from "./Heatmap";
 import TrackerView from "./TrackerView";
 
 export const metadata: Metadata = {
@@ -19,11 +21,13 @@ export default async function TrackerPage({ searchParams }: PageProps<"/tracker"
   // are tiny (one row per application), so there is nothing to gain from racing.
   const apps = await loadTrackerApplications();
   const stats = await loadDashboardStats();
+  const heatmap = await loadHeatmap();
 
   return (
     <div className="flex flex-col gap-5 px-6 py-7 lg:px-10 lg:py-9">
       <PageHeader title="Tracker" description="Every application you've sent, by stage. Drag a card to move it." />
       <Dashboard stats={stats} />
+      <Heatmap data={heatmap} />
       <TrackerView apps={apps} view={view === "list" ? "list" : "kanban"} nowIso={new Date().toISOString()} />
     </div>
   );

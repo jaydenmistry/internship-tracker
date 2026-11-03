@@ -64,6 +64,12 @@ export interface ApplyProgress {
   streak: number;
   /** `total` when it just landed on a milestone, else null. */
   milestone: number | null;
+  /** Applications sent this week (Monday start), still counted as sent. */
+  week: number;
+  /** The weekly goal, or null when it's off. */
+  goal: number | null;
+  /** This application is the one that met the goal. */
+  goalReached: boolean;
 }
 
 export const MILESTONES: readonly number[] = [1, 5, 10, 25, 50, 75, 100, 150, 200, 250, 300, 400, 500, 750, 1000];
@@ -72,11 +78,33 @@ export function milestoneFor(total: number): number | null {
   return MILESTONES.includes(total) ? total : null;
 }
 
-/** "YYYY-MM-DD" → the day before, zone-free. */
-function previousDay(day: string): string {
+/** "YYYY-MM-DD" shifted by whole days, zone-free. */
+export function addDays(day: string, n: number): string {
   const d = new Date(`${day}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - 1);
+  d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
+}
+
+function previousDay(day: string): string {
+  return addDays(day, -1);
+}
+
+/** The Monday on or before `day` ("YYYY-MM-DD"): weeks start on Monday. */
+export function weekStart(day: string): string {
+  const dow = new Date(`${day}T00:00:00Z`).getUTCDay(); // 0 = Sunday
+  return addDays(day, -((dow + 6) % 7));
+}
+
+/** The longest run of consecutive days anywhere in `days`. */
+export function longestStreak(days: ReadonlySet<string>): number {
+  let best = 0;
+  for (const day of days) {
+    if (days.has(previousDay(day))) continue; // not the start of a run
+    let n = 0;
+    for (let d = day; days.has(d); d = addDays(d, 1)) n += 1;
+    best = Math.max(best, n);
+  }
+  return best;
 }
 
 /** Consecutive days with an application, counting back from `today`. */
@@ -154,6 +182,9 @@ export function celebrationMessage(moment: Moment, ctx: CelebrationContext): str
   if (p?.milestone) {
     const line = MILESTONE_LINES[p.milestone] ?? `🎉 ${p.milestone} applications sent!`;
     return withStreak(`${line} (${c})`, p);
+  }
+  if (p?.goalReached && p.goal) {
+    return withStreak(`🎯 Weekly goal hit: ${p.week} of ${p.goal}! (${c})`, p);
   }
 
   let line: string;

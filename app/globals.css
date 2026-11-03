@@ -756,3 +756,15 @@ input[type="radio"] {
     scroll-behavior: auto !important;
   }
 }
+
+/* Achievements: an earned badge wiggles when you hover its card. */
+@media (prefers-reduced-motion: no-preference) {
+  .achievement-earned:hover > span:first-child {
+    animation: badge-wiggle 0.6s var(--ease-spring);
+  }
+}
+@keyframes badge-wiggle {
+  0%, 100% { transform: none; }
+  30% { transform: rotate(-12deg) scale(1.15); }
+  60% { transform: rotate(8deg) scale(1.05); }
+}

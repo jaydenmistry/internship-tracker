@@ -169,11 +169,18 @@ export interface RowActionDeps {
   writeClipboard: (text: string) => Promise<void>;
 }
 
+export interface ToastAction {
+  label: string;
+  run: () => void;
+  /** Full text for the tooltip and screen readers when the label is short. */
+  title?: string;
+}
+
 export interface Toast {
   kind: "ok" | "error" | "celebrate";
   message: string;
-  /** A button in the toast, e.g. Undo after a celebration. */
-  action?: { label: string; run: () => void };
+  /** Buttons in the toast: Undo after a celebration, the next role to apply to. */
+  actions?: ToastAction[];
 }
 
 /** "Company — Role", the plain-text form the menu copies. */

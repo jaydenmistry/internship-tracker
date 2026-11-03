@@ -13,6 +13,9 @@ const progress = (p: Partial<ApplyProgress> = {}): ApplyProgress => ({
   today: 2,
   streak: 1,
   milestone: null,
+  week: 2,
+  goal: 10,
+  goalReached: false,
   ...p,
 });
 
@@ -116,5 +119,13 @@ describe("celebrationMessage", () => {
     expect(
       celebrationMessage("interview", { company: "Ramp", progress: progress({ milestone: 50, streak: 5 }), random: first }),
     ).not.toMatch(/applications sent|streak/);
+  });
+});
+
+describe("weekly goal copy", () => {
+  it("leads with the goal when this application met it", () => {
+    expect(
+      celebrationMessage("applied", { company: "Ramp", progress: progress({ week: 10, goal: 10, goalReached: true }) }),
+    ).toMatch(/Weekly goal hit: 10 of 10/);
   });
 });

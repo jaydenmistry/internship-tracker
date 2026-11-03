@@ -88,6 +88,8 @@ services:
       # /alerts "Send now" builds the digest in THIS container, so it needs
       # the origin for follow-up links too (see the worker's comment).
       - APP_URL=https://${TRACKER_HOST}
+      # "Refresh now" POSTs the worker here, over tracker_net only.
+      - WORKER_URL=http://tracker-worker:8081
       # Networking drafts: YOUR Claude subscription, from `claude setup-token`.
       # App only — the worker never drafts. Never ANTHROPIC_API_KEY or
       # ANTHROPIC_AUTH_TOKEN: Claude Code would prefer those over this token,

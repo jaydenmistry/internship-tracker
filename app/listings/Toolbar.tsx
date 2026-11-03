@@ -7,6 +7,8 @@ import type { SavedView } from "@/lib/listings/views";
 import FilterMenu, { PanelHeader, RadioRow } from "./FilterMenu";
 import FiltersMenu, { sectionForFilterKey, type FilterSection, type FiltersMenuState } from "./FiltersMenu";
 import ViewsMenu from "./ViewsMenu";
+import RefreshButton from "./RefreshButton";
+import type { Toast } from "./row-actions";
 import type { Point } from "./context-menu";
 import type { ToolbarItemId } from "./table-layout";
 import {
@@ -36,6 +38,7 @@ interface Props {
   counts: {
     disqualified: number;
     dismissed: number;
+    sent: number;
     saved: number;
     applied: number;
     closingSoon: number;
@@ -52,6 +55,7 @@ interface Props {
   onCustomize: (point: Point) => void;
   filtersMenu: FiltersMenuState;
   onFiltersMenu: (next: FiltersMenuState) => void;
+  notify: (toast: Toast) => void;
 }
 
 export default function Toolbar({
@@ -75,6 +79,7 @@ export default function Toolbar({
   onCustomize,
   filtersMenu,
   onFiltersMenu,
+  notify,
 }: Props) {
   const show = (id: ToolbarItemId) => !hidden.has(id);
   const set = (patch: Partial<FilterState>) => onChange({ ...filter, ...patch });
@@ -85,11 +90,12 @@ export default function Toolbar({
     applied: "chip-applied",
     closingSoon: "chip-closing",
     highScore: "chip-high",
+    hideApplied: "hide-applied",
   };
   const tokens = active.filter((item) => !(item.key in CHIP_OF && show(CHIP_OF[item.key])));
   const openFilters = (section: FilterSection) => onFiltersMenu({ open: true, section, pane: "detail" });
 
-  const anyChip = (["chip-saved", "chip-applied", "chip-closing", "chip-high"] as const).some(show);
+  const anyChip = (["chip-saved", "chip-applied", "chip-closing", "chip-high", "hide-applied"] as const).some(show);
 
   return (
     <div
@@ -197,6 +203,8 @@ export default function Toolbar({
             />
           )}
 
+          {show("refresh") && <RefreshButton notify={notify} />}
+
           {show("help") && (
             <button
               type="button"
@@ -266,6 +274,21 @@ export default function Toolbar({
             >
               high score
             </Chip>
+          )}
+
+          {show("hide-applied") && (
+            <label
+              title="Hide every listing you've sent, at any stage (rejections too)"
+              className="ml-1 inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-full px-2 text-dim select-none hover:bg-raised hover:text-ink"
+            >
+              <input
+                type="checkbox"
+                checked={filter.hideApplied}
+                onChange={(e) => set({ hideApplied: e.target.checked })}
+                className="size-3.5 accent-[var(--accent-fill)]"
+              />
+              Hide applied
+            </label>
           )}
 
           {anyChip && tokens.length > 0 && <span aria-hidden className="mx-1.5 h-4 w-px bg-line" />}

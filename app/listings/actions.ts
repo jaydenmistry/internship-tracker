@@ -15,8 +15,8 @@ import {
   setListingStatus,
 } from "@/lib/listings/mutations";
 import { requireSession } from "@/lib/auth-guard";
-import { progressAfter } from "@/lib/applications/progress";
-import type { ApplyProgress } from "@/lib/celebrate/moments";
+import { refreshStatus, startRefresh, type RefreshStatus } from "@/lib/worker-client";
+import { aftermathOf, type StatusAftermath } from "@/lib/applications/progress";
 import {
   deleteView,
   saveView,
@@ -87,7 +87,7 @@ function failed(verb: string, err: unknown): { ok: false; message: string } {
 
 export async function setStatusAction(
   payload: unknown,
-): Promise<ActionResult<{ status: AppStatus | null; progress?: ApplyProgress }>> {
+): Promise<ActionResult<{ status: AppStatus | null } & StatusAftermath>> {
   // Every Server Action is a public POST endpoint. proxy.ts already blocks
   // unauthenticated callers, but this does not rely on that: a matcher mistake
   // must cost a redirect, not the catalog.
@@ -99,8 +99,8 @@ export async function setStatusAction(
     // NOT_APPLIED comes back as `null` (row removed) or "NOT_APPLIED" (row kept
     // because it holds notes). The table treats both as "not applied".
     const { status } = await setListingStatus(parsed.data.listingId, parsed.data.status);
-    // Totals and streak for the celebration; only an application needs them.
-    return { ok: true, status, progress: await progressAfter(parsed.data.status) };
+    // Totals, streak, the week's goal and any new badge, for the celebration.
+    return { ok: true, status, ...(await aftermathOf(parsed.data.status, { listingId: parsed.data.listingId })) };
   } catch (err) {
     return failed("Status change", err);
   }
@@ -302,5 +302,41 @@ export async function setDefaultViewAction(payload: unknown): Promise<ViewsResul
     return { ok: true, views: await setDefaultView(parsed.data.id) };
   } catch (err) {
     return failed("Changing the default view", err);
+  }
+}
+
+/** The worker isn't reachable: in development, or while it restarts. */
+function workerDown(err: unknown): { ok: false; message: string } {
+  const detail = err instanceof Error ? err.message : String(err);
+  return { ok: false, message: `Couldn't reach the worker (${detail}). Is it running?` };
+}
+
+/**
+ * "Refresh now": ask the worker to run a full cycle. It answers at once and
+ * runs in the background; the client polls `refreshStatusAction`.
+ */
+export async function startRefreshAction(): Promise<ActionResult<{ already: boolean }>> {
+  // Every Server Action is a public POST endpoint. proxy.ts already blocks
+  // unauthenticated callers, but this does not rely on that: a matcher mistake
+  // must cost a redirect, not the catalog.
+  await requireSession();
+  try {
+    return { ok: true, already: (await startRefresh()) === "already" };
+  } catch (err) {
+    return workerDown(err);
+  }
+}
+
+export async function refreshStatusAction(): Promise<ActionResult<{ status: RefreshStatus }>> {
+  // Every Server Action is a public POST endpoint. proxy.ts already blocks
+  // unauthenticated callers, but this does not rely on that: a matcher mistake
+  // must cost a redirect, not the catalog.
+  await requireSession();
+  try {
+    // No refresh() here: the client reloads the table once, when it sees the
+    // cycle finish, rather than on every poll.
+    return { ok: true, status: await refreshStatus() };
+  } catch (err) {
+    return workerDown(err);
   }
 }

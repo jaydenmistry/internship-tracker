@@ -101,6 +101,7 @@ const SECTION_OF_KEY: Record<string, FilterSection> = {
   fetch: "other",
   dq: "other",
   dismissed: "other",
+  hideApplied: "other",
 };
 
 export function sectionForFilterKey(key: string): FilterSection | null {
@@ -145,7 +146,7 @@ export function sectionSummary(section: FilterSection, filter: FilterState): str
       return null;
     }
     case "other": {
-      const n = [filter.faangOnly, filter.textOnly, filter.fetchIssuesOnly, filter.showDisqualified, filter.showDismissed]
+      const n = [filter.faangOnly, filter.textOnly, filter.fetchIssuesOnly, filter.showDisqualified, filter.showDismissed, filter.hideApplied]
         .filter(Boolean).length;
       return n ? `${n} on` : null;
     }
@@ -170,7 +171,7 @@ function sectionReset(section: FilterSection): Partial<FilterState> {
     case "score":
       return { minScore: null, maxScore: null };
     case "other":
-      return { faangOnly: false, textOnly: false, fetchIssuesOnly: false, showDisqualified: false, showDismissed: false };
+      return { faangOnly: false, textOnly: false, fetchIssuesOnly: false, showDisqualified: false, showDismissed: false, hideApplied: false };
     default:
       return {};
   }
@@ -205,6 +206,8 @@ interface Props {
     highScore: number;
     disqualified: number;
     dismissed: number;
+    /** Every listing you've sent, at any stage: what "Hide applied" hides. */
+    sent: number;
     fetchIssues: number;
   };
 }
@@ -576,6 +579,12 @@ function SectionBody({
           </CheckRow>
           <CheckRow checked={filter.showDismissed} onChange={(v) => set({ showDismissed: v })} count={counts.dismissed}>
             <Labelled detail="Listings you dismissed">Show dismissed</Labelled>
+          </CheckRow>
+          <p className="mt-3 mb-1 px-1.5 text-footnote font-medium tracking-wide text-faint uppercase">
+            Shown by default
+          </p>
+          <CheckRow checked={filter.hideApplied} onChange={(v) => set({ hideApplied: v })} count={counts.sent}>
+            <Labelled detail="Anything you've sent, rejections included">Hide applied</Labelled>
           </CheckRow>
         </div>
       );

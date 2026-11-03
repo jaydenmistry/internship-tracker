@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist_Mono, Inter } from "next/font/google";
 import { cookies, headers } from "next/headers";
 import { identityFromHeaders } from "@/lib/auth";
+import { loadWeekProgress, type WeekProgress } from "@/lib/applications/progress";
 import { CompactNav, Sidebar } from "@/components/NavLinks";
 import { SIDEBAR_COOKIE, THEME_COOKIE, type Theme } from "@/components/preferences";
 import "./globals.css";
@@ -31,6 +32,13 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   const jar = await cookies();
   const theme: Theme = jar.get(THEME_COOKIE)?.value === "light" ? "light" : "dark";
   const sidebarCollapsed = jar.get(SIDEBAR_COOKIE)?.value === "collapsed";
+  // The weekly goal ring. A database hiccup hides the ring, never the app.
+  let week: WeekProgress | null = null;
+  try {
+    week = await loadWeekProgress();
+  } catch {
+    week = null;
+  }
 
   return (
     <html
@@ -46,9 +54,10 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
           logoutUrl={process.env.AUTH_LOGOUT_URL || null}
           initialCollapsed={sidebarCollapsed}
           initialTheme={theme}
+          week={week}
         />
         <div className="flex min-w-0 flex-1 flex-col">
-          <CompactNav initialTheme={theme} />
+          <CompactNav initialTheme={theme} week={week} />
           <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</main>
         </div>
       </body>

@@ -66,8 +66,10 @@ export const TOOLBAR_ITEMS = [
   { id: "chip-applied", label: "Applied", group: "Quick filters" },
   { id: "chip-closing", label: "Closing soon", group: "Quick filters" },
   { id: "chip-high", label: "High score", group: "Quick filters" },
+  { id: "hide-applied", label: "Hide applied", group: "Quick filters" },
   { id: "sort", label: "Sort", group: "Controls" },
   { id: "views", label: "Views", group: "Controls" },
+  { id: "refresh", label: "Refresh now", group: "Controls" },
   { id: "help", label: "Keyboard shortcuts", group: "Controls" },
 ] as const;
 

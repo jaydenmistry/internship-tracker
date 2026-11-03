@@ -11,6 +11,7 @@
  * still say it, so nothing is carried by motion alone.
  */
 
+import type { StatusAftermath, UnlockedBadge, WeekProgress } from "@/lib/applications/progress";
 import type { ApplyProgress, Moment } from "@/lib/celebrate/moments";
 import {
   cannons,
@@ -165,6 +166,22 @@ export function celebrateProgress(progress: ApplyProgress | undefined, opts: Cel
   const reduce = prefersReducedMotion();
   const at = pointOf(opts.origin);
 
+  if (progress.goalReached) {
+    // The weekly ring closed: a burst from the ring itself, then the rain.
+    play("milestone");
+    if (reduce) return;
+    // The sidebar's ring or the phone bar's, whichever is on screen.
+    const ring = [...document.querySelectorAll("[data-goal-ring]")].find((el) => el.getClientRects().length > 0);
+    const ringAt = ring ? pointOf(ring) : at;
+    ripples(ringAt, "#30D158", 3, 8);
+    confetti(ringAt, { count: 110, colors: ["#30D158", "#64D2FF", "#FFD60A", "#FFFFFF"], power: 14, spread: Math.PI * 2 });
+    if (!progress.milestone) {
+      flash("#30D158", 0.14, 26);
+      window.setTimeout(() => rain(1800, ["#30D158", "#64D2FF", "#FFD60A", "#BF5AF2"]), 300);
+      return;
+    }
+  }
+
   if (progress.milestone) {
     play("milestone");
     if (reduce) return;
@@ -226,4 +243,61 @@ export function celebrateImport(added: number): void {
 export function celebrateUndo(): void {
   unlock();
   play("undo");
+}
+
+/** Tells the weekly goal ring (NavLinks listens) the new count. */
+export const WEEK_EVENT = "celebrate:week";
+
+export function announceWeek(week: WeekProgress | undefined): void {
+  if (week) window.dispatchEvent(new CustomEvent(WEEK_EVENT, { detail: week }));
+}
+
+/** New badges: medals shower down a beat after the main show. */
+export function celebrateBadges(badges: readonly UnlockedBadge[] | undefined): void {
+  if (!badges?.length) return;
+  window.setTimeout(() => {
+    play("bonus");
+    bumpNav("/achievements");
+    if (prefersReducedMotion()) return;
+    const at = { x: window.innerWidth / 2, y: window.innerHeight * 0.45 };
+    glyphs(at, ["🏅", ...badges.map((b) => b.emoji)], GOLD, 18 + badges.length * 4);
+    confetti(at, { count: 60, colors: GOLD, power: 12, spread: Math.PI * 2, shapes: ["star", "circle"] });
+  }, 900);
+}
+
+/** New badges on their own: "🏅 Unlocked: Night owl 🦉". Empty for none. */
+export function badgeMessage(badges: readonly UnlockedBadge[] | undefined): string {
+  if (!badges?.length) return "";
+  return `🏅 Unlocked: ${badges.map((b) => `${b.title} ${b.emoji}`).join(", ")}`;
+}
+
+/** The celebration toast's tail for new badges: " · 🏅 Unlocked: Night owl 🦉". */
+export function badgeLine(badges: readonly UnlockedBadge[] | undefined): string {
+  const message = badgeMessage(badges);
+  return message ? ` · ${message}` : "";
+}
+
+/**
+ * Everything after the server confirmed a status change: the ring's count
+ * (any change, so an undo lowers it), the application's second wave, and
+ * any badges.
+ */
+export function celebrateAftermath(
+  moment: Moment | null,
+  aftermath: StatusAftermath | undefined,
+  opts: CelebrateOpts = {},
+): void {
+  announceWeek(aftermath?.week);
+  // Badges first: the server recorded them as announced on THIS change,
+  // whatever it was (one earned by an import surfaces on the next change).
+  celebrateBadges(aftermath?.unlocked);
+  if (moment === "applied") celebrateProgress(aftermath?.progress, opts);
+}
+
+/** "Refresh now" finished with new listings: a small pop from the button. */
+export function celebrateRefresh(origin: Origin, added: number): void {
+  if (added <= 0) return;
+  play("save");
+  if (prefersReducedMotion()) return;
+  confetti(pointOf(origin), { count: Math.min(20 + added * 2, 90), colors: PALETTE, power: 9, spread: Math.PI * 2 });
 }
