@@ -51,7 +51,7 @@ I built it for my own Summer 2027 search. It runs on my home server behind Traef
 - Alerts go to Discord and email, and each one is sent only once.
 
 **Interface**
-- A dense, virtualized table with keyboard navigation (`j`/`k`, `/` to search, `f` for filters, `?` for help), a detail panel (slides in from the right; a bottom sheet on a phone; click the listing again to close it) and a context menu, with light and dark themes and a collapsible sidebar. Every filter lives in one Filters menu beside the search field; the active ones show as tokens you can click to change or × to remove. Columns can be dragged to reorder, resized (role too), and shown or hidden (right-click the headings); right-click the toolbar to choose which quick chips and controls it carries. A **Hide applied** checkbox (off by default) clears everything you've already sent, and **Refresh** asks the worker for a fresh cycle and reports how many new listings arrived.
+- A dense, virtualized table with keyboard navigation (`j`/`k`, `/` to search, `f` for filters, `?` for help), a detail panel (slides in from the right; a bottom sheet on a phone; click the listing again to close it) and a context menu, with light and dark themes and a collapsible sidebar. Every filter lives in one Filters menu beside the search field; the active ones show as tokens you can click to change or × to remove. Columns can be dragged to reorder, resized (role too), and shown or hidden (right-click the headings); right-click the toolbar to choose which quick chips and controls it carries. A **Hide applied** checkbox (off by default) clears everything you've already sent or skipped, and **Refresh** asks the worker for a fresh cycle and reports how many new listings arrived.
 
 ---
 

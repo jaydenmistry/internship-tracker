@@ -284,14 +284,14 @@ export function isTrackedApplied(status: AppStatus): boolean {
 }
 
 /**
- * Statuses that mean you already applied, live or not: what "Hide applied"
- * hides. CLOSED counts (a role can close after you applied), the same rule
- * the weekly goal and badges use; only not-applied and skipped don't.
+ * Statuses "Hide applied" hides: every stage you've sent, live or not (CLOSED
+ * counts, since a role can close after you applied), plus SKIPPED, which you
+ * have also already decided on. Only not-applied rows stay.
  */
-const SENT_STATUSES = new Set<AppStatus>([...ACTIVE_STATUSES, "REJECTED", "CLOSED"]);
+const DECIDED_STATUSES = new Set<AppStatus>([...ACTIVE_STATUSES, "REJECTED", "CLOSED", "SKIPPED"]);
 
 export function hasApplied(status: AppStatus): boolean {
-  return SENT_STATUSES.has(status);
+  return DECIDED_STATUSES.has(status);
 }
 
 /**

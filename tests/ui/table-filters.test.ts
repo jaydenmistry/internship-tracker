@@ -409,7 +409,7 @@ describe("saved-view updates", () => {
 });
 
 describe("hide applied", () => {
-  it("is off by default and hides every sent stage when on, rejections too", () => {
+  it("is off by default and hides every sent stage and skipped when on", () => {
     const rows = prep(
       { id: "none" },
       { id: "applied", status: "APPLIED" },
@@ -420,7 +420,7 @@ describe("hide applied", () => {
       { id: "closed", status: "CLOSED" },
     );
     expect(filterRows(rows, EMPTY_FILTER, NOW)).toHaveLength(7);
-    expect(ids(filterRows(rows, f({ hideApplied: true }), NOW))).toEqual(["none", "skipped", "kept"]);
+    expect(ids(filterRows(rows, f({ hideApplied: true }), NOW))).toEqual(["none", "kept"]);
   });
 
   it("round-trips through the URL and shows as a removable token", () => {

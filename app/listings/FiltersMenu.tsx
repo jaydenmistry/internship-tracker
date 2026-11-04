@@ -206,7 +206,7 @@ interface Props {
     highScore: number;
     disqualified: number;
     dismissed: number;
-    /** Every listing you've sent, at any stage: what "Hide applied" hides. */
+    /** Every listing you've sent or skipped: what "Hide applied" hides. */
     sent: number;
     fetchIssues: number;
   };
@@ -584,7 +584,7 @@ function SectionBody({
             Shown by default
           </p>
           <CheckRow checked={filter.hideApplied} onChange={(v) => set({ hideApplied: v })} count={counts.sent}>
-            <Labelled detail="Anything you've sent, rejections included">Hide applied</Labelled>
+            <Labelled detail="Anything you've sent or skipped">Hide applied</Labelled>
           </CheckRow>
         </div>
       );
