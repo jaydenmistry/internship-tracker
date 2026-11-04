@@ -1,59 +1,32 @@
 # Internship Tracker
 
-A self-hosted web app that collects software engineering internship postings from several public sources, removes duplicates, ranks each one 0–100 against my own profile, and tracks my applications and networking from first contact to offer.
+A self-hosted web app that collects software engineering internship postings from public sources, removes duplicates, ranks every listing 0–100 against my own profile, and tracks each application from the first look to an offer.
 
-I built it for my own Summer 2027 search. It runs on my home server behind Traefik and Authelia, with one container for the web app and one for a scheduled background worker.
+I built it for my own Summer 2027 search. It runs on my home server as two containers, a Next.js web app and a scheduled background worker, behind Traefik and Authelia.
 
 **Stack:** Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS v4 · Prisma 7 · PostgreSQL · node-cron · Vitest · Docker
 
-> **Scope.** The app finds, ranks and organizes. It never applies to jobs, fills in forms, sends email or stores credentials for job sites. Every application and message is done by hand.
+![Ranked listings table with the detail panel open, showing a listing's score and its breakdown](docs/screenshots/listings.png)
 
----
+<p align="center"><sub>Screenshots use demo data.</sub></p>
 
-## Features
+## Why I built it
 
-**Listings**
-- Pulls new postings every day from the [SimplifyJobs](https://github.com/SimplifyJobs/Summer2027-Internships) listings feed and from intern-list.com.
-- Removes duplicates of the same posting across sources. Two postings with different requisition IDs or URLs are never merged, so a real role can't be hidden by a wrong match. Every merge is recorded and can be undone from the UI.
-- For the most promising listings, fetches the full posting from the applicant tracking system (dedicated parsers for Greenhouse, Lever, Ashby and Workday, plain text extraction for anything else) to get the description and application deadline. Fetching is rate-limited and follows `robots.txt`.
-- Marks a listing as likely closed once it disappears from every source. Listings are never deleted.
+Internship postings for a single cycle run into the thousands, spread across GitHub lists, job boards and company career pages. Most of them aren't a good fit, the same role shows up three times under slightly different titles, and the good ones close fast. I was keeping all of this in a spreadsheet and it stopped working, so I built the tool I actually wanted. It finds the roles, tells me which ones are worth my time and why, and keeps track of where every application stands.
 
-**Ranking**
-- **Stage 1** is deterministic. It weighs tech-stack fit, role type, company tier, location, freshness and deadline urgency, all configured in [`config/scoring.json`](config/scoring.json). Changes to that file apply on the next scoring run without a restart.
-- **Stage 2** is optional. Claude reads the full posting text of high-scoring listings and adjusts the score by at most ±15 points. Results are cached against a hash of the posting text, so each posting is assessed once, and listings without text are never sent. Any single listing can also be assessed on demand with **Run Claude assessment** in its detail panel (it fetches the posting first if needed).
-- Each score comes with a full breakdown, and the table shows rank changes only when the listing's own score changed.
+The app finds, ranks and organizes. It never applies to jobs, fills in forms, sends messages or stores credentials for job sites. Every application is done by hand.
 
-**Application tracking**
-- Kanban and list views with search (company, role, stage, notes), a status history for each application, notes, and a dashboard.
-- Bulk import from pasted text or CSV, and CSV export.
-- Applying is a party: confetti, a chime and an Undo toast. Every later stage has its own show (code glyphs for an OA, ringing ripples for a phone screen, a starburst for an interview, a full fireworks display for an offer), and a rejection gets something gentle instead. First application of the day, daily streaks and milestones (1, 5, 10, 25, 50, 100, …) get extra. Sounds are synthesized in the browser and can be muted from the sidebar; with Reduce Motion on, you get the sound and the toast without the motion.
-- A weekly goal ring in the sidebar fills as you apply (weeks start Monday; click it to change the goal or turn it off), and meeting it gets its own celebration.
-- A year-at-a-glance heatmap on the Tracker, one square per day, with your current and longest streaks.
-- Achievements (night owl, early bird, Big Tech sweep, closer, comeback, streaks, counts and more) on their own page; a new one pops in the celebration toast once.
-- After applying from the Listings table, the toast offers the next best role in your current view, one click away.
-- Roles found outside the sources can be added by hand.
+## What it does
 
-**Resume matching and cover letters**
-- Upload a PDF resume and see which keywords from each posting it covers and which it misses.
-- Draft a cover letter for any listing or application from the posting and your resume. Claude is told to use only facts from your resume and lists anything to double-check.
-- The letter is edited and saved on the application, then downloaded as a PDF or Word file with your letterhead and signature, named `YYYYMMDD_Cover Letter_Company`.
+- **Ingestion.** Every day the worker pulls new postings from the [SimplifyJobs](https://github.com/SimplifyJobs/Summer2027-Internships) feed and intern-list.com, removes duplicates, and fetches the full posting from the company's applicant tracking system (Greenhouse, Lever, Ashby, Workday and others) for the listings that look promising.
+- **Ranking.** Each listing gets a 0–100 score from a rule-based engine, with an optional Claude pass that reads the posting and adjusts the score by at most ±15. Every score comes with a full breakdown of where its points came from.
+- **Application tracking.** A kanban board and list view, status history, notes, bulk CSV import and export, a dashboard, and a heatmap of the year.
+- **Resume matching and cover letters.** Shows which keywords from a posting my resume covers and which it misses, and drafts a cover letter from the posting and my resume that I edit before exporting it as a PDF or Word file.
+- **Networking.** A contact log tied to companies, with follow-up dates worked out from the outreach history, and a record of who referred me where.
+- **Alerts.** A daily Discord and email digest of new high-scoring roles, follow-ups that are due, and saved listings about to close.
+- **Interface.** A dense, keyboard-driven table (`j`/`k`, `/`, `f`, `?`) with filters, saved views, customizable columns, light and dark themes, and a layout that works on a phone.
 
-**Networking**
-- A contact list linked to companies, shown in context on listings ("People at Stripe") and on tracker cards.
-- An outreach log: openers, LinkedIn connection requests, replies and meetings.
-- Each contact's status and next follow-up date are derived from that log on a configurable business-day schedule.
-- Records which contact referred me for which application.
-- Imports LinkedIn's `Connections.csv` export.
-- Claude can draft cold emails, LinkedIn notes, follow-ups and thank-you messages, matching my writing style from my past edits. The app only drafts: I copy the text or open it in my own mail client.
-
-**Alerts**
-- A daily digest of new high-scoring roles and follow-ups that are due, a "closing soon" alert for saved listings, and a high-score alert after each refresh.
-- Alerts go to Discord and email, and each one is sent only once.
-
-**Interface**
-- A dense, virtualized table with keyboard navigation (`j`/`k`, `/` to search, `f` for filters, `?` for help), a detail panel (slides in from the right; a bottom sheet on a phone; click the listing again to close it) and a context menu, with light and dark themes and a collapsible sidebar. Every filter lives in one Filters menu beside the search field; the active ones show as tokens you can click to change or × to remove. Columns can be dragged to reorder, resized (role too), and shown or hidden (right-click the headings); right-click the toolbar to choose which quick chips and controls it carries. A **Hide applied** checkbox (off by default) clears everything you've already sent or skipped, and **Refresh** asks the worker for a fresh cycle and reports how many new listings arrived.
-
----
+![Application tracker with response-rate stats, a year heatmap and a kanban board by stage](docs/screenshots/tracker.png)
 
 ## Architecture
 
@@ -83,38 +56,49 @@ flowchart LR
   worker --> OUT
 ```
 
-Each refresh runs as one ordered cycle ([`lib/cycle.ts`](lib/cycle.ts)). Most sources provide no description text, so a cheap provisional score first decides which postings are worth fetching in full, rather than fetching every posting page in the catalog.
+Each refresh runs as one ordered cycle in [`lib/cycle.ts`](lib/cycle.ts). The full data model, invariants and every setting are documented in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-### Design decisions
+## Design decisions
 
-- **Sources are pluggable adapters.** Each one returns Zod-validated listings. Adding a source means one adapter file and one registry entry, with no migration. One source failing never stops the others.
-- **The dedup logic would rather miss a duplicate than make a wrong merge.** Matching is exact on a normalized company, title and location key, then fuzzy on title within the same company and location. A different requisition ID or URL (host, path and query) always blocks a merge.
-- **All external data is untrusted.** Source payloads, CSV imports, PDF text and model output are validated with Zod at the boundary, and scraped HTML is sanitized before rendering.
-- **Raw fetches are stored.** Each ingest run keeps its raw payload, compressed, for a set retention period, so a parser regression can be compared against the real input.
-- **Scores are reproducible.** Stage 1 is a pure function of the listing and a hashed config. Stage 2 runs at temperature 0 and is cached per posting.
-- **Two separate paths to Claude.** Scoring uses the Anthropic API with an API key. Networking drafts use the Claude Agent SDK with every tool, plugin and settings source disabled: one turn, a temporary isolated home directory, and an allowlisted environment.
-- **Auth is delegated.** Authelia handles sign-in as Traefik forward-auth. The app checks the forwarded identity against a single-user allowlist that admits no one if unset. Every Server Action checks the session again, and a test finds every action file automatically, so a new unguarded action fails the test suite.
+These are the choices that shaped the project and the reasoning behind each one.
 
-Full details are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): the data model, invariants, how rescoring is triggered, and where every setting lives.
+**A cheap score decides what's worth fetching.** Most sources only give a title, company and location, with no description. Fetching every posting page would mean thousands of requests a day, so the cycle scores everything first on what it already has, then fetches full postings only for listings above a threshold, then scores again with the full text. Fetching is rate-limited per host and follows `robots.txt`.
 
----
+**Dedup would rather miss a duplicate than make a wrong merge.** A missed duplicate costs me a second look at the same role. A wrong merge hides a real role completely, which is much worse. So listings match on a normalized company, title and location key, then by fuzzy title within the same company, but two postings with different requisition IDs or URLs are never merged. I found this out the hard way when three different roles at one company got merged because their job IDs were in the URL's query string instead of its path. Every merge is recorded and can be undone from the UI.
+
+**Scoring is deterministic first and AI second.** The rule-based stage reads its weights from [`config/scoring.json`](config/scoring.json), so I can tune the ranking without touching code or restarting anything, and the same input always gets the same score. The Claude stage is optional and capped at ±15 points, so it can refine a ranking but never override it. It runs at temperature 0, caches each result against a hash of the posting text, and is skipped entirely for listings with no text, so it never pays for a call that only sees a job title.
+
+**Sources are pluggable adapters.** Each source is one file that returns listings validated with Zod. Adding a source means one adapter and one registry entry, with no database migration, and one source failing never stops the others.
+
+**All external data is treated as untrusted.** Source payloads, CSV imports, PDF text and model output are all validated at the boundary, and scraped HTML is sanitized before it's rendered. Raw fetches are stored compressed for a while, so when a parser breaks I can compare it against the exact input it saw.
+
+**Nothing the user wrote gets deleted by accident.** Listings are never deleted, they're marked as likely closed once they disappear from every source. Changing an application's status never drops its notes or cover letter.
+
+**Authentication is delegated.** Authelia handles sign-in in front of the app, and the app checks the forwarded identity against a single-user allowlist that admits nobody if it's unset. Every server action checks the session again on its own, and a test finds every action file automatically, so adding an unguarded action fails the test suite.
+
+## How I use AI on this project
+
+I used Claude Code while building this, the same way I'd use any other developer tool. Specifically, it handled the tedious parts: boilerplate, repetitive test cases, parsing fixtures, refactors that touch a lot of files, and first drafts of documentation. I made the decisions. The architecture, the data model, the scoring approach, the dedup rules and the tradeoffs above came from me, and I wrote them down in [`CLAUDE.md`](CLAUDE.md) as fixed rules the AI has to follow instead of revisit.
+
+I read every line of code it writes before it gets committed. If I can't explain what a change does and why, it doesn't go in. A lot of my time went into catching things the AI got wrong or made more complicated than they needed to be, and asking for simpler versions. The test suite is part of that check too, every feature lands with tests, and nothing is merged with a failing test.
+
+So AI saved me a lot of typing, but it's a tool, not the author. I'd rather understand a smaller amount of code completely than ship a lot of code I can't explain.
 
 ## Testing
 
-The project has more than 1,100 [Vitest](https://vitest.dev) tests, covering:
-- source parsers, run against real captured payloads in [`tests/fixtures/`](tests/fixtures/);
-- deduplication, scoring, the follow-up schedule, alert building and CSV import;
-- integration tests against a real Postgres schema;
-- UI components.
+The project has over 1,300 [Vitest](https://vitest.dev) tests, covering:
 
-Tests never touch the network. Integration tests run only against a database explicitly marked for testing, and refuse to run against anything else.
+- source parsers, run against real captured payloads in [`tests/fixtures/`](tests/fixtures/);
+- deduplication, scoring, follow-up scheduling, alerts and CSV import;
+- integration tests against a real Postgres schema;
+- UI components and interactions.
+
+Tests never touch the network. Integration tests only run against a database schema set aside for testing, and refuse to run against anything else.
 
 ```bash
 npm test          # full suite
 npm run lint      # ESLint
 ```
-
----
 
 ## Running locally
 
@@ -128,24 +112,18 @@ npm run dev               # app on http://localhost:3000
 npm run worker            # scheduled ingestion, scoring and alerts
 ```
 
-[`.env.example`](.env.example) documents every variable. Claude features are optional: without API credentials, scoring uses stage 1 only and drafting is turned off.
+[`.env.example`](.env.example) documents every variable. The Claude features are optional. Without credentials, scoring uses the rule-based stage only and drafting is turned off.
 
-Outside the production setup there is no Authelia in front of the app, so every request must carry the identity header (`Remote-Email`) matching `ALLOWED_USER`. A small local proxy that adds it is the easiest way.
+Locally there's no Authelia in front of the app, so every request needs a `Remote-Email` header matching `ALLOWED_USER`. A small local proxy that adds it is the easiest way.
 
 ## Deployment
 
-The app is deployed as two services on an existing Docker Compose stack behind Traefik:
-- one Docker image runs both the web app and the worker;
-- a backup sidecar runs scheduled `pg_dump`s and verifies each dump before keeping it.
-
-A systemd timer on the host pulls new commits on `main`. For each one it backs up the database, builds, waits for the health checks, and rolls back automatically if they fail. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
-
----
+One Docker image runs both the web app and the worker, deployed as services on my home server's Compose stack behind Traefik. A backup sidecar runs scheduled `pg_dump`s and verifies each one before keeping it. A systemd timer pulls new commits on `main`, backs up the database, rebuilds, waits for the health checks, and rolls back automatically if they fail. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ## Project layout
 
 ```
-app/          Next.js routes: listings, tracker, import, resume, alerts, network
+app/          Next.js routes: listings, tracker, achievements, import, resume, alerts, network, cover letters
 lib/          ingestion, scoring, applications, resume, alerts, networking, auth
 worker/       scheduled jobs and the internal /refresh endpoint
 prisma/       schema and migrations
@@ -155,8 +133,6 @@ deploy/       Compose services and env template for the host stack
 scripts/      backup, restore and backup health check
 docs/         architecture, deployment and the networking design
 ```
-
----
 
 ## License
 
