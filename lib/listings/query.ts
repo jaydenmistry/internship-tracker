@@ -3,6 +3,14 @@ import type { AppStatus } from "@/generated/prisma/enums";
 import { categoryGroup, cleanTerms } from "@/lib/listings/facets";
 import { primaryLocation } from "@/lib/listings/location";
 import { countMergeEntries } from "@/lib/ingestion/merge-audit";
+import { canonicalizeUrl, isJobrightUrl } from "@/lib/ingestion/normalize";
+
+/** jobright's page for a listing: its own link if that's still jobright's,
+ *  else the one its intern-list source carries. */
+export function jobrightLink(url: string, sources: { url: string }[]): string | null {
+  const found = [url, ...sources.map((s) => s.url)].find(isJobrightUrl);
+  return found ? canonicalizeUrl(found) : null;
+}
 
 /**
  * Read model for the main table.
@@ -48,7 +56,10 @@ export interface ListingRow {
   category: string | null;
   /** Terms such as "Summer 2027", with "N/A" dropped. */
   terms: string[];
+  /** The apply link: the employer's own page whenever any source has it. */
   url: string;
+  /** jobright's page for the role, when intern-list carries it, or null. */
+  jobrightUrl: string | null;
   score: number | null;
   llmAdjustment: number | null;
   /** ISO dates — Server Components can't hand Date objects to client code. */
@@ -109,7 +120,7 @@ export async function loadListingRows(): Promise<ListingRow[]> {
       postingText: false,
       detailFetchStatus: true,
       company: { select: { name: true, faangPlus: true } },
-      sources: { select: { source: true } },
+      sources: { select: { source: true, url: true } },
       mergedFrom: true,
       application: { select: { status: true } },
       postingTextHash: true,
@@ -136,6 +147,7 @@ export async function loadListingRows(): Promise<ListingRow[]> {
     category: categoryGroup(l.category),
     terms: cleanTerms(l.terms),
     url: l.url,
+    jobrightUrl: jobrightLink(l.url, l.sources),
     score: l.finalScore,
     llmAdjustment: l.llmAdjustment,
     postedAt: l.postedAt?.toISOString() ?? null,

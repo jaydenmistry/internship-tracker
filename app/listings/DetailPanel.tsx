@@ -9,7 +9,7 @@ import ScoreRing from "@/components/ScoreRing";
 import type { ComponentDetail, ListingDetail, ResumeMatchState } from "@/lib/listings/detail";
 import { CONTACT_STATUS_LABELS, CONTACT_STATUS_TONE, KIND_LABELS } from "@/lib/networking/schema";
 import { addContactHref } from "@/app/network/state";
-import { assessListingAction } from "./actions";
+import { assessListingAction, setApplyLinkAction } from "./actions";
 import { NOTES_MAX, type DetailFocus, type RowCommand, type SendResult } from "./row-actions";
 import {
   absoluteDate,
@@ -74,6 +74,7 @@ export default function DetailPanel({
 }: Props) {
   const detail = load.status === "ready" ? load.detail : null;
   const href = safeHttpUrl(detail?.url ?? row.url);
+  const jobrightHref = safeHttpUrl(detail ? detail.jobrightUrl : row.jobrightUrl);
 
   return (
     <aside
@@ -107,7 +108,7 @@ export default function DetailPanel({
       </header>
 
       <div className="content-in space-y-6 px-5 py-5">
-        <Summary row={row} detail={detail} href={href} />
+        <Summary row={row} detail={detail} href={href} jobrightHref={jobrightHref} onLinkSaved={onRetry} />
 
         <StatusControls row={row} onCommand={onCommand} />
 
@@ -181,10 +182,14 @@ function Summary({
   row,
   detail,
   href,
+  jobrightHref,
+  onLinkSaved,
 }: {
   row: TableRow;
   detail: ListingDetail | null;
   href: string | null;
+  jobrightHref: string | null;
+  onLinkSaved: () => void;
 }) {
   const movement = rankMovement(row.rankDelta);
   const llm = detail ? detail.llmAdjustment : row.llmAdjustment;
@@ -240,18 +245,103 @@ function Summary({
         </div>
       </div>
 
-      {href ? (
+      <ApplyLinks key={row.id} listingId={row.id} href={href} jobright={jobrightHref} onSaved={onLinkSaved} />
+    </div>
+  );
+}
+
+/**
+ * Apply goes straight to the employer's posting whenever one is known, with
+ * jobright's page one click away. A listing known only through jobright gets a
+ * box for the employer's link instead: jobright shows it only to signed-in
+ * users, so it's pasted once, by hand.
+ */
+function ApplyLinks({
+  listingId,
+  href,
+  jobright,
+  onSaved,
+}: {
+  listingId: string;
+  href: string | null;
+  jobright: string | null;
+  /** Reloads the panel; the action already refreshed the table's rows. */
+  onSaved: () => void;
+}) {
+  const onlyJobright = href !== null && href === jobright;
+  const [draft, setDraft] = useState("");
+  const [state, setState] = useState<{ status: "idle" | "saving" } | { status: "error"; message: string }>({
+    status: "idle",
+  });
+  const saving = state.status === "saving";
+
+  async function save() {
+    if (draft.trim() === "") return;
+    setState({ status: "saving" });
+    let res: Awaited<ReturnType<typeof setApplyLinkAction>>;
+    try {
+      res = await setApplyLinkAction({ listingId, url: draft });
+    } catch (err) {
+      res = { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+    setState(res.ok ? { status: "idle" } : { status: "error", message: res.message });
+    if (res.ok) {
+      setDraft("");
+      onSaved();
+    }
+  }
+
+  if (!href) return <p className="text-callout text-faint">No usable apply link on this listing.</p>;
+
+  return (
+    <div className="space-y-2">
+      <a href={href} target="_blank" rel="noopener noreferrer" className="btn btn-primary h-8 w-full">
+        {onlyJobright ? "Open on jobright" : "Open the job posting"}
+        <ExternalLink aria-hidden size={13} />
+      </a>
+      {jobright && !onlyJobright && (
         <a
-          href={href}
+          href={jobright}
           target="_blank"
           rel="noopener noreferrer"
-          className="btn btn-primary h-8 w-full"
+          className="flex items-center justify-center gap-1 text-callout text-dim hover:text-ink"
         >
-          Open the apply link
-          <ExternalLink aria-hidden size={13} />
+          View on jobright
+          <ExternalLink aria-hidden size={12} />
         </a>
-      ) : (
-        <p className="text-callout text-faint">No usable apply link on this listing.</p>
+      )}
+      {onlyJobright && (
+        <form
+          className="space-y-1.5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save();
+          }}
+        >
+          <label htmlFor={`apply-link-${listingId}`} className="block text-subhead text-faint">
+            jobright only shows the employer&apos;s link after you sign in there. Click Apply on jobright,
+            then paste the page it opens and Apply will go straight there.
+          </label>
+          <div className="flex gap-1.5">
+            <input
+              id={`apply-link-${listingId}`}
+              type="url"
+              inputMode="url"
+              placeholder="https://…"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              className="h-8 min-w-0 flex-1 rounded-md border border-line bg-canvas px-2 text-body"
+            />
+            <button type="submit" disabled={saving || draft.trim() === ""} className="btn h-8 shrink-0">
+              {saving ? "Saving…" : "Save link"}
+            </button>
+          </div>
+          {state.status === "error" && (
+            <p className="rounded-lg bg-warn/10 px-2.5 py-1.5 text-callout text-warn" role="alert">
+              {state.message}
+            </p>
+          )}
+        </form>
       )}
     </div>
   );

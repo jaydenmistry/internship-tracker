@@ -56,6 +56,7 @@ app/
   import/               # /import paste/CSV import
   resume/               # /resume PDF upload (text extracted once, at upload)
   alerts/               # /alerts thresholds + per-kind "Send now"
+  boards/               # /boards watchlist of company job boards (Greenhouse/Lever/Ashby)
   network/              # /network Due list + contacts, [id] contact page (drafts, referrals), import/, settings/
   cover-letter/         # /cover-letter?listing=|application= — draft with Claude, edit, save, PDF/.docx; settings/ letterhead
   api/health/           # unauthenticated liveness probe for the healthcheck
@@ -65,7 +66,7 @@ lib/
   auth-guard.ts         # requireSession() — called by every Server Action
   db.ts                 # Prisma client singleton (passes ?schema= to the adapter)
   cycle.ts              # one full refresh: ingest → score → detail → score+LLM
-  ingestion/            # adapters/, detail/, normalize, dedupe, pipeline
+  ingestion/            # adapters/, detail/, boards/, normalize, dedupe, pipeline
     merge-audit.ts      # reads Listing.mergedFrom — kept out of split.ts so the
                         #   read models don't pull the pipeline into their graph
     split.ts            # undo ONE merge: rebuild the listing from ListingSource.raw
@@ -95,6 +96,7 @@ docs/ARCHITECTURE.md, docs/DEPLOYMENT.md
 ## Architecture decisions (settled — don't relitigate)
 
 - **Sources are pluggable adapters.** Each implements `SourceAdapter` returning Zod-validated `NormalizedListing[]`. Adding a source = one adapter file + one registry entry — `source` is a plain string, not a DB enum, so no migration either. One adapter's failure never aborts the pipeline.
+- **Company job boards are a third source** (`lib/ingestion/adapters/job-boards.ts`): every Greenhouse, Lever and Ashby board that any listing's apply link points into is added to the `JobBoard` watchlist automatically and read each cycle through its public feed (one request per board, `politeFetch` etiquette), keeping tech internships not tagged for another term. A posting's URL is the ATS's own job URL so its job id is the requisition id — that's what merges it with the same role from Simplify. **A board that fails to load must not close its listings:** the adapter reports its `ats:slug:` prefix as `unverified` and the pipeline keeps those rows seen; only a 404 (board gone) lets them close. Managed on `/boards`. Run live against real boards in development, not yet in the deployed worker.
 - **Simplify adapter reads JSON, not the README.** `.github/scripts/listings.json` on the `dev` branch (schema documented in `.claude/agents/ingestion-agent.md`). The FAANG+ 🔥 flag exists only in the README, so a light second pass extracts just the 🔥 company set. README table parsing is the fallback only.
 - **Ingestion has a third stage: posting-detail fetch.** After dedup and a provisional stage-1 score, listings clearing a configurable threshold get their posting page fetched for description text and application deadline — dedicated parsers for Greenhouse/Lever/Ashby/Workday/Oracle Cloud/Workable, generic text extraction otherwise; rate-limited per host (several hosts at once, each sequential), robots-aware, URL-deduped within a run. A posting the ATS reports as taken down is `gone` and never refetched; temporary failures (403/429/5xx, network) retry the next day. `detailFetchedAt`/`detailFetchStatus`/`atsKind` on Listing make silent parser failures visible. Re-fetch only when the source record changes or the fetch exceeds a configurable age.
 - **Dedup**: exact match on `dedupKey` (normalized company|title|location bucket — indexed, NOT unique), then fuzzy title match within company+location. Hard guard that overrides any fuzzy match: records whose `requisitionId` or canonical URL differ are NEVER merged — a wrong merge silently hides a real role, so bias toward not merging when uncertain. **URL identity is host + path + query**: an ATS embedded in a company's careers page puts the job id in the query (`?gh_jid=`), so comparing paths alone once merged three distinct EquipmentShare requisitions into one row. `extractRequisitionId` reads `gh_jid` on any host for the same reason. Every merge is recorded in `Listing.mergedFrom`. **Splitting a wrong merge back apart is built** (`lib/ingestion/split.ts` + the row-action registry): the source record is re-normalized from its verbatim `ListingSource.raw` through the same adapter mapping that produced it, so the recovered listing is the one the pipeline would have created. Listings gone from all sources become `likelyClosed` — rows are never deleted.

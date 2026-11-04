@@ -24,6 +24,7 @@ flowchart LR
   subgraph ext["External sources"]
     S1["Simplify<br/>.github/scripts/listings.json<br/>+ README 🔥 set"]
     S2["intern-list.com<br/>→ jobright.ai minisite<br/>(newest 50 per run)"]
+    S3["Company job boards<br/>Greenhouse · Lever · Ashby feeds<br/>(watchlist: JobBoard, /boards)"]
     ATS["Posting pages<br/>Greenhouse · Lever · Ashby<br/>Workday · generic"]
   end
 
@@ -47,6 +48,7 @@ flowchart LR
 
   S1 --> I
   S2 --> I
+  S3 --> I
   ATS --> F
   D --> DB
   C --> DB
@@ -160,6 +162,13 @@ erDiagram
     string key PK
     json value
   }
+  JobBoard {
+    string key UK "ats:slug"
+    string companyName
+    boolean muted
+    string lastStatus
+    int consecutiveFailures
+  }
   AlertLog {
     string dedupeKey UK
     enum kind
@@ -192,7 +201,8 @@ erDiagram
   }
 ```
 
-`IngestRun`, `Resume` and `Setting` have no relations. `AlertLog.listingId` is a
+`IngestRun`, `Resume`, `Setting` and `JobBoard` have no relations (a board's
+listings are found by their `ListingSource.sourceUid` prefix, `ats:slug:`). `AlertLog.listingId` is a
 plain string with no foreign key.
 
 ### Models and their invariants
@@ -215,6 +225,16 @@ plain string with no foreign key.
   title score says. Multiple surviving candidates means *create*, not guess.
   Every merge is recorded in `mergedFrom`, and a bad one can be split back apart
   from the detail panel (`lib/ingestion/split.ts`).
+- `url` is the apply link and is set at creation, with one exception: a
+  listing created from intern-list points at jobright's page, which shows the
+  employer's link only to signed-in users (its API is robots-disallowed). When
+  any other source brings the same role with the employer's own link, the
+  listing adopts that link and its requisition id and is queued for a detail
+  fetch (`adoptEmployerLink` in the pipeline). A split that removes the lending
+  record puts jobright's link back. For a jobright-only listing the link can be
+  pasted from the detail panel (`setListingApplyUrl`). `jr_id`, jobright's
+  forward marker, is stripped by `canonicalizeUrl`. The panel keeps jobright's
+  page reachable through the intern-list source row.
 - The scoring snapshot (`ruleScore`, `gateScore`, `finalScore`,
   `scoreBreakdown`, `disqualified`, `disqualifyReasons`) is rewritten by every
   stage-1 pass. A disqualified listing keeps its full breakdown but scores 0.
@@ -242,6 +262,31 @@ plain string with no foreign key.
 - `(source, sourceUid)` is unique — this, not `dedupKey`, is row identity.
 - `source` is a plain string so adding an adapter needs no migration.
 - `raw` holds the latest raw record from that source.
+
+**JobBoard** — one company board the `job-boards` adapter reads every cycle.
+- `key` (`ats:lowercased slug`) is unique: one row however a link spells it.
+- **Discovered, not configured.** Each run first adds a board for every
+  Greenhouse/Lever/Ashby link in the catalog not yet watched, named after the
+  linking listing's company. Existing rows are never touched, so a mute or a
+  hand-typed name sticks. `/boards` adds one by hand (`manual`) or mutes one.
+- A board's postings are `ListingSource` rows with `sourceUid` =
+  `ats:slug:jobId`. Their URL is the ATS's own posting URL (never Greenhouse's
+  `absolute_url`, which often points at the company site without the id), so
+  `extractRequisitionId` yields the job id and the same role from Simplify
+  **merges by requisition id** instead of appearing twice.
+- **A failed board is not a closed board.** The adapter reports a failed or
+  unchecked board's `ats:slug:` prefix as `unverified`, and the pipeline bumps
+  those rows' `lastSeen`, so the likely-closed pass leaves them alone. Muted
+  and paused boards are reported the same way. A board that answered 404 (it no
+  longer exists) gets no such cover: its postings close. Only a run in which
+  every board failed fails the adapter, which in turn holds back the
+  likely-closed pass for every source.
+- `consecutiveFailures` ≥ `PAUSE_AFTER_FAILURES` (5) pauses the board until
+  retried on `/boards`; a successful check resets it.
+- A listing first found on a board is created with `atsKind`,
+  `detailFetchedAt` and `detailFetchStatus = "ok"` already set
+  (`NormalizedListing.fetchedFromAts`): its text came from the ATS itself, so
+  the detail stage would only fetch it again.
 
 **IngestRun** — one row per adapter per cycle.
 - The raw payload is persisted **before parsing** (adapters call
@@ -688,6 +733,7 @@ app/                       Next.js App Router (auth: proxy.ts + requireSession()
   import/                  /import — paste/CSV import with match review
   resume/                  /resume — PDF upload; text extracted once, at upload
   alerts/                  /alerts — thresholds, per-kind "Send now", recent sends
+  boards/                  /boards — the job-board watchlist: last check per board, add by link, stop watching, retry
   achievements/            /achievements — earned and locked badges with progress
   network/                 /network — Due list, contacts table, add form; [id]/ contact
                            page (timeline, log message, follow-up bar, draft panel,
@@ -704,7 +750,9 @@ lib/
   db.ts                    Prisma client; passes ?schema= to the adapter
   cycle.ts                 one full refresh, stages in order
   ingestion/
-    adapters/              simplify, intern-list, registry, NormalizedListing contract
+    adapters/              simplify, intern-list, job-boards, registry, NormalizedListing contract
+    boards/                feeds.ts (pure: board-from-URL, the three feed shapes, which
+                           postings are kept) + store.ts (the JobBoard watchlist)
     detail/                posting-page fetchers (Greenhouse, Lever, Ashby, Workday, Oracle Cloud,
                            Workable, generic) + robots/rate-limit/SSRF guard
     normalize.ts           company/title/location normalization, dedupKey, req ids
@@ -774,6 +822,7 @@ What `CLAUDE.md`'s original plan describes, against what exists after Phase 3:
 | Detail fetch gated on the score | Gated on **`gateScore`** (tech fit excluded) — the plain score deadlocked. |
 | Rank derived for display | **Persisted** on Listing, with movement history. The ↑/↓ indicator is shown only when the listing's own score moved (`scoreMoved`) — 88% of ranked rows carried a cascade move, which told the reader nothing. |
 | Stage 2 adjusts scores | It never ran: the structured-output schema sent `minimum`/`maximum` on an integer, which the Messages API rejects with a 400, so **every** stage-2 call failed while the mocked tests stayed green. Fixed, and now pinned at `temperature: 0`. |
+| Two curated sources | Plus a third: every company job board on Greenhouse, Lever and Ashby that any listing has linked to, read through its public feed (`lib/ingestion/adapters/job-boards.ts`). Run live against six real boards (Figma, Cloudflare, Palantir, Ramp, Notion and a nonexistent one) in development; **not yet run inside the deployed worker**. Workday and SmartRecruiters feeds are not read. |
 | intern-list HTML scrape | Parses the embedded jobright.ai minisite's `__NEXT_DATA__`; gets only the newest 50 per run because deeper pages need jobright's robots-disallowed `/api`. |
 | Separate test database | Separate test **schema** (see the `prisma dev` trap). |
 | Prisma (unspecified version) | Prisma 7 with the `@prisma/adapter-pg` driver adapter. |

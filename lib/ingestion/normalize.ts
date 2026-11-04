@@ -209,12 +209,13 @@ export function buildDedupKey(
 // URLs
 // ---------------------------------------------------------------------------
 
-/** Tracking params dropped by canonicalizeUrl (plus any utm_* prefix). */
-const TRACKING_PARAMS = new Set(["fbclid", "gclid", "gh_src", "ref", "source", "lever-source"]);
+/** Tracking params dropped by canonicalizeUrl (plus any utm_* prefix). jr_id
+ *  is the one jobright appends when it forwards to the employer's page. */
+const TRACKING_PARAMS = new Set(["fbclid", "gclid", "gh_src", "ref", "source", "lever-source", "jr_id"]);
 
 /**
  * Lowercase scheme+host, strip default ports, drop the fragment and tracking
- * params (utm_*, fbclid, gclid, gh_src, ref, source, lever-source), keep every
+ * params (utm_*, fbclid, gclid, gh_src, ref, source, lever-source, jr_id), keep every
  * other query param in original order (gh_jid is meaningful — kept), and strip
  * the trailing slash from the path (root "/" is kept). Invalid URL → input
  * unchanged.
@@ -236,6 +237,20 @@ export function canonicalizeUrl(url: string): string {
   if (pathname.length > 1) pathname = pathname.replace(/\/+$/, "") || "/";
   // URL already lowercases protocol/hostname and drops scheme-default ports.
   return `${u.protocol}//${u.host}${pathname}${search ? `?${search}` : ""}`;
+}
+
+/**
+ * A jobright.ai page (intern-list's listings link there). jobright shows the
+ * employer's own apply link only to signed-in users, and the API behind it is
+ * robots-disallowed, so a listing that only has this link has no direct one.
+ */
+export function isJobrightUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === "jobright.ai" || host.endsWith(".jobright.ai");
+  } catch {
+    return false;
+  }
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

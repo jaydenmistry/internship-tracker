@@ -18,6 +18,28 @@ const LeverPostingSchema = z.looseObject({
     .optional(),
 });
 
+/**
+ * One Lever posting's text: title, body, each titled list, closing section.
+ * Shared with the job-board feed (lib/ingestion/boards/feeds.ts), whose
+ * records are the same postings. Throws on a record that isn't a posting.
+ */
+export function leverPostingText(record: unknown): string {
+  const posting = LeverPostingSchema.parse(record);
+  const sections: (string | undefined)[] = [
+    posting.text,
+    posting.descriptionBodyPlain || posting.descriptionPlain,
+    ...(posting.lists ?? []).flatMap((list) => [
+      list.text,
+      list.content !== undefined ? htmlToText(list.content) : undefined,
+    ]),
+    posting.additionalPlain,
+  ];
+  return sections
+    .map((s) => s?.trim())
+    .filter((s): s is string => !!s)
+    .join("\n\n");
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function fetchLeverDetail(url: string, ctx: DetailContext): Promise<DetailResult> {
@@ -33,20 +55,7 @@ export async function fetchLeverDetail(url: string, ctx: DetailContext): Promise
   if (!res.ok) return { status: `http_${res.status}`, atsKind: "lever", raw };
 
   try {
-    const posting = LeverPostingSchema.parse(JSON.parse(raw));
-    const sections: (string | undefined)[] = [
-      posting.text,
-      posting.descriptionBodyPlain || posting.descriptionPlain,
-      ...(posting.lists ?? []).flatMap((list) => [
-        list.text,
-        list.content !== undefined ? htmlToText(list.content) : undefined,
-      ]),
-      posting.additionalPlain,
-    ];
-    const postingText = sections
-      .map((s) => s?.trim())
-      .filter((s): s is string => !!s)
-      .join("\n\n");
+    const postingText = leverPostingText(JSON.parse(raw));
     if (postingText === "") return { status: "parse_failed", atsKind: "lever", raw };
     return { status: "ok", atsKind: "lever", postingText, raw };
   } catch (err) {

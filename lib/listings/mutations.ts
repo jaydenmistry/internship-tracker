@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import type { AppStatus } from "@/generated/prisma/enums";
 import { recordStatus } from "@/lib/applications/commit";
 import { dropApplicationIfEmpty, holdsUserContent, USER_CONTENT_SELECT } from "@/lib/applications/keep";
+import { canonicalizeUrl, extractRequisitionId, isJobrightUrl } from "@/lib/ingestion/normalize";
 
 /**
  * Row-level actions from the main table and detail panel, keyed by listing.
@@ -113,4 +114,55 @@ export async function setListingSaved(listingId: string, saved: boolean): Promis
 
 export async function setListingDismissed(listingId: string, dismissed: boolean): Promise<void> {
   await prisma.listing.update({ where: { id: listingId }, data: { dismissed } });
+}
+
+export type ApplyLinkResult = { ok: true; url: string } | { ok: false; message: string };
+
+/**
+ * The employer's link for a listing that only has jobright's page, pasted by
+ * hand: jobright shows it only after you sign in there, so the app can't look
+ * it up itself. Tracking (jr_id, utm_*) is stripped. The listing is queued for
+ * a detail fetch from the real posting, and an application that still points
+ * at jobright follows. A listing that already has a direct link is left alone,
+ * since its link is part of its merge identity.
+ */
+export async function setListingApplyUrl(listingId: string, pasted: string): Promise<ApplyLinkResult> {
+  let parsed: URL;
+  try {
+    parsed = new URL(pasted.trim());
+  } catch {
+    return { ok: false, message: "That isn't a link." };
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return { ok: false, message: "Only http and https links work here." };
+  }
+  if (isJobrightUrl(parsed.href)) {
+    return { ok: false, message: "That's still jobright's page. Paste the employer's page it sends you to." };
+  }
+  const url = canonicalizeUrl(parsed.href);
+
+  const listing = await prisma.listing.findUnique({
+    where: { id: listingId },
+    select: { url: true, requisitionId: true },
+  });
+  if (!listing) return { ok: false, message: "This listing no longer exists." };
+  if (!isJobrightUrl(listing.url)) {
+    return { ok: false, message: "This listing already has a direct apply link." };
+  }
+
+  await prisma.$transaction([
+    prisma.listing.update({
+      where: { id: listingId },
+      data: {
+        url,
+        requisitionId: listing.requisitionId ?? extractRequisitionId(url),
+        detailFetchedAt: null,
+      },
+    }),
+    prisma.application.updateMany({
+      where: { listingId, applyUrl: listing.url },
+      data: { applyUrl: url },
+    }),
+  ]);
+  return { ok: true, url };
 }

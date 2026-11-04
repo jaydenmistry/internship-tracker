@@ -5,6 +5,7 @@ import { COMPONENT_NAMES, loadScoringConfig, type ComponentName } from "@/lib/sc
 import { buildVocabulary, extractKeywords, matchResume } from "@/lib/resume/match";
 import { getActiveResume } from "@/lib/resume/store";
 import { parseMergeAudit } from "@/lib/ingestion/merge-audit";
+import { jobrightLink } from "@/lib/listings/query";
 import { loadCompanyPeople, type CompanyPerson } from "@/lib/networking/contacts";
 
 /**
@@ -80,6 +81,7 @@ export interface ListingDetail {
   locations: string[];
   remote: boolean;
   url: string;
+  jobrightUrl: string | null;
   requisitionId: string | null;
   salary: string | null;
   sponsorship: string | null;
@@ -268,6 +270,7 @@ export async function loadListingDetail(id: string): Promise<ListingDetail | nul
     locations: l.locations,
     remote: l.remote,
     url: l.url,
+    jobrightUrl: jobrightLink(l.url, l.sources),
     requisitionId: l.requisitionId,
     salary: l.salary,
     sponsorship: l.sponsorship,

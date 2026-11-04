@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildDedupKey,
   canonicalizeUrl,
+  isJobrightUrl,
   deriveCountries,
   extractRequisitionId,
   locationBucket,
@@ -150,6 +151,11 @@ describe("canonicalizeUrl", () => {
       "https://jobs.lever.co/hermeus/51378fa0-0327-45fd-9420-b6e7d8b56440?lever-source=Simplify&ref=x&source=y&gh_src=z&fbclid=1&gclid=2",
       "https://jobs.lever.co/hermeus/51378fa0-0327-45fd-9420-b6e7d8b56440",
     ],
+    // jobright's forward marker on the employer's page.
+    [
+      "https://job-boards.greenhouse.io/togetherai/jobs/4977391007?gh_jid=4977391007&jr_id=6aeb7e4765311d97105b936f",
+      "https://job-boards.greenhouse.io/togetherai/jobs/4977391007?gh_jid=4977391007",
+    ],
     // Other params kept in original order.
     [
       "https://careers.amd.com/jobs/91866?icims=1&b=2&a=1&utm_campaign=c",
@@ -162,6 +168,16 @@ describe("canonicalizeUrl", () => {
   it("returns invalid input unchanged", () => {
     expect(canonicalizeUrl("not a url")).toBe("not a url");
     expect(canonicalizeUrl("")).toBe("");
+  });
+});
+
+describe("isJobrightUrl", () => {
+  it("matches jobright and its subdomains, nothing else", () => {
+    expect(isJobrightUrl("https://jobright.ai/jobs/info/abc")).toBe(true);
+    expect(isJobrightUrl("https://www.JobRight.ai/jobs/info/abc")).toBe(true);
+    expect(isJobrightUrl("https://notjobright.ai/jobs/info/abc")).toBe(false);
+    expect(isJobrightUrl("https://example.com/?u=jobright.ai")).toBe(false);
+    expect(isJobrightUrl("not a url")).toBe(false);
   });
 });
 

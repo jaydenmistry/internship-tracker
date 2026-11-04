@@ -462,4 +462,32 @@ describe.skipIf(!hasDb)("splitMerge (integration)", () => {
     expect(await prisma.listing.count()).toBe(1);
     expect(await prisma.listingSource.count()).toBe(2);
   });
+  it("gives a jobright listing its own link back when the record that lent it the employer's link is split off", async () => {
+    // jobright first this time, so the Simplify record lends it its ATS link.
+    await runIngestion({
+      adapterOverride: [fakeAdapter("intern-list", [internList(fixtures.internList)])],
+      skipDetail: true,
+      log: quiet,
+      now: T1,
+    });
+    await runIngestion({
+      adapterOverride: [fakeAdapter("simplify", [simplify(fixtures.simplify)])],
+      skipDetail: true,
+      log: quiet,
+      now: T2,
+    });
+    const parent = await prisma.listing.findFirstOrThrow();
+    const atsUrl = simplify(fixtures.simplify).url.split("?")[0];
+    expect(parent.url.startsWith(atsUrl)).toBe(true);
+    expect(parent.requisitionId).not.toBeNull();
+
+    const result = await splitMerge({ listingId: parent.id, source: "simplify", sourceUid: SIMPLIFY_UID, now: SPLIT_AT });
+    if (!result.ok) throw new Error(result.message);
+
+    expect(await prisma.listing.findUniqueOrThrow({ where: { id: parent.id } })).toMatchObject({
+      url: "https://jobright.ai/jobs/info/6aad91e7de327d3e210d33d9",
+      requisitionId: null,
+    });
+    expect((await prisma.listing.findUniqueOrThrow({ where: { id: result.listingId } })).url).toBe(parent.url);
+  });
 });

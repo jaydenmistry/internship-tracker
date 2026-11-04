@@ -27,6 +27,12 @@ export const NormalizedListingSchema = z.object({
   deadline: z.date().optional(),
   /** Whether the source currently shows this listing as open. */
   active: z.boolean(),
+  /**
+   * Set when the source IS the posting's own applicant tracking system (the
+   * job-boards adapter), so its postingText is what the detail fetch would
+   * have read: a new listing is created already marked as fetched.
+   */
+  fetchedFromAts: z.enum(["greenhouse", "lever", "ashby"]).optional(),
   /** True when the source flags the company as FAANG+ (Simplify README 🔥). */
   companyFaangPlus: z.boolean().default(false),
   /** The original source record, persisted verbatim on ListingSource.raw. */
@@ -87,4 +93,11 @@ export interface AdapterResult {
   listings: NormalizedListing[];
   /** Raw payload as fetched (pre-parse), for gzipped IngestRun.rawGz storage. */
   rawPayload: string;
+  /**
+   * sourceUid prefixes this run could NOT check (a board that failed to load):
+   * their existing records count as seen, so one site's outage can't mark the
+   * listings only it carries as likely closed. An adapter that reads one
+   * feed fails the whole run instead and never needs this.
+   */
+  unverified?: string[];
 }

@@ -11,6 +11,7 @@ import { assessListingNow } from "@/lib/listings/assess";
 import {
   setListingDismissed,
   setListingNotes,
+  setListingApplyUrl,
   setListingSaved,
   setListingStatus,
 } from "@/lib/listings/mutations";
@@ -62,6 +63,11 @@ const notesSchema = z.object({
 const flagSchema = z.object({
   listingId: listingIdSchema,
   value: z.boolean(),
+});
+
+const applyLinkSchema = z.object({
+  listingId: listingIdSchema,
+  url: z.string().min(1).max(2000),
 });
 
 const splitSchema = z.object({
@@ -173,6 +179,29 @@ export async function setNotesAction(payload: unknown): Promise<ActionResult> {
   } catch (err) {
     return failed("Saving notes", err);
   }
+}
+
+/**
+ * The employer's link for a jobright-only listing, pasted from the detail
+ * panel. Refreshes, so the row's Apply (and `o`) pick it up straight away.
+ */
+export async function setApplyLinkAction(payload: unknown): Promise<ActionResult<{ url: string }>> {
+  // Every Server Action is a public POST endpoint. proxy.ts already blocks
+  // unauthenticated callers, but this does not rely on that: a matcher mistake
+  // must cost a redirect, not the catalog.
+  await requireSession();
+  const parsed = applyLinkSchema.safeParse(payload);
+  if (!parsed.success) return invalid(parsed.error);
+
+  let result: Awaited<ReturnType<typeof setListingApplyUrl>>;
+  try {
+    result = await setListingApplyUrl(parsed.data.listingId, parsed.data.url);
+  } catch (err) {
+    return failed("Saving the link", err);
+  }
+  if (!result.ok) return result;
+  refresh();
+  return { ok: true, url: result.url };
 }
 
 /**

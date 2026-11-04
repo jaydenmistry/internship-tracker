@@ -60,6 +60,7 @@ function listing(overrides: Partial<ListingRow> = {}): ListingRow {
     category: "Software",
     terms: ["Summer 2027"],
     url: "https://example.com/job",
+    jobrightUrl: null,
     score: 50,
     llmAdjustment: null,
     postedAt: day(-3),

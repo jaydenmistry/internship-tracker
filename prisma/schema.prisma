@@ -376,3 +376,30 @@ model OutreachMessage {
   @@index([listingId])
   @@index([applicationId])
 }
+
+/// A company's public job board on Greenhouse, Lever or Ashby, polled every
+/// cycle by the `job-boards` adapter for internships. Discovered from apply
+/// links already in the catalog, or added by hand on /boards.
+model JobBoard {
+  id                  String    @id @default(cuid())
+  /// greenhouse | lever | ashby
+  ats                 String
+  /// The board's name in its URL (boards.greenhouse.io/{slug}), as written.
+  slug                String
+  /// `${ats}:${lowercased slug}` — one row per board however a link spells it.
+  key                 String    @unique
+  companyName         String
+  /// Added by hand on /boards rather than discovered from a listing's link.
+  manual              Boolean   @default(false)
+  /// Stopped watching: no longer checked. Listings it found are left as they are.
+  muted               Boolean   @default(false)
+  createdAt           DateTime  @default(now())
+  lastCheckedAt       DateTime?
+  /// ok | http_<code> | robots_denied | parse_failed | fetch_failed
+  lastStatus          String?
+  lastJobCount        Int?
+  /// Tech internships kept from the last successful check.
+  lastInternCount     Int?
+  /// Failed checks in a row; at PAUSE_AFTER_FAILURES the board is skipped until retried.
+  consecutiveFailures Int       @default(0)
+}

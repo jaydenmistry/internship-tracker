@@ -18,7 +18,7 @@ The app finds, ranks and organizes. It never applies to jobs, fills in forms, se
 
 ## What it does
 
-- **Ingestion.** Every day the worker pulls new postings from the [SimplifyJobs](https://github.com/SimplifyJobs/Summer2027-Internships) feed and intern-list.com, removes duplicates, and fetches the full posting from the company's applicant tracking system (Greenhouse, Lever, Ashby, Workday and others) for the listings that look promising.
+- **Ingestion.** Every day the worker pulls new postings from the [SimplifyJobs](https://github.com/SimplifyJobs/Summer2027-Internships) feed, intern-list.com, and the public job boards of every company it has seen on Greenhouse, Lever or Ashby. It removes duplicates and fetches the full posting from the company's applicant tracking system for the listings that look promising.
 - **Ranking.** Each listing gets a 0–100 score from a rule-based engine, with an optional Claude pass that reads the posting and adjusts the score by at most ±15. Every score comes with a full breakdown of where its points came from.
 - **Application tracking.** A kanban board and list view, status history, notes, bulk CSV import and export, a dashboard, and a heatmap of the year.
 - **Resume matching and cover letters.** Shows which keywords from a posting my resume covers and which it misses, and drafts a cover letter from the posting and my resume that I edit before exporting it as a PDF or Word file.
@@ -35,6 +35,7 @@ flowchart LR
   subgraph sources["Sources"]
     S1["SimplifyJobs feed"]
     S2["intern-list.com"]
+    S3["Company job boards<br/>Greenhouse · Lever · Ashby"]
     ATS["Posting pages<br/>Greenhouse · Lever · Ashby · Workday"]
   end
 
@@ -50,6 +51,7 @@ flowchart LR
 
   S1 --> I
   S2 --> I
+  S3 --> I
   ATS --> F
   worker --> DB
   DB <--> APP
@@ -69,6 +71,8 @@ These are the choices that shaped the project and the reasoning behind each one.
 **Scoring is deterministic first and AI second.** The rule-based stage reads its weights from [`config/scoring.json`](config/scoring.json), so I can tune the ranking without touching code or restarting anything, and the same input always gets the same score. The Claude stage is optional and capped at ±15 points, so it can refine a ranking but never override it. It runs at temperature 0, caches each result against a hash of the posting text, and is skipped entirely for listings with no text, so it never pays for a call that only sees a job title.
 
 **Sources are pluggable adapters.** Each source is one file that returns listings validated with Zod. Adding a source means one adapter and one registry entry, with no database migration, and one source failing never stops the others.
+
+**Company job boards find themselves.** Curated lists like Simplify lag behind, so the app also reads companies' own job boards on Greenhouse, Lever and Ashby, which see a role the moment it's posted. I didn't want to maintain a list of companies by hand, so every apply link that points into one of those boards adds that board to a watchlist automatically. Each board is one request a day, and the posting's own job ID is used as its URL so the same role from Simplify merges instead of showing up twice. If a board fails to load, its listings are kept as they are instead of being marked closed, since a site being down doesn't mean the roles are gone.
 
 **All external data is treated as untrusted.** Source payloads, CSV imports, PDF text and model output are all validated at the boundary, and scraped HTML is sanitized before it's rendered. Raw fetches are stored compressed for a while, so when a parser breaks I can compare it against the exact input it saw.
 

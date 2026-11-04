@@ -4,6 +4,7 @@ import { adapters } from "@/lib/ingestion/adapters";
 import type { SourceAdapter } from "@/lib/ingestion/adapters/types";
 import { buildListingCreateData, sha256, upsertCompany } from "@/lib/ingestion/pipeline";
 import { parseMergeAudit } from "@/lib/ingestion/merge-audit";
+import { canonicalizeUrl, isJobrightUrl } from "@/lib/ingestion/normalize";
 
 /**
  * Undo ONE incorrect merge: pull a merged-in source record back out into its
@@ -211,7 +212,7 @@ export async function splitMerge(input: SplitMergeInput): Promise<SplitResult> {
       // that record on the parent with no audit trail and no way to split it.
       const fresh = await tx.listing.findUniqueOrThrow({
         where: { id: parent.id },
-        select: { mergedFrom: true, postingText: true, postingTextHash: true },
+        select: { mergedFrom: true, postingText: true, postingTextHash: true, url: true },
       });
       const dropIndex = parseMergeAudit(fresh.mergedFrom).merged.find(
         (m) => m.entry.source === source && m.entry.sourceUid === sourceUid,
@@ -234,9 +235,19 @@ export async function splitMerge(input: SplitMergeInput): Promise<SplitResult> {
         fresh.postingTextHash !== null &&
         fresh.postingTextHash === sha256(item.postingText);
 
+      // Same for the apply link: a jobright listing takes the employer's link
+      // from the record that merged in (pipeline `adoptEmployerLink`). With
+      // that record gone, the link goes back to jobright's page.
+      const jobrightSource = parent.sources.find((s) => s.id !== sourceRow.id && isJobrightUrl(s.url));
+      const lentLink =
+        jobrightSource !== undefined && fresh.url === canonicalizeUrl(sourceRow.url)
+          ? { url: canonicalizeUrl(jobrightSource.url), requisitionId: null, detailFetchedAt: null }
+          : {};
+
       await tx.listing.update({
         where: { id: parent.id },
         data: {
+          ...lentLink,
           mergedFrom: { set: remaining },
           // Self-invalidation: the parent lost a source (and possibly the
           // reason it looked richer), so its score is stale.

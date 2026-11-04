@@ -12,6 +12,7 @@ import {
   canonicalizeUrl,
   deriveCountries,
   extractRequisitionId,
+  isJobrightUrl,
   locationBucket,
   normalizeCompany,
   normalizeTitle,
@@ -158,10 +159,35 @@ export function buildListingCreateData(
     firstSeen: now,
     lastSeen: now,
     likelyClosed: false,
+    // Text read straight from the posting's own ATS is the detail fetch's
+    // result already; marking it fetched saves a second request per posting.
+    ...(item.fetchedFromAts && item.postingText
+      ? { atsKind: item.fetchedFromAts, detailFetchedAt: now, detailFetchStatus: "ok" }
+      : {}),
   };
 }
 
 /** Ingest one normalized listing: update its per-source row, or dedup + create. */
+/**
+ * A listing first found through intern-list links to jobright's page, which
+ * only shows the employer's link to signed-in users. When another source
+ * brings the same role with the employer's own link, that link becomes the
+ * listing's: Apply goes straight to the posting, its job id joins the merge
+ * guard, and the posting is queued for a detail fetch from the real page.
+ * jobright's page stays reachable through its ListingSource row.
+ */
+function adoptEmployerLink(
+  current: { url: string; requisitionId: string | null } | null | undefined,
+  item: NormalizedListing,
+) {
+  if (!current || !isJobrightUrl(current.url) || isJobrightUrl(item.url)) return {};
+  return {
+    url: canonicalizeUrl(item.url),
+    requisitionId: current.requisitionId ?? extractRequisitionId(item.url),
+    detailFetchedAt: null,
+  };
+}
+
 async function ingestListing(
   item: NormalizedListing,
   now: Date,
@@ -186,7 +212,7 @@ async function ingestListing(
     // next scoring pass picks the row up — see "score self-invalidation".
     const current = await prisma.listing.findUnique({
       where: { id: existingSource.listingId },
-      select: { postingText: true, likelyClosed: true, deadline: true },
+      select: { postingText: true, likelyClosed: true, deadline: true, url: true, requisitionId: true },
     });
     const reopened = item.active && current?.likelyClosed === true;
     const deadlineChanged =
@@ -207,6 +233,7 @@ async function ingestListing(
           ...(item.deadline ? { deadline: item.deadline } : {}),
           ...(item.sponsorship ? { sponsorship: item.sponsorship } : {}),
           ...(reopened || deadlineChanged ? { scoringConfigHash: null } : {}),
+          ...adoptEmployerLink(current, item),
         },
       }),
     ]);
@@ -313,6 +340,7 @@ async function ingestListing(
             ? { postingText: item.postingText, postingTextHash: sha256(item.postingText!) }
             : {}),
           ...(adoptsPostingText || reopened ? { scoringConfigHash: null } : {}),
+          ...adoptEmployerLink(target, item),
         },
       }),
     ]);
@@ -390,6 +418,19 @@ async function runAdapter(
       } catch (err) {
         summary.itemsFailed += 1;
         log(`[${adapter.id}] failed to ingest ${item.sourceUid}: ${String(err)}`);
+      }
+    }
+    if (result.unverified?.length) {
+      // Matched in code, not with startsWith: that becomes SQL LIKE, where a
+      // "_" in a board's name would match any character.
+      const prefixes = result.unverified;
+      const rows = await prisma.listingSource.findMany({
+        where: { source: adapter.id, active: true },
+        select: { id: true, sourceUid: true },
+      });
+      const ids = rows.filter((r) => prefixes.some((p) => r.sourceUid.startsWith(p))).map((r) => r.id);
+      if (ids.length > 0) {
+        await prisma.listingSource.updateMany({ where: { id: { in: ids } }, data: { lastSeen: now } });
       }
     }
     summary.ok = true;

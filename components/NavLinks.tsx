@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import {
   Bell,
+  BriefcaseBusiness,
   FileText,
   Import,
   ListOrdered,
@@ -66,6 +67,7 @@ const GROUPS: ReadonlyArray<{ label: string | null; items: readonly Item[] }> = 
     label: "Settings",
     items: [
       { href: "/alerts", label: "Alerts", icon: Bell, compact: true },
+      { href: "/boards", label: "Job boards", icon: BriefcaseBusiness },
       { href: "/cover-letter/settings", label: "Letterhead", icon: PenLine },
       { href: "/network/settings", label: "Follow-up rules", icon: SlidersHorizontal },
     ],
